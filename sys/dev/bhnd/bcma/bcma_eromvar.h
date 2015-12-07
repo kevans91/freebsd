@@ -40,11 +40,10 @@
  * EROM read context.
  */
 struct bcma_erom {
-	device_t		 dev;		/**< the owning device. */
-	void			*ioh;		/**< i/o handle */
-	const struct bhnd_iosw	*iosw;		/**< i/o operations */
-	bhnd_addr_t		 start;		/**< EROM table address */
-	bus_size_t		 offset;	/**< current read offset */
+	device_t	 dev;		/**< EROM parent device */
+	struct resource	*r;		/**< EROM table resource. */
+	bus_size_t	 start;		/**< EROM table offset */
+	bus_size_t	 offset;	/**< current read offset */
 };
 
 /** EROM core descriptor. */
@@ -70,15 +69,14 @@ struct bcma_erom_mport {
 
 /** EROM slave port region descriptor. */
 struct bcma_erom_sport_region {
-	uint8_t		port_num;	/**< the slave port mapping this region */
-	uint8_t		port_type;	/**< the mapping port's type */
+	uint8_t		region_port;	/**< the slave port mapping this region */
+	uint8_t		region_type;	/**< the mapping port's type */
 	bhnd_addr_t	base_addr;	/**< region base address */
 	bhnd_addr_t	size;		/**< region size */
 };
 
-int		bcma_erom_open(device_t dev, void *ioh,
-		    const struct bhnd_iosw *iosw, bhnd_addr_t addr,
-		    struct bcma_erom *erom);
+int		bcma_erom_open(struct bcma_erom *erom, struct resource *r,
+		    bus_size_t offset);
 
 int		bcma_erom_peek32(struct bcma_erom *erom, uint32_t *entry);
 bus_size_t	bcma_erom_tell(struct bcma_erom *erom);

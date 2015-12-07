@@ -51,20 +51,11 @@ int	bhndb_attach_bridge(device_t parent, device_t *bhndb, int unit);
  * bhndb register window types.
  */
 typedef enum {
-	BHNDB_REGWIN_T_CORE,		/**< Fixed mapping of a core register block. */
+	BHNDB_REGWIN_T_CORE,		/**< Fixed mapping of a core port region. */
 	BHNDB_REGWIN_T_SPROM,		/**< Fixed mapping of device SPROM */
 	BHNDB_REGWIN_T_DYN,		/**< A dynamically configurable window */
 	BHNDB_REGWIN_T_INVALID		/**< Invalid type */
 } bhndb_regwin_type_t;
-
-/**
- * Evaluate to true if the given register window type defines a static
- * mapping.
- * 
- * @param rtype Window type.
- */
-#define	BHNDB_REGWIN_T_IS_STATIC(rtype)	\
-    ((rtype) == BHNDB_REGWIN_T_CORE || (rtype) == BHNDB_REGWIN_T_SPROM)
 
 /**
  * bhndb register window definition.
@@ -84,10 +75,11 @@ struct bhndb_regwin {
 	union {
 		/** Core-specific register window (BHNDB_REGWIN_T_CORE). */
 		struct {
-			bhnd_devclass_t	class;	/**< mapped core's class */
-			u_int		unit;	/**< mapped core's unit */
-			u_int		port;	/**< mapped port number */
-			u_int		region;	/**< mapped region number */
+			bhnd_devclass_t	class;		/**< mapped core's class */
+			u_int		unit;		/**< mapped core's unit */
+			bhnd_port_type	type;		/**< mapped port type */
+			u_int		port;		/**< mapped port number */
+			u_int		region;		/**< mapped region number */
 		} core;
 
 		/** SPROM register window (BHNDB_REGWIN_T_SPROM). */
@@ -125,5 +117,49 @@ struct bhndb_hw {
 	u_int				 num_hw_reqs;	/**< number of match requirements */
 	const struct bhndb_hwcfg	*cfg;		/**< associated hardware configuration */
 };
+
+
+/**
+ * bhndb resource allocation priorities.
+ */
+typedef enum {
+	/** No direct resources should ever be allocated for this device. */
+	BHNDB_RES_PRIO_NONE	= 0,
+
+	/** Allocate a direct resource if available after serving all other
+	  * higher-priority requests. */
+	BHNDB_RES_PRIO_LOW	= 100,
+
+	/** Direct resource allocation is preferred, but not necessary
+	 *  for reasonable runtime performance. */
+	BHNDB_RES_PRIO_DEFAULT	= 200,
+
+	/** Indirect resource allocation would incur high runtime overhead. */
+	BHNDB_RES_PRIO_CRITICAL	= 300
+} bhndb_res_prio;
+
+/**
+ * Port resource priority descriptor.
+ */
+struct bhndb_port_prio {
+	bhnd_port_type	type;		/**< port type. */
+	u_int		port;		/**< port */
+	u_int		region;		/**< region */
+	bhnd_size_t	min_size;	/**< minimum required mapping size */
+	bhndb_res_prio	priority;	/**< port-level priority */
+};
+
+/**
+ * Core resource priority descriptor.
+ */
+struct bhndb_core_prio {
+	struct bhnd_core_match			 match;		/**< core match descriptor */
+	bhndb_res_prio				 priority;	/**< core-level priority */
+	const struct bhndb_port_prio		*ports;		/**< port priorities */
+	u_int					 num_ports;	/**< number of port priority records. */
+};
+
+#define	BHNDB_CORE_PRIO_TABLE_END	{ {}, BHNDB_RES_PRIO_NONE, NULL, 0 }
+
 
 #endif /* _BHND_BHNDB_H_ */

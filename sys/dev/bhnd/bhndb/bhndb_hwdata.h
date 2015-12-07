@@ -29,54 +29,11 @@
  * $FreeBSD$
  */
 
-#ifndef _BHND_BHNDVAR_H_
-#define _BHND_BHNDVAR_H_
+#ifndef _BHND_BHNDB_HWDATA_H_
+#define _BHND_BHNDB_HWDATA_H_
 
-#include <sys/param.h>
-#include <sys/bus.h>
-#include <sys/malloc.h>
+#include "bhndb.h"
 
-#include "bhnd.h"
+extern const struct bhndb_core_prio bhndb_generic_res_prio_table[];
 
-/*
- * Definitions shared by bhnd(4) bus and bhndb(4) bridge driver implementations.
- */
-
-MALLOC_DECLARE(M_BHND);
-DECLARE_CLASS(bhnd_driver);
-
-/**
- * bhnd driver instance state. Must be first member of all subclass
- * softc structures.
- */
-struct bhnd_softc {};
-
-int			 bhnd_generic_print_child(device_t dev,
-			     device_t child);
-void			 bhnd_generic_probe_nomatch(device_t dev,
-			     device_t child);
-
-	
-bool			 bhnd_generic_is_hostb_device(device_t dev,
-			     device_t child);
-bool			 bhnd_generic_is_hw_disabled(device_t dev,
-			     device_t child);
-
-struct bhnd_resource	*bhnd_generic_alloc_bhnd_resource (device_t dev,
-			     device_t child, int type, int *rid, u_long start,
-			     u_long end, u_long count, u_int flags);
-
-int			 bhnd_generic_release_bhnd_resource (device_t dev,
-			     device_t child, int type, int rid,
-			     struct bhnd_resource *r);
-
-int			 bhnd_generic_activate_bhnd_resource (device_t dev,
-			     device_t child, int type, int rid,
-			     struct bhnd_resource *r);
-
-int			 bhnd_generic_deactivate_bhnd_resource (device_t dev,
-			     device_t child, int type, int rid,
-			     struct bhnd_resource *r);
-
-
-#endif /* _BHND_BHNDVAR_H_ */
+#endif /* _BHND_BHNDB_HWDATA_H_ */

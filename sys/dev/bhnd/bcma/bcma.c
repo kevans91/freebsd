@@ -48,7 +48,7 @@ int
 bcma_probe(device_t dev)
 {
 	device_set_desc(dev, "BCMA BHND bus");
-	return (BUS_PROBE_NOWILDCARD);
+	return (BUS_PROBE_DEFAULT);
 }
 
 int
@@ -65,54 +65,38 @@ bcma_detach(device_t dev)
 }
 
 static int
-bcma_read_core_table(kobj_class_t driver, device_t dev,
-    const struct bhnd_chipid *chipid, void *ioh,
-    const struct bhnd_iosw *iosw, struct bhnd_core_info **cores,
-    u_int *num_cores)
-{
-
-	struct bcma_erom	erom;
-	int			error;
-
-	if ((error = bcma_erom_open(dev, ioh, iosw, chipid->enum_addr, &erom)))
-		return (error);
-
-	return (bcma_erom_get_core_info(&erom, cores, num_cores));
-}
-
-static int
 bcma_read_ivar(device_t dev, device_t child, int index, uintptr_t *result)
 {
 	const struct bcma_devinfo *dinfo;
-	const struct bcma_corecfg *cfg;
+	const struct bhnd_core_info *ci;
 	
 	dinfo = device_get_ivars(child);
-	cfg = dinfo->corecfg;
+	ci = &dinfo->corecfg->core_info;
 	
 	switch (index) {
 	case BHND_IVAR_VENDOR:
-		*result = cfg->vendor;
+		*result = ci->vendor;
 		return (0);
 	case BHND_IVAR_DEVICE:
-		*result = cfg->device;
+		*result = ci->device;
 		return (0);
-	case BHND_IVAR_REVID:
-		*result = cfg->revid;
+	case BHND_IVAR_HWREV:
+		*result = ci->hwrev;
 		return (0);
 	case BHND_IVAR_DEVICE_CLASS:
-		*result = bhnd_core_class(cfg->vendor, cfg->device);
+		*result = bhnd_core_class(ci);
 		return (0);
 	case BHND_IVAR_VENDOR_NAME:
-		*result = (uintptr_t) bhnd_vendor_name(cfg->vendor);
+		*result = (uintptr_t) bhnd_vendor_name(ci->vendor);
 		return (0);
 	case BHND_IVAR_DEVICE_NAME:
-		*result = (uintptr_t) bhnd_core_name(cfg->vendor, cfg->device);
+		*result = (uintptr_t) bhnd_core_name(ci);
 		return (0);
 	case BHND_IVAR_CORE_INDEX:
-		*result = cfg->core_index;
+		*result = ci->core_id;
 		return (0);
 	case BHND_IVAR_CORE_UNIT:
-		*result = cfg->core_unit;
+		*result = ci->unit;
 		return (0);
 	default:
 		return (ENOENT);
@@ -125,7 +109,7 @@ bcma_write_ivar(device_t dev, device_t child, int index, uintptr_t value)
 	switch (index) {
 	case BHND_IVAR_VENDOR:
 	case BHND_IVAR_DEVICE:
-	case BHND_IVAR_REVID:
+	case BHND_IVAR_HWREV:
 	case BHND_IVAR_DEVICE_CLASS:
 	case BHND_IVAR_VENDOR_NAME:
 	case BHND_IVAR_DEVICE_NAME:
@@ -153,27 +137,24 @@ bcma_get_resource_list(device_t dev, device_t child)
 }
 
 static int
-bcma_get_port_rid(device_t dev, device_t child, u_int port_num, u_int
-    region_num)
+bcma_get_port_rid(device_t dev, device_t child, bhnd_port_type port_type,
+    u_int port_num, u_int region_num)
 {
 	struct bcma_devinfo	*dinfo;
 	struct bcma_map		*map;
+	struct bcma_sport_list	*ports;
 	struct bcma_sport	*port;
 	
 	dinfo = device_get_ivars(child);
-	
-	if (port_num > dinfo->corecfg->num_dev_ports)
-		return -1;
+	ports = bcma_corecfg_get_port_list(dinfo->corecfg, port_type);
 
-	STAILQ_FOREACH(port, &dinfo->corecfg->dev_ports, sp_link) {
+	STAILQ_FOREACH(port, ports, sp_link) {
 		if (port->sp_num != port_num)
 			continue;
-		
-		STAILQ_FOREACH(map, &port->sp_maps, m_link) {
-			if (map->m_region_num == region_num) {
+
+		STAILQ_FOREACH(map, &port->sp_maps, m_link)
+			if (map->m_region_num == region_num)
 				return map->m_rid;
-			}
-		}
 	}
 
 	return -1;
@@ -181,10 +162,11 @@ bcma_get_port_rid(device_t dev, device_t child, u_int port_num, u_int
 
 static int
 bcma_decode_port_rid(device_t dev, device_t child, int type, int rid,
-    u_int *port_num, u_int *region_num)
+    bhnd_port_type *port_type, u_int *port_num, u_int *region_num)
 {
 	struct bcma_devinfo	*dinfo;
 	struct bcma_map		*map;
+	struct bcma_sport_list	*ports;
 	struct bcma_sport	*port;
 
 	dinfo = device_get_ivars(child);
@@ -193,15 +175,27 @@ bcma_decode_port_rid(device_t dev, device_t child, int type, int rid,
 	if (type != SYS_RES_MEMORY)
 		return (EINVAL);
 
-	/* Search the port list */
-	STAILQ_FOREACH(port, &dinfo->corecfg->dev_ports, sp_link) {
-		STAILQ_FOREACH(map, &port->sp_maps, m_link) {
-			if (map->m_rid != rid)
-				continue;
+	/* Starting with the most likely device list, search all three port
+	 * lists */
+	bhnd_port_type types[] = {
+	    BHND_PORT_DEVICE, 
+	    BHND_PORT_AGENT,
+	    BHND_PORT_BRIDGE
+	};
 
-			*port_num = port->sp_num;
-			*region_num = map->m_region_num;
-			return (0);
+	for (int i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
+		ports = bcma_corecfg_get_port_list(dinfo->corecfg, types[i]);
+
+		STAILQ_FOREACH(port, ports, sp_link) {
+			STAILQ_FOREACH(map, &port->sp_maps, m_link) {
+				if (map->m_rid != rid)
+					continue;
+
+				*port_type = port->sp_type;
+				*port_num = port->sp_num;
+				*region_num = map->m_region_num;
+				return (0);
+			}
 		}
 	}
 
@@ -209,17 +203,19 @@ bcma_decode_port_rid(device_t dev, device_t child, int type, int rid,
 }
 
 static int
-bcma_get_port_addr(device_t dev, device_t child, u_int port_num,
-	u_int region_num, bhnd_addr_t *addr, bhnd_size_t *size)
+bcma_get_port_addr(device_t dev, device_t child, bhnd_port_type port_type,
+    u_int port_num, u_int region_num, bhnd_addr_t *addr, bhnd_size_t *size)
 {
 	struct bcma_devinfo	*dinfo;
 	struct bcma_map		*map;
+	struct bcma_sport_list	*ports;
 	struct bcma_sport	*port;
-
+	
 	dinfo = device_get_ivars(child);
+	ports = bcma_corecfg_get_port_list(dinfo->corecfg, port_type);
 
 	/* Search the port list */
-	STAILQ_FOREACH(port, &dinfo->corecfg->dev_ports, sp_link) {
+	STAILQ_FOREACH(port, ports, sp_link) {
 		if (port->sp_num != port_num)
 			continue;
 
@@ -237,23 +233,6 @@ bcma_get_port_addr(device_t dev, device_t child, u_int port_num,
 	return (ENOENT);
 }
 
-
-/* resource-based read implementation for bcma_add_children() */
-static uint32_t
-bcma_erom_read4(void *handle, bhnd_addr_t addr)
-{
-	struct resource	*r;
-	u_long		 start;
-
-	r = (struct resource *) handle;
-	start = rman_get_start(r);
-
-	if (addr > rman_get_size(r))
-		return (EINVAL);
-
-	return (bus_read_4(r, addr));
-}
-
 /**
  * Scan a device enumeration ROM table, adding all valid discovered cores to
  * the bus.
@@ -268,19 +247,15 @@ bcma_add_children(device_t bus, struct resource *erom_res, bus_size_t erom_offse
 	struct bcma_erom	 erom;
 	struct bcma_corecfg	*corecfg;
 	struct bcma_devinfo	*dinfo;
-	struct bhnd_iosw	 iosw;
 	device_t		 child;
 	int			 error;
 	
 	dinfo = NULL;
 	corecfg = NULL;
-	iosw = (struct bhnd_iosw) {
-		.read4	= bcma_erom_read4,
-		.write4	= NULL
-	};
 
 	/* Initialize our reader */
-	if ((error = bcma_erom_open(bus, erom_res, &iosw, erom_offset, &erom)))
+	error = bcma_erom_open(&erom, erom_res, erom_offset);
+	if (error)
 		return (error);
 
 	/* Add all cores. */
@@ -304,8 +279,7 @@ bcma_add_children(device_t bus, struct resource *erom_res, bus_size_t erom_offse
 		corecfg = NULL;
 
 		/* Add the child device */
-		child = device_add_child_ordered(bus, BHND_PROBE_ORDER_DEFAULT,
-		    NULL, -1);
+		child = device_add_child(bus, NULL, -1);
 		if (child == NULL) {
 			error = ENXIO;
 			goto failed;
@@ -317,7 +291,7 @@ bcma_add_children(device_t bus, struct resource *erom_res, bus_size_t erom_offse
 
 		/* If pins are floating or the hardware is otherwise
 		 * unpopulated, the device shouldn't be used. */
-		if (!bhnd_is_hw_populated(child))
+		if (bhnd_is_hw_disabled(child))
 			device_disable(child);
 	}
 
@@ -349,7 +323,6 @@ static device_method_t bcma_methods[] = {
 	DEVMETHOD(bus_get_resource_list,	bcma_get_resource_list),
 
 	/* BHND interface */
-	DEVMETHOD(bhnd_read_core_table,		bcma_read_core_table),
 	DEVMETHOD(bhnd_get_port_rid,		bcma_get_port_rid),
 	DEVMETHOD(bhnd_decode_port_rid,		bcma_decode_port_rid),
 	DEVMETHOD(bhnd_get_port_addr,		bcma_get_port_addr),

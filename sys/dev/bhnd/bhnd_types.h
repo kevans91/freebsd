@@ -34,11 +34,13 @@
 
 #include <sys/types.h>
 
-/** BHND Device Classes. */
+/** bhnd(4) device classes. */
 typedef enum {
 	BHND_DEVCLASS_CC,		/**< chipcommon i/o controller */
+	BHND_DEVCLASS_PMU,		/**< pmu controller */
 	BHND_DEVCLASS_PCI,		/**< pci host/device bridge */
 	BHND_DEVCLASS_PCIE,		/**< pcie host/device bridge */
+	BHND_DEVCLASS_PCCARD,		/**< pcmcia host/device bridge */
 	BHND_DEVCLASS_MEM,		/**< internal RAM/SRAM */
 	BHND_DEVCLASS_MEMC,		/**< memory controller */
 	BHND_DEVCLASS_ENET,		/**< 802.3 MAC/PHY */
@@ -56,6 +58,26 @@ typedef enum {
 	BHND_DEVCLASS_INVALID		/**< no/invalid class */
 } bhnd_devclass_t;
 
+
+/**
+ * bhnd(4) port types.
+ * 
+ * Only BHND_PORT_DEVICE is guaranteed to be supported by all bhnd(4) bus
+ * implementations.
+ */
+typedef enum {
+	BHND_PORT_DEVICE	= 0,	/**< device memory */
+	BHND_PORT_BRIDGE	= 1,	/**< bridge memory */
+	BHND_PORT_AGENT		= 2,	/**< interconnect agent/wrapper */
+} bhnd_port_type;
+
+
+/** Evaluates to true if @p cls is a device class that can be configured
+ *  as a host bridge device. */
+#define	BHND_DEVCLASS_SUPPORTS_HOSTB(cls)					\
+	((cls) == BHND_DEVCLASS_PCI || (cls) == BHND_DEVCLASS_PCIE ||	\
+	 (cls) == BHND_DEVCLASS_PCCARD)
+
 /**
  * BHND bus address.
  * 
@@ -69,89 +91,5 @@ typedef uint64_t	bhnd_addr_t;
 typedef uint64_t	bhnd_size_t;
 #define	BHND_SIZE_MAX	UINT64_MAX	/**< Maximum bhnd_size_t value */
 
-/**
- * bhnd device probe priority.
- */
-enum {
-	BHND_PROBE_ORDER_FIRST		= 0,	/**< probe first */
-	BHND_PROBE_ORDER_EARLY		= 10,	/**< probe early */
-	BHND_PROBE_ORDER_DEFAULT	= 20,	/**< default probe priority */
-	BHND_PROBE_ORDER_LAST		= 30,	/**< probe last */
-};
-
-/**
- * Chip Identification
- * 
- * This is read from the ChipCommon ID register; on earlier bhnd(4) devices
- * where ChipCommon is unavailable, known values must be supplied.
- */
-struct bhnd_chipid {
-	uint16_t	chip_id;	/**< chip id (BHND_CHIPID_*) */
-	uint8_t		chip_rev;	/**< chip revision */
-	uint8_t		chip_pkg;	/**< chip package (BHND_PKGID_*) */
-	uint8_t		chip_type;	/**< chip type (BHND_CHIPTYPE_*) */
-
-	bhnd_addr_t	enum_addr;	/**< chip_type-specific enumeration
-					  *  address; either the siba(4) base
-					  *  core register block, or the bcma(4)
-					  *  EROM core address. */
-
-	uint8_t		ncores;		/**< number of cores, if known. 0 if
-					  *  not available. */
-};
-
-/**
-* A bhnd(4) bus resource.
-* 
-* This provides an abstract interface to per-core resources that may require
-* bus-level remapping of address windows prior to access.
-*/
-struct bhnd_resource {
-	struct resource	*res;		/**< the system resource. */
-	bool		 direct;	/**< false if the resource requires
-					 *   bus window remapping before it
-					 *   is MMIO accessible. */
-};
-
-
-/** bhnd(4) direct bus I/O switch table. Unsupported operations may be
- *  initialized to NULL. */
-struct bhnd_iosw {
-	uint32_t (*read4)(void *handle, bhnd_addr_t addr);
-	void (*write4)(void *handle, bhnd_addr_t addr, uint32_t value);
-};
-
-
-/**
- * A bhnd(4) core descriptor.
- */
-struct bhnd_core_info {
-	uint16_t	vendor;		/**< vendor */
-	uint16_t	device;		/**< device */
-	uint16_t	hwrev;		/**< hardware revision */
-	u_int		core_id;	/**< bus-assigned core identifier */
-	int		unit;		/**< bus-assigned core unit */
-};
-
-
-/**
- * A hardware revision match descriptor.
- */
-struct bhnd_hwrev_match {
-	uint16_t	start;	/**< first revision, or BHND_HWREV_INVALID
-					     to match on any revision. */
-	uint16_t	end;	/**< last revision, or BHND_HWREV_INVALID
-					     to match on any revision. */
-};
-
-
-/** A core match descriptor. */
-struct bhnd_core_match {
-	uint16_t		vendor;	/**< required JEP106 device vendor or BHND_MFGID_INVALID. */
-	uint16_t		device;	/**< required core ID or BHND_COREID_INVALID */
-	struct bhnd_hwrev_match	hwrev;	/**< matching revisions. */
-	bhnd_devclass_t		class;	/**< required class or BHND_DEVCLASS_INVALID */
-	int			unit;	/**< required core unit, or -1 */
-};
 
 #endif /* _BHND_BHND_TYPES_H_ */

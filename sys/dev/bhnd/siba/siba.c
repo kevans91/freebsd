@@ -44,11 +44,21 @@ __FBSDID("$FreeBSD$");
 #include "sibareg.h"
 #include "sibavar.h"
 
+/* The port/region/rid triplet used for all siba(4) cores. */
+#define	SIBA_CORE_PORT		0	/**< fixed register block port. */
+#define	SIBA_CORE_REGION	0	/**< fixed register block region. */
+#define SIBA_CORE_RID		1	/**< fixed register resource-ID */
+
+#define SIBA_IS_PORT_VALID(type, port, region)	\
+	((type) == BHND_PORT_DEVICE &&		\
+	 (port_num) == SIBA_CORE_PORT &&	\
+	 region_num == SIBA_CORE_REGION)
+
 int
 siba_probe(device_t dev)
 {
 	device_set_desc(dev, "SIBA BHND bus");
-	return (BUS_PROBE_NOWILDCARD);
+	return (BUS_PROBE_DEFAULT);
 }
 
 int
@@ -62,140 +72,6 @@ int
 siba_detach(device_t dev)
 {
 	return (bus_generic_detach(dev));
-}
-
-/**
- * Determine the number of cores available on the bus.
- * 
- * Some devices require a hardcoded core count:
- * - Earlier ChipCommon revisions (chip_rev <= 4) did not include a core count.
- * - Earlier siba(4) devices did not include a ChipCommon core at all.
- */
-static uint8_t
-siba_get_ncores(const struct bhnd_chipid *chipid) {
-	/* Use the real count if available. */
-	if (chipid->ncores > 0)
-		return (chipid->ncores);
-
-	/*
-	 * The magic constants below were copied from the previous
-	 * siba driver implementation; their correctness has
-	 * not been verified.
-	 */
-	switch (chipid->chip_id) {
-		case 0x4401:	/* BCM4401 PCI ID? */
-		case BHND_CHIPID_BCM4402:
-			return (3);
-
-		case 0x4301:	/* BCM4031 PCI ID? */
-		case 0x4307:	/* BCM4307 PCI ID? */
-			return (5);
-			
-		case BHND_CHIPID_BCM4306:
-			return (6);
-			
-		case BHND_CHIPID_BCM5365:
-			return (7);
-
-		case 0x4310:	/* ??? */
-			return (8);
-
-		case 0x4610:	/* BCM4610 Sentry5 PCI Card? */
-		case BHND_CHIPID_BCM4704:
-		case BHND_CHIPID_BCM4710:
-			return (9);
-
-		default:
-			return (0);
-	}
-}
-
-// TODO lift out into siba_subr
-// TODO additional vendor codes
-static uint16_t
-siba_bhnd_mfgid(uint16_t vendor)
-{
-	switch (vendor) {
-	case SIBA_VEND_BCM:
-		return (BHND_MFGID_BCM);
-	default:
-		return (BHND_MFGID_INVALID);
-	}
-}
-
-static int
-siba_read_core_table(kobj_class_t driver, device_t dev,
-    const struct bhnd_chipid *chipid, 
-    void *ioh,
-    const struct bhnd_iosw *iosw,
-    struct bhnd_core_info **core_table,
-    u_int *num_cores)
-{
-	struct bhnd_core_info	*cores;
-	uint8_t			 ncores;
-
-	/* We can only handle siba(4) */
-	if (chipid->chip_type != BHND_CHIPTYPE_SIBA)
-		return (ENXIO);
-
-	/* Determine the core count */
-	ncores = siba_get_ncores(chipid);
-	if (ncores == 0) {
-		device_printf(dev, "core count unknown for chip ID 0x%hx\n",
-		    chipid->chip_id);
-		return (ENXIO);
-	}
-
-	/* Allocate output table */
-	cores = malloc(sizeof(*cores) * ncores, M_BHND, M_WAITOK);
-	if (cores == NULL)
-		return (ENOMEM);
-
-	/* Iterate the bus */
-	// TODO lift out into siba_subr
-	for (uint8_t i = 0; i < ncores; i++) {
-		struct bhnd_core_info	*ci;
-		bhnd_addr_t		 addr;
-		uint32_t		 idH;
-
-		/* Fetch ID register */
-		ci = &cores[i];
-		addr = SIBA_CORE_ADDR(i);
-		idH = iosw->read4(ioh, addr + SIBA_IDHIGH);
-
-		/* Extract core info */
-		*ci = (struct bhnd_core_info) {
-			.vendor	= SIBA_REG_GET(idH, IDH_VENDOR),
-			.device	= SIBA_REG_GET(idH, IDH_DEVICE),
-			.hwrev	= SIBA_CORE_REV(idH),
-			.core_id = i,
-			.unit	= 0
-		};
-		
-		/* Map vendor to bhnd mfgid */
-		ci->vendor = siba_bhnd_mfgid(ci->vendor);
-
-		/* Determine unit number */
-		for (uint8_t j = 0; j < i; j++) {
-			if (cores[j].vendor == ci->vendor &&
-			    cores[j].device == ci->device)
-			{
-				ci->unit++;
-			}
-		}
-
-		// TODO
-		device_printf(dev,
-		    "found 0x%hx/0x%hx (rev %hu) unit %d %s %s\n",
-		    ci->vendor, ci->device, ci->hwrev, ci->unit,
-		    bhnd_vendor_name(ci->vendor),
-		    bhnd_core_name(ci->vendor, ci->device));
-	}
-
-	*core_table = cores;
-	*num_cores = ncores;
-
-	return (0);
 }
 
 static int
@@ -214,17 +90,17 @@ siba_read_ivar(device_t dev, device_t child, int index, uintptr_t *result)
 	case BHND_IVAR_DEVICE:
 		*result = cfg->device;
 		return (0);
-	case BHND_IVAR_REVID:
+	case BHND_IVAR_HWREV:
 		*result = cfg->hwrev;
 		return (0);
 	case BHND_IVAR_DEVICE_CLASS:
-		*result = bhnd_core_class(cfg->vendor, cfg->device);
+		*result = bhnd_core_class(cfg);
 		return (0);
 	case BHND_IVAR_VENDOR_NAME:
 		*result = (uintptr_t) bhnd_vendor_name(cfg->vendor);
 		return (0);
 	case BHND_IVAR_DEVICE_NAME:
-		*result = (uintptr_t) bhnd_core_name(cfg->vendor, cfg->device);
+		*result = (uintptr_t) bhnd_core_name(cfg);
 		return (0);
 	case BHND_IVAR_CORE_INDEX:
 		*result = cfg->core_id;
@@ -243,7 +119,7 @@ siba_write_ivar(device_t dev, device_t child, int index, uintptr_t value)
 	switch (index) {
 	case BHND_IVAR_VENDOR:
 	case BHND_IVAR_DEVICE:
-	case BHND_IVAR_REVID:
+	case BHND_IVAR_HWREV:
 	case BHND_IVAR_DEVICE_CLASS:
 	case BHND_IVAR_VENDOR_NAME:
 	case BHND_IVAR_DEVICE_NAME:
@@ -271,42 +147,197 @@ siba_get_resource_list(device_t dev, device_t child)
 }
 
 static int
-siba_get_port_rid(device_t dev, device_t child, u_int port_num, u_int
-    region_num)
+siba_get_port_rid(device_t dev, device_t child, bhnd_port_type port_type,
+    u_int port_num, u_int region_num)
 {
-	// TODO
-	return (ENXIO);
+	/* delegate non-bus-attached devices to our parent */
+	if (device_get_parent(child) != dev) {
+		return (BHND_GET_PORT_RID(device_get_parent(dev), child,
+		    port_type, port_num, region_num));
+	}
+
+	if (SIBA_IS_PORT_VALID(port_type, port_num, region_num))
+		return (SIBA_CORE_RID);
+
+	/* not found */
+	return (-1);
 }
 
 static int
 siba_decode_port_rid(device_t dev, device_t child, int type, int rid,
-    u_int *port_num, u_int *region_num)
+    bhnd_port_type *port_type, u_int *port_num, u_int *region_num)
 {
-	// TODO
-	return (ENXIO);
+	/* delegate non-bus-attached devices to our parent */
+	if (device_get_parent(child) != dev) {
+		return (BHND_DECODE_PORT_RID(device_get_parent(dev), child,
+		    type, rid, port_type, port_num, region_num));
+	}
+	
+	if (type != SYS_RES_MEMORY)
+		return (EINVAL);
+
+	/* siba(4) cores only support a single memory RID */
+	if (rid != SIBA_CORE_RID)
+		return (ENOENT);
+
+	*port_type = BHND_PORT_DEVICE;
+	*port_num = SIBA_CORE_PORT;
+	*region_num = SIBA_CORE_REGION;
+	return (0);
 }
 
 static int
-siba_get_port_addr(device_t dev, device_t child, u_int port_num,
-	u_int region_num, bhnd_addr_t *addr, bhnd_size_t *size)
+siba_get_port_addr(device_t dev, device_t child, bhnd_port_type port_type,
+    u_int port_num, u_int region_num, bhnd_addr_t *addr, bhnd_size_t *size)
 {
-	// TODO
-	return (ENXIO);
+	struct siba_devinfo		*dinfo;
+	struct resource_list_entry	*rle;
+
+	/* delegate non-bus-attached devices to our parent */
+	if (device_get_parent(child) != dev) {
+		return (BHND_GET_PORT_ADDR(device_get_parent(dev), child,
+		    port_type, port_num, region_num, addr, size));
+	}
+
+	dinfo = device_get_ivars(child);
+
+	/* siba(4) cores only support a single device port region */
+	if (!SIBA_IS_PORT_VALID(port_type, port_num, region_num))
+		return (ENOENT);
+
+	/* fetch the port addr/size from the resource list */
+	rle = resource_list_find(&dinfo->resources, SYS_RES_MEMORY,
+	    SIBA_CORE_RID);
+	if (rle == NULL)
+		return (ENOENT);
+
+	*addr = rle->start;
+	*size = rle->count;
+	return (0);
 }
 
 /**
  * Scan the core table and add all valid discovered cores to
  * the bus.
  * 
- * @param bus The siba bus.
+ * @param dev The siba bus device.
+ * @param chipid The chip identifier, if known or if the device
+ * does not provide a ChipCommon core. May be NULL otherwise.
  */
 int
-siba_add_children(device_t bus)
+siba_add_children(device_t dev, const struct bhnd_chipid *chipid)
 {
-	// TODO
-	return (ENXIO);
-}
+	struct bhnd_chipid	 ccid;
+	struct bhnd_core_info	*cores;
+	struct siba_devinfo	*dinfo;
+	u_int			 ncores;
+	int			 error;
 
+	dinfo = NULL;
+	cores = NULL;
+
+	/* If not provided by our caller, read the chip ID now. */
+	if (chipid == NULL) {
+		struct resource_spec rs = {
+			.rid = 0,
+			.type = SYS_RES_MEMORY,
+			.flags = RF_ACTIVE,
+		};
+
+		error = bhnd_read_chipid(dev, &rs, SIBA_ENUM_ADDR, &ccid);
+		if (error) {
+			device_printf(dev, "failed to read bus chipid\n");
+			return (error);
+		}
+
+		chipid = &ccid;
+	}
+	
+	/* Determine the core count */
+	ncores = siba_get_ncores(chipid);
+	if (ncores == 0) {
+		device_printf(dev, "core count unknown for chip ID 0x%hx\n",
+		    chipid->chip_id);
+		return (ENXIO);
+	}
+
+	/* Allocate our temporary core table and enumerate all cores */
+	cores = malloc(sizeof(*cores) * ncores, M_BHND, M_WAITOK);
+	if (cores == NULL)
+		return (ENOMEM);
+
+	/* Add all cores. */
+	for (u_int i = 0; i < ncores; i++) {
+		struct resource	*r;
+		device_t	 child;
+		uint32_t	 idreg;
+		u_long		 r_count, r_end, r_start;
+		int		 rid;
+
+		/* Map the core's register block */
+		rid = 0;
+		r_start = SIBA_CORE_ADDR(i);
+		r_count = SIBA_CORE_SIZE;
+		r_end = r_start + SIBA_CORE_SIZE - 1;
+		r = bus_alloc_resource(dev, SYS_RES_MEMORY, &rid, r_start,
+		    r_end, r_count, RF_ACTIVE);
+		if (r == NULL) {
+			error = ENXIO;
+			goto cleanup;
+		}
+
+		/* Read the core info */
+		idreg = bus_read_4(r, SIBA_IDHIGH);
+		cores[i] = siba_parse_core_info(idreg, i, 0);
+
+		/* Release our resource */
+		bus_release_resource(dev, SYS_RES_MEMORY, rid, r);
+
+		/* Determine unit number */
+		for (u_int j = 0; j < i; j++) {
+			if (cores[j].vendor == cores[i].vendor &&
+			    cores[j].device == cores[i].device)
+				cores[i].unit++;
+		}
+
+		/* Allocate per-device bus info */
+		dinfo = siba_alloc_dinfo(dev, &cores[i]);
+		if (dinfo == NULL) {
+			error = ENXIO;
+			goto cleanup;
+		}
+
+		/* Populate the resource list */
+		resource_list_add(&dinfo->resources, SYS_RES_MEMORY,
+		    SIBA_CORE_RID, SIBA_CORE_ADDR(i),
+		    SIBA_CORE_ADDR(i) + SIBA_CORE_SIZE - 1, SIBA_CORE_SIZE);
+
+		/* Add the child device */
+		child = device_add_child(dev, NULL, -1);
+		if (child == NULL) {
+			error = ENXIO;
+			goto cleanup;
+		}
+
+		/* The child device now owns the dinfo pointer */
+		device_set_ivars(child, dinfo);
+		dinfo = NULL;
+
+		/* If pins are floating or the hardware is otherwise
+		 * unpopulated, the device shouldn't be used. */
+		if (bhnd_is_hw_disabled(child))
+			device_disable(child);
+	}
+	
+cleanup:
+	if (cores != NULL)
+		free(cores, M_BHND);
+
+	if (dinfo != NULL)
+		siba_free_dinfo(dinfo);
+
+	return (error);
+}
 
 static device_method_t siba_methods[] = {
 	/* Device interface */
@@ -321,7 +352,6 @@ static device_method_t siba_methods[] = {
 	DEVMETHOD(bus_get_resource_list,	siba_get_resource_list),
 
 	/* BHND interface */
-	DEVMETHOD(bhnd_read_core_table,		siba_read_core_table),
 	DEVMETHOD(bhnd_get_port_rid,		siba_get_port_rid),
 	DEVMETHOD(bhnd_decode_port_rid,		siba_decode_port_rid),
 	DEVMETHOD(bhnd_get_port_addr,		siba_get_port_addr),

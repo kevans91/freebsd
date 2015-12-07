@@ -34,7 +34,12 @@ __FBSDID("$FreeBSD$");
 #include <sys/bus.h>
 
 #include <machine/bus.h>
+#include <sys/rman.h>
+#include <machine/resource.h>
 
+#include <dev/bhnd/cores/bhnd_chipcreg.h>
+
+#include "bhndreg.h"
 #include "bhndvar.h"
 
 /* BHND core device description table. */
@@ -61,7 +66,7 @@ static const struct bhnd_core_desc {
 	BHND_CDESC(BCM, ILINE100,	OTHER,		"iLine100 HPNA"),
 	BHND_CDESC(BCM, IPSEC,		OTHER,		"IPsec Accelerator"),
 	BHND_CDESC(BCM, UTOPIA,		OTHER,		"UTOPIA ATM Core"),
-	BHND_CDESC(BCM, PCMCIA,		OTHER,		"PCMCIA Bridge"),
+	BHND_CDESC(BCM, PCMCIA,		PCCARD,		"PCMCIA Bridge"),
 	BHND_CDESC(BCM, SOCRAM,		MEM,		"Internal Memory"),
 	BHND_CDESC(BCM, MEMC,		MEMC,		"MEMC SDRAM Controller"),
 	BHND_CDESC(BCM, OFDM,		OTHER,		"OFDM PHY"),
@@ -87,7 +92,7 @@ static const struct bhnd_core_desc {
 	BHND_CDESC(BCM, ARM11,		CPU,		"ARM1176 Core"),
 	BHND_CDESC(BCM, ARM7S,		CPU,		"ARM7TDMI-S Core"),
 	BHND_CDESC(BCM, LPPHY,		WLAN_PHY,	"802.11a/b/g PHY"),
-	BHND_CDESC(BCM, PMU,		OTHER,		"PMU"),
+	BHND_CDESC(BCM, PMU,		PMU,		"PMU"),
 	BHND_CDESC(BCM, SSNPHY,		WLAN_PHY,	"802.11n Single-Stream PHY"),
 	BHND_CDESC(BCM, SDIOD,		OTHER,		"SDIO Device Core"),
 	BHND_CDESC(BCM, ARMCM3,		CPU,		"ARM Cortex-M3 Core"),
@@ -146,6 +151,23 @@ bhnd_vendor_name(uint16_t vendor)
 	}
 }
 
+/**
+ * Return the name of a port type.
+ */
+const char *
+bhnd_port_type_name(bhnd_port_type port_type)
+{
+	switch (port_type) {
+	case BHND_PORT_DEVICE:
+		return ("device");
+	case BHND_PORT_BRIDGE:
+		return ("bridge");
+	case BHND_PORT_AGENT:
+		return ("agent");
+	}
+}
+
+
 static const struct bhnd_core_desc *
 bhnd_find_core_desc(uint16_t vendor, uint16_t device)
 {
@@ -169,7 +191,7 @@ bhnd_find_core_desc(uint16_t vendor, uint16_t device)
  * @param device The core identifier.
  */
 const char *
-bhnd_core_name(uint16_t vendor, uint16_t device)
+bhnd_find_core_name(uint16_t vendor, uint16_t device)
 {
 	const struct bhnd_core_desc *desc;
 	
@@ -186,7 +208,7 @@ bhnd_core_name(uint16_t vendor, uint16_t device)
  * @param device The core identifier.
  */
 bhnd_devclass_t
-bhnd_core_class(uint16_t vendor, uint16_t device)
+bhnd_find_core_class(uint16_t vendor, uint16_t device)
 {
 	const struct bhnd_core_desc *desc;
 	
@@ -196,6 +218,27 @@ bhnd_core_class(uint16_t vendor, uint16_t device)
 	return desc->class;
 }
 
+/**
+ * Return a human-readable name for a BHND core.
+ * 
+ * @param ci The core's info record.
+ */
+const char *
+bhnd_core_name(const struct bhnd_core_info *ci)
+{
+	return bhnd_find_core_name(ci->vendor, ci->device);
+}
+
+/**
+ * Return the device class for a BHND core.
+ * 
+ * @param ci The core's info record.
+ */
+bhnd_devclass_t
+bhnd_core_class(const struct bhnd_core_info *ci)
+{
+	return bhnd_find_core_class(ci->vendor, ci->device);
+}
 
 /**
  * Initialize a core info record with data from from a bhnd-attached @p dev.
@@ -208,7 +251,7 @@ bhnd_get_core_info(device_t dev) {
 	return (struct bhnd_core_info) {
 		.vendor		= bhnd_get_vendor(dev),
 		.device		= bhnd_get_device(dev),
-		.hwrev		= bhnd_get_revid(dev),
+		.hwrev		= bhnd_get_hwrev(dev),
 		.core_id	= bhnd_get_core_index(dev),
 		.unit		= bhnd_get_core_unit(dev)
 	};
@@ -357,7 +400,7 @@ bhnd_core_matches(const struct bhnd_core_info *core,
 		return false;
 
 	if (desc->class != BHND_DEVCLASS_INVALID &&
-	    desc->class != bhnd_core_class(core->vendor, core->device))
+	    desc->class != bhnd_core_class(core))
 		return false;
 
 	return true;
@@ -379,8 +422,97 @@ bhnd_device_matches(device_t dev, const struct bhnd_core_match *desc)
 		.vendor = bhnd_get_vendor(dev),
 		.device = bhnd_get_device(dev),
 		.unit = bhnd_get_core_unit(dev),
-		.hwrev = bhnd_get_revid(dev)
+		.hwrev = bhnd_get_hwrev(dev)
 	};
 
 	return bhnd_core_matches(&ci, desc);
+}
+
+
+/**
+ * Parse the CHIPC_ID_* fields from the ChipCommon CHIPC_ID
+ * register, returning its bhnd_chipid representation.
+ * 
+ * If the ChipCommon revision does not provide the number of
+ * attached cores, the `ncores` value will be set to 0.
+ * 
+ * @param idreg The CHIPC_ID register value.
+ * @param enum_addr The enumeration address to include in the result.
+ */
+struct bhnd_chipid
+bhnd_parse_chipid(uint32_t idreg, bhnd_addr_t enum_addr)
+{
+	struct bhnd_chipid result;
+
+	/* Fetch the basic chip info */
+	result.chip_id = CHIPC_GET_ATTR(idreg, ID_CHIP);
+	result.chip_pkg = CHIPC_GET_ATTR(idreg, ID_PKG);
+	result.chip_rev = CHIPC_GET_ATTR(idreg, ID_REV);
+	result.chip_type = CHIPC_GET_ATTR(idreg, ID_BUS);
+
+	if (result.chip_rev < CHIPC_NCORES_MINREV) {
+		result.ncores = CHIPC_GET_ATTR(idreg, ID_NUMCORE);
+	} else {
+		result.ncores = 0;
+	}
+
+	result.enum_addr = enum_addr;
+
+	return (result);
+}
+
+/**
+ * Allocate the resource defined by @p rs via @p dev, use it
+ * to read the ChipCommon ID register relative to @p chipc_offset,
+ * then release the resource.
+ * 
+ * @param dev The device owning @p rs.
+ * @param rs A resource spec that encompasses the ChipCommon register block.
+ * @param chipc_offset The offset of the ChipCommon registers within @p rs.
+ * @param[out] result the chip identification data.
+ * 
+ * @retval 0 success
+ * @retval non-zero if the ChipCommon identification data could not be read.
+ */
+int
+bhnd_read_chipid(device_t dev, struct resource_spec *rs,
+    bus_size_t chipc_offset, struct bhnd_chipid *result)
+{
+	struct resource			*res;
+	uint32_t			 reg;
+	int				 error, rid, rtype;
+
+	/* Allocate the ChipCommon window resource and fetch the chipid data */
+	rid = rs->rid;
+	rtype = rs->type;
+	res = bus_alloc_resource_any(dev, rtype, &rid, RF_ACTIVE);
+	if (res == NULL) {
+		device_printf(dev,
+		    "failed to allocate bhnd chipc resource\n");
+		return (ENXIO);
+	}
+
+	/* Fetch the basic chip info */
+	reg = bus_read_4(res, chipc_offset + CHIPC_ID);
+	*result = bhnd_parse_chipid(reg, 0x0);
+
+	/* Fetch the enum base address */
+	error = 0;
+	switch (result->chip_type) {
+	case BHND_CHIPTYPE_SIBA:
+		result->enum_addr = BHND_DEFAULT_CHIPC_ADDR;
+		break;
+	case BHND_CHIPTYPE_BCMA:
+		result->enum_addr = bus_read_4(res, chipc_offset +
+		    CHIPC_EROM_CORE_ADDR);
+		break;
+	default:
+		error = ENODEV;
+		goto cleanup;
+	}
+
+cleanup:
+	/* Clean up */
+	bus_release_resource(dev, rtype, rid, res);
+	return (error);
 }

@@ -56,9 +56,8 @@ __FBSDID("$FreeBSD$");
 #include "bhndb_bus_if.h"
 #include "bhndb_private.h"
 
-static bool				 bhndb_hw_matches(
-					     struct bhnd_core_info *cores,
-					     u_int num_cores,
+static bool				 bhndb_hw_matches(device_t *devlist,
+					     int num_devs,
 					     const struct bhndb_hw *hw);
 
 static int				 bhndb_find_hwspec(
@@ -71,6 +70,10 @@ static struct resource			*bhndb_find_parent_resource(
 
 static int				 bhndb_init_dw_region_allocator(
 					     struct bhndb_softc *sc);
+
+static int				 bhndb_read_chipid(
+					     struct bhndb_softc *sc,
+					     struct bhnd_chipid *result);
 
 static struct rman			*bhndb_get_rman(struct bhndb_softc *sc,
 					     int type);
@@ -153,159 +156,49 @@ bhndb_child_location_str(device_t dev, device_t child, char *buf,
 
 	sc = device_get_softc(dev);
 
-	snprintf(buf, buflen, "enum_base=0x%llx",
+	snprintf(buf, buflen, "base=0x%llx",
 	    (unsigned long long) sc->chipid.enum_addr);
 	return (0);
 }
 
 /**
- * Return true if @p cores matches the @p hw specification.
+ * Return true if @p devlist matches the @p hw specification.
  * 
- * @param cores A core table to match against.
- * @param num_cores The number of cores in @p cores.
+ * @param devlist A device table to match against.
+ * @param num_devs The number of devices in @p devlist.
  * @param hw The hardware description to be matched against.
  */
 static bool
-bhndb_hw_matches(struct bhnd_core_info *cores,
-    u_int num_cores, const struct bhndb_hw *hw)
+bhndb_hw_matches(device_t *devlist, int num_devs, const struct bhndb_hw *hw)
 {
 	for (u_int i = 0; i < hw->num_hw_reqs; i++) {
-		const struct bhnd_core_match *match =  &hw->hw_reqs[i];
+		const struct bhnd_core_match	*match;
+		bool				 found;
 
-		if (bhnd_match_core(cores, num_cores, match) == NULL)
+		match =  &hw->hw_reqs[i];
+		found = false;
+
+		for (int d = 0; d < num_devs; d++) {
+			if (!bhnd_device_matches(devlist[d], match))
+				continue;
+
+			found = true;
+			break;
+		}
+
+		if (!found)
 			return (false);
 	}
 
 	return (true);
 }
 
-/* regwin-based i/o implementation for bhndb_read_core_table() */
-struct bhndb_regwin_ioh {
-	struct bhndb_softc		*sc;
-	struct resource			*r;
-	const struct bhndb_regwin	*regwin;
-	bhnd_addr_t			 addr;
-};
-
-static uint32_t
-bhnd_iosw_regwin_read4(void *handle, bhnd_addr_t addr)
-{
-	struct bhndb_regwin_ioh		*ioh;
-	struct bhndb_softc		*sc;
-	const struct bhndb_regwin	*rw;
-	bus_addr_t			 base, offset;
-	
-	ioh = (struct bhndb_regwin_ioh *) handle;
-	sc = ioh->sc;
-	rw = ioh->regwin;
-
-	/* Adjust window on-demand */
-	if (addr < ioh->addr || addr > ioh->addr + rw->win_size) {
-		/* maintain window alignment */
-		base = addr - (addr % rw->win_size);
-
-		if (BHNDB_SET_WINDOW_ADDR(sc->dev, ioh->regwin, base))
-			return (UINT32_MAX);
-
-		ioh->addr = base;
-	}
-
-
-	/* Perform the read, relative to the resource's window mapping. */
-	offset = rw->win_offset + (addr - ioh->addr);
-	return (bus_read_4(ioh->r, offset));
-}
-
-static const struct bhnd_iosw bhndb_iosw_regwin = {
-	.read4 = &bhnd_iosw_regwin_read4,
-	.write4 = NULL
-};
-
-/**
- * Look for a bhnd(4)-compatible bus driver capable of reading our
- * bridged device's core table, and then have it do so.
- * 
- * The memory allocated for the table should be freed using
- * `free(*cores, M_BHND)`.
- * 
- * @param sc The bhndb device state
- * @param[out] cores The bridged device's core table.
- * @param[out] count The number of cores in @p cores.
- */
-static int
-bhndb_read_core_table(struct bhndb_softc *sc, struct bhnd_core_info **cores,
-    u_int *count)
-{
-	const struct bhndb_hwcfg	*cfg;
-	const struct bhndb_regwin	*regwin;
-	struct bhndb_regwin_ioh		 ioh;
-	struct resource			*r;
-	driver_t			**drvs;
-	int				 num_drvs;
-	int				 error, rid, rtype;
-
-	drvs = NULL;
-	r = NULL;
-
-	/* Find a usable dynamic register window. */
-	cfg = BHNDB_BUS_GET_GENERIC_HWCFG(sc->parent_dev, sc->dev);
-	regwin = bhndb_regwin_find_type(cfg->register_windows,
-	    BHNDB_REGWIN_T_DYN, sizeof(uint32_t));
-
-	if (regwin == NULL) {
-		device_printf(sc->dev, "no usable dynamic register window\n");
-		return (0);
-	}
-
-	/* Allocate the register window resource */
-	rid = regwin->res.rid;
-	rtype = regwin->res.type;
-	r = bus_alloc_resource_any(sc->parent_dev, rtype, &rid, RF_ACTIVE);
-	if (r == NULL) {
-		device_printf(sc->dev,
-		    "failed to allocate bhndb core table resource\n");
-		return (ENXIO);
-	}
-
-	/* Configure our I/O callback handle */
-	ioh = (struct bhndb_regwin_ioh) {
-		.sc = sc,
-		.r = r,
-		.regwin = regwin,
-		.addr = sc->chipid.enum_addr
-	};
-	if ((error = BHNDB_SET_WINDOW_ADDR(sc->dev, regwin, ioh.addr)))
-		goto cleanup;
-
-
-	/* Look for the first driver that'll handle our core table */	
-	if ((error = devclass_get_drivers(bhndb_devclass, &drvs, &num_drvs)))
-		goto cleanup;
-
-	for (int i = 0; i < num_drvs; i++) {
-		error = BHND_READ_CORE_TABLE(drvs[i], sc->dev, &sc->chipid,
-		    &ioh, &bhndb_iosw_regwin, cores, count);
-		if (!error)
-			break;
-	}
-
-cleanup:
-	/* Clean up */
-	if (r != NULL)
-		bus_release_resource(sc->parent_dev, rtype, rid, r);
-
-	if (drvs != NULL)
-		free(drvs, M_TEMP);
-
-	return (error);
-}
-
-
-
 /**
  * Find a hardware specification for @p dev.
  * 
  * @param sc The bhndb device state
+ * @param cores The core table to match against.
+ * @param num_cores The length of @p num_cores
  * @param[out] hw On success, the matched hardware specification.
  * with @p dev.
  * 
@@ -316,30 +209,29 @@ static int
 bhndb_find_hwspec(struct bhndb_softc *sc, const struct bhndb_hw **hw)
 {
 	const struct bhndb_hw	*next, *hw_table;
-	struct bhnd_core_info	*cores;
-	u_int			 num_cores;
-	int			 error;
+	device_t		*devlist;
+	int			 error, num_devs;
 
-	error = 0;
-
-	/* Fetch our core table */
-	if ((error = bhndb_read_core_table(sc, &cores, &num_cores)))
+	/* Fetch the full set of attached devices */
+	if ((error = device_get_children(sc->bus_dev, &devlist, &num_devs)))
 		return (error);
-	
-	/* Search for the first matching hardware config. */
-	hw_table = BHNDB_BUS_GET_HARDWARE_TABLE(sc->parent_dev, sc->dev);
-	for (next = hw_table; next->hw_reqs != NULL; next++) {
-		if (bhndb_hw_matches(cores, num_cores, next)) {
-			*hw = next;
-			goto done;
-		}
-	}
 
-	/* Not found */
+	/* Search for the first matching hardware config. */
 	error = ENOENT;
 
-done:
-	free(cores, M_BHND);
+	hw_table = BHNDB_BUS_GET_HARDWARE_TABLE(sc->parent_dev, sc->dev);
+	for (next = hw_table; next->hw_reqs != NULL; next++) {
+		if (!bhndb_hw_matches(devlist, num_devs, next))
+			continue;
+
+		/* Found */
+		*hw = next;
+		error = 0;
+		goto cleanup;
+	}
+
+cleanup:
+	free(devlist, M_TEMP);
 	return (error);
 }
 
@@ -358,7 +250,7 @@ bhndb_find_parent_resource(struct bhndb_softc *sc,
 {
 	const struct resource_spec *rspecs;
 
-	rspecs = sc->hw->cfg->resource_specs;
+	rspecs = sc->cfg->resource_specs;
 	for (u_int i = 0; rspecs[i].type != -1; i++) {			
 		if (win->res.type != rspecs[i].type)
 			continue;
@@ -387,7 +279,7 @@ bhndb_init_dw_region_allocator(struct bhndb_softc *sc)
 	u_int				 rnid;
 	int				 error;
 
-	cfg = sc->hw->cfg;
+	cfg = sc->cfg;
 	rws = cfg->register_windows;
 	rspecs = cfg->resource_specs;
 
@@ -403,7 +295,7 @@ bhndb_init_dw_region_allocator(struct bhndb_softc *sc)
 	
 	/* Allocate the region table. */
 	sc->dw_regions = malloc(sizeof(struct bhndb_regwin_region) * 
-	    sc->dw_count, M_BHND, M_WAITOK);
+	    sc->dw_count, M_BHND, M_NOWAIT);
 	if (sc->dw_regions == NULL) {
 		return (ENOMEM);
 	}
@@ -457,6 +349,10 @@ failed:
 	if (sc->dw_regions != NULL)
 		free(sc->dw_regions, M_BHND);
 
+	sc->dw_count = 0;
+	sc->dw_freelist = 0;
+	sc->dw_regions = NULL;
+
 	return (error);
 }
 
@@ -473,11 +369,9 @@ static int
 bhndb_read_chipid(struct bhndb_softc *sc, struct bhnd_chipid *result)
 {
 	const struct bhnd_chipid	*parent_cid;
-	const struct bhndb_hwcfg	*cfg;
 	const struct bhndb_regwin	*cc_win;
-	struct resource			*res_mem;
-	uint32_t			 reg;
-	int				 error, rid, rtype;
+	struct resource_spec		 rs;
+	int				 error;
 
 	/* Let our parent device override the discovery process */
 	parent_cid = BHNDB_BUS_GET_CHIPID(sc->parent_dev, sc->dev);
@@ -486,130 +380,103 @@ bhndb_read_chipid(struct bhndb_softc *sc, struct bhnd_chipid *result)
 		return (0);
 	}
 
-	/* Otherwise, we'll need to use our generic hardware configuration
-	 * to find a valid window and perform the read. */
-	cfg = BHNDB_BUS_GET_GENERIC_HWCFG(sc->parent_dev, sc->dev);
-
-	/* Try to find a register window we can use to map the first
-	 * CHIPC_CHIPID_SIZE of ChipCommon registers. */
-	cc_win = bhndb_regwin_find_core_or_dyn(cfg->register_windows,
-	    BHND_DEVCLASS_CC, 0, 0, 0, CHIPC_CHIPID_SIZE);
+	/* Find a register window we can use to map the first CHIPC_CHIPID_SIZE
+	 * of ChipCommon registers. */
+	cc_win = bhndb_regwin_find_best(sc->cfg->register_windows,
+	    BHND_DEVCLASS_CC, 0, BHND_PORT_DEVICE, 0, 0, CHIPC_CHIPID_SIZE);
 	if (cc_win == NULL) {
 		device_printf(sc->dev, "no chipcommon register window\n");
 		return (0);
 	}
 
-	/* If only a generic dynamic register window was found, we can assume
-	 * the default ChipCommon address is valid. */
+	/* We can assume a device without a static ChipCommon window uses the
+	 * default ChipCommon address. */
 	if (cc_win->win_type == BHNDB_REGWIN_T_DYN) {
 		error = BHNDB_SET_WINDOW_ADDR(sc->dev, cc_win,
-		    BHND_CHIPC_DEFAULT_ADDR);
+		    BHND_DEFAULT_CHIPC_ADDR);
+
 		if (error) {
-			device_printf(sc->dev,
-			     "failed to set chipcommon register window\n");
+			device_printf(sc->dev, "failed to set chipcommon "
+			    "register window\n");
 			return (error);
 		}
 	}
 
-	/* Allocate the ChipCommon window resource and fetch the chipid data */
-	rid = cc_win->res.rid;
-	rtype = cc_win->res.type;
-	res_mem = bus_alloc_resource_any(sc->parent_dev, rtype, &rid, RF_ACTIVE);
-	if (res_mem == NULL) {
-		device_printf(sc->dev,
-		    "failed to allocate bhndb chipc resource\n");
-		return (ENXIO);
-	}
+	/* Let the default bhnd implemenation alloc/release the resource and
+	 * perform the read */
+	rs.type = cc_win->res.type;
+	rs.rid = cc_win->res.rid;
+	rs.flags = RF_ACTIVE;
 
-	/* Fetch the basic chip info */
-	reg = bus_read_4(res_mem, cc_win->win_offset + CHIPC_ID);
-	result->chip_id = CHIPC_GET_ATTR(reg, ID_CHIP);
-	result->chip_pkg = CHIPC_GET_ATTR(reg, ID_PKG);
-	result->chip_rev = CHIPC_GET_ATTR(reg, ID_REV);
-	result->chip_type = CHIPC_GET_ATTR(reg, ID_BUS);
-
-	if (result->chip_rev < CHIPC_NCORES_MINREV) {
-		result->ncores = CHIPC_GET_ATTR(reg, ID_NUMCORE);
-	} else {
-		result->ncores = 0;
-	}
-
-	/* Fetch the enum base address */
-	error = 0;
-	switch (result->chip_type) {
-	case BHND_CHIPTYPE_SIBA:
-		result->enum_addr = BHND_CHIPC_DEFAULT_ADDR;
-		break;
-	case BHND_CHIPTYPE_BCMA:
-		result->enum_addr = bus_read_4(res_mem, cc_win->win_offset +
-		    CHIPC_EROM_CORE_ADDR);
-		break;
-	default:
-		error = ENODEV;
-		break;
-	}
-
-	/* Clean up */
-	bus_release_resource(sc->parent_dev, rtype, rid, res_mem);
-	return (error);
+	return (bhnd_read_chipid(sc->parent_dev, &rs, cc_win->win_offset,
+	    result));
 }
 
 /**
- * Default bhndb implementation of device_attach().
+ * Free any bridged resources and reset all associated state.
+ * 
+ * @param sc Bridge driver state.
+ * 
+ * @retval 0 success
+ * @retval non-zero failure.
  */
-int
-bhndb_generic_attach(device_t dev)
+static int
+bhndb_reset_bridged_resources(struct bhndb_softc *sc)
 {
-	struct bhndb_softc		*sc;
-	int				 error;
-	bool				 free_mem_rman = false;
-	bool				 free_parent_res = false;
-
-	sc = device_get_softc(dev);
-	sc->dev = dev;
-	sc->parent_dev = device_get_parent(dev);
-
-	BHNDB_LOCK_INIT(sc);
-
-	/* Fetch our chip identification data */
-	if ((error = bhndb_read_chipid(sc, &sc->chipid)))
-		return (error);
-
-	/* Find our register window configuration */
-	if ((error = bhndb_find_hwspec(sc, &sc->hw))) {
-		device_printf(dev, "no usable hardware spec found\n");
-		return (error);
+	/* No window regions may still be held */
+	if (__builtin_popcount(sc->dw_freelist) != sc->dw_count) {
+		panic("bridge resource reset with %llu leaked regions\n",
+		    (unsigned long long) sc->dw_count - sc->dw_freelist);
 	}
 
-	if (bootverbose)
-		device_printf(dev, "%s register map\n", sc->hw->name);
+	/* Release resources allocated through our parent. */
+	bus_release_resources(sc->parent_dev, sc->res_spec, sc->res);
 
-	/* Set up a resource manager for the device's address space. */
-	sc->mem_rman.rm_start = 0;
-	sc->mem_rman.rm_end = BUS_SPACE_MAXADDR_32BIT;
-	sc->mem_rman.rm_type = RMAN_ARRAY;
-	sc->mem_rman.rm_descr = "bhnd device address space";
+	/* Free (and reset) resource state */
+	free(sc->res, M_BHND);
+	sc->res_count = 0;
+	sc->res = NULL;
+
+	free(sc->res_spec, M_BHND);
+	sc->res_spec = NULL;
+
+	free(sc->dw_regions, M_BHND);
+	sc->dw_regions = NULL;
+	sc->dw_count = 0;
+	sc->dw_freelist = 0;
+
+	return (0);
+}
+
+/**
+ * Allocate resources from our parent and initialize our bridge resource
+ * allocation state.
+ */
+static int
+bhndb_init_bridge_resources(struct bhndb_softc *sc)
+{
+	int	error;
+	bool	free_parent_res;
+
+	KASSERT(sc->res_count == 0 && 
+		sc->res_spec == NULL && 
+		sc->res == NULL &&
+		sc->dw_regions == NULL &&
+		sc->dw_freelist == 0 &&
+		sc->dw_count == 0, ("bhndb already initialized\n"));
 	
-	if (rman_init(&sc->mem_rman) ||
-	    rman_manage_region(&sc->mem_rman, 0, BUS_SPACE_MAXADDR_32BIT))
-	{
-		device_printf(dev, "could not initialize mem_rman\n");
-		return (ENXIO);
-	} else {
-		free_mem_rman = true;
-	}
-
+	free_parent_res = false;
 
 	/* Determine our bridge resource count from the hardware config. */
 	sc->res_count = 0;
-	for (size_t i = 0; sc->hw->cfg->resource_specs[i].type != -1; i++)
+	for (size_t i = 0; sc->cfg->resource_specs[i].type != -1; i++)
 		sc->res_count++;
 
 	/* Allocate space for a non-const copy of our resource_spec
 	 * table; this will be updated with the RIDs assigned by
 	 * bus_alloc_resources. */
 	sc->res_spec = malloc(sizeof(struct resource_spec) * (sc->res_count + 1),
-	    M_BHND, M_WAITOK);
+	    M_BHND, M_NOWAIT);
 	if (sc->res_spec == NULL) {
 		error = ENOMEM;
 		goto failed;
@@ -617,13 +484,13 @@ bhndb_generic_attach(device_t dev)
 
 	/* Initialize and terminate the table */
 	for (size_t i = 0; i < sc->res_count; i++)
-		sc->res_spec[i] = sc->hw->cfg->resource_specs[i];
+		sc->res_spec[i] = sc->cfg->resource_specs[i];
 	
 	sc->res_spec[sc->res_count].type = -1;
 
 	/* Allocate space for our resource references */
 	sc->res = malloc(sizeof(struct resource) * sc->res_count,
-	    M_BHND, M_WAITOK);
+	    M_BHND, M_NOWAIT);
 	if (sc->res == NULL) {
 		error = ENOMEM;
 		goto failed;
@@ -632,7 +499,7 @@ bhndb_generic_attach(device_t dev)
 	/* Allocate resources */
 	error = bus_alloc_resources(sc->parent_dev, sc->res_spec, sc->res);
 	if (error) {
-		device_printf(dev,
+		device_printf(sc->dev,
 		    "could not allocate bridge resources on %s: %d\n",
 		    device_get_nameunit(sc->parent_dev), error);
 		goto failed;
@@ -643,6 +510,79 @@ bhndb_generic_attach(device_t dev)
 	/* Initialize dynamic window allocator state */
 	if ((error = bhndb_init_dw_region_allocator(sc)))
 		goto failed;
+
+	return (0);
+
+failed:
+	if (free_parent_res)
+		bus_release_resources(sc->parent_dev, sc->res_spec, sc->res);
+
+	if (sc->res != NULL) {
+		free(sc->res, M_BHND);
+		sc->res = NULL;
+	}
+
+	if (sc->res_spec != NULL) {
+		free(sc->res_spec, M_BHND);
+		sc->res_spec = NULL;
+	}
+
+	return (error);
+}
+
+/**
+ * Default bhndb implementation of device_attach().
+ * 
+ * @param dev Bridge device.
+ * @param bridge_devclass The device class of the bridging core. This is used
+ * to automatically detect the bridge core, and to disable additional bridge
+ * cores (e.g. PCMCIA on a PCIe device).
+ */
+int
+bhndb_attach(device_t dev, bhnd_devclass_t bridge_devclass)
+{
+	struct bhndb_softc		*sc;
+	int				 error;
+	bool				 free_mem_rman = false;
+	bool				 free_bridge_res = false;
+
+	sc = device_get_softc(dev);
+	sc->dev = dev;
+	sc->parent_dev = device_get_parent(dev);
+	sc->bridge_class = bridge_devclass;
+	sc->cfg = BHNDB_BUS_GET_GENERIC_HWCFG(sc->parent_dev, sc->dev);
+
+	BHNDB_LOCK_INIT(sc);
+	
+	/* Read our chip identification data */
+	if ((error = bhndb_read_chipid(sc, &sc->chipid)))
+		return (error);
+
+	/* Initialize resource allocation state. */
+	if ((error = bhndb_init_bridge_resources(sc))) {
+		goto failed;
+	} else {
+		free_bridge_res = true;
+	}
+
+	/* Set up a resource manager for the device's address space. */
+	sc->mem_rman.rm_start = 0;
+	sc->mem_rman.rm_end = BUS_SPACE_MAXADDR_32BIT;
+	sc->mem_rman.rm_type = RMAN_ARRAY;
+	sc->mem_rman.rm_descr = "bhnd device address space";
+	
+	if ((error = rman_init(&sc->mem_rman))) {
+		device_printf(dev, "could not initialize mem_rman\n");
+		goto failed;
+	} else {
+		free_mem_rman = true;
+	}
+
+	error = rman_manage_region(&sc->mem_rman, 0, BUS_SPACE_MAXADDR_32BIT);
+	if (error) {
+		device_printf(dev, "could not configure mem_rman\n");
+		goto failed;
+	}
 
 	/* Attach our bridged bus device */
 	sc->bus_dev = device_add_child(dev, devclass_get_name(bhnd_devclass),
@@ -658,17 +598,46 @@ failed:
 	if (free_mem_rman)
 		rman_fini(&sc->mem_rman);
 
-	if (free_parent_res)
-		bus_release_resources(dev, sc->res_spec, sc->res);
+	if (free_bridge_res)
+		bhndb_reset_bridged_resources(sc);
 
-	if (sc->res != NULL)
-		free(sc->res, M_BHND);
-
-	if (sc->res_spec != NULL)
-		free(sc->res_spec, M_BHND);
-	
 	BHNDB_LOCK_DESTROY(sc);
 
+	return (error);
+}
+
+static int
+bhndb_init_full_config(device_t dev, device_t child)
+{
+	struct bhndb_softc		*sc;
+	const struct bhndb_hw		*hw;
+	int				 error;
+
+	sc = device_get_softc(dev);
+	error = 0;
+
+	BHNDB_LOCK(sc);
+
+	/* Reset existing resource state */
+	if ((error = bhndb_reset_bridged_resources(sc)))
+		goto cleanup;
+
+	/* Find our full register window configuration */
+	if ((error = bhndb_find_hwspec(sc, &hw))) {
+		device_printf(sc->dev, "no usable hardware spec found\n");
+		goto cleanup;
+	}
+
+	if (bootverbose)
+		device_printf(sc->dev, "%s register map\n", hw->name);
+
+	/* Reinitialize our resource state */
+	sc->cfg = hw->cfg;
+	if ((error = bhndb_init_bridge_resources(sc)))
+		goto cleanup;
+
+cleanup:
+	BHNDB_UNLOCK(sc);
 	return (error);
 }
 
@@ -685,14 +654,10 @@ bhndb_generic_detach(device_t dev)
 	if ((error = bus_generic_detach(dev)))
 		return (error);
 
-	/* Clean up */
+	/* Clean up our driver state. */
 	rman_fini(&sc->mem_rman);
-
-	bus_release_resources(dev, sc->res_spec, sc->res);
-	free(sc->res, M_BHND);
-	free(sc->res_spec, M_BHND);
-
-	free(sc->dw_regions, M_BHND);
+	bhndb_reset_bridged_resources(sc);
+	
 	BHNDB_LOCK_DESTROY(sc);
 
 	return (0);
@@ -751,7 +716,7 @@ bhndb_add_child(device_t dev, u_int order, const char *name, int unit)
 	if (child == NULL)
 		return (NULL);
 
-	dinfo = malloc(sizeof(struct bhndb_devinfo), M_BHND, M_WAITOK);
+	dinfo = malloc(sizeof(struct bhndb_devinfo), M_BHND, M_NOWAIT);
 	if (dinfo == NULL) {
 		device_delete_child(dev, child);
 		return (NULL);
@@ -783,25 +748,112 @@ bhndb_get_chipid(device_t dev, device_t child)
 	return (sc->chipid);
 }
 
-static device_t
-bhndb_get_attached_bus(device_t dev)
-{
-	struct bhndb_softc *sc = device_get_softc(dev);
-	return (sc->bus_dev);
-}
-
 static bool
-bhndb_is_hw_populated(device_t dev, device_t child) {
-	struct bhnd_core_info core;
+bhndb_is_hw_disabled(device_t dev, device_t child) {
+	struct bhndb_softc	*sc;
+	struct bhnd_core_info	 core;
 
-	/* We can only handle bhnd-attached devices */
-	if (device_get_parent(child) != BHNDB_GET_ATTACHED_BUS(dev))
-		return (bhnd_generic_is_hw_populated(dev, child));
+	sc = device_get_softc(dev);
 
-	/* Ask our bhndb_bus parent */
+	/* Requestor must be attached to the bhnd bus */
+	if (device_get_parent(child) != sc->bus_dev) {
+		return (BHND_IS_HW_DISABLED(device_get_parent(dev), child));
+	}
+
+	/* Fetch core info */
 	core = bhnd_get_core_info(child);
-	return (BHNDB_BUS_IS_CORE_POPULATED(device_get_parent(dev), dev, &core));
+
+	/* Try to defer to the bhndb bus parent */
+	if (BHNDB_BUS_IS_CORE_DISABLED(sc->parent_dev, dev, &core))
+		return (true);
+
+	/* Otherwise, we treat bridge-capable cores as unpopulated if they're
+	 * not the configured host bridge */
+	if (BHND_DEVCLASS_SUPPORTS_HOSTB(bhnd_core_class(&core)))
+		return (!BHND_IS_HOSTB_DEVICE(dev, child));
+
+	/* Otherwise, assume the core is populated */
+	return (false);
 }
+
+/* ascending core index comparison used by bhndb_is_hostb_device() */ 
+static int
+compare_core_index(const void *lhs, const void *rhs)
+{
+	u_int left = bhnd_get_core_index(*(const device_t *) lhs);
+	u_int right = bhnd_get_core_index(*(const device_t *) rhs);
+
+	if (left < right)
+		return (-1);
+	else if (left > right)
+		return (1);
+	else
+		return (0);
+}
+
+/**
+ * BHND_IS_HOSTB_DEVICE implementation that uses a heuristic valid on all known
+ * PCI/PCIe/PCMCIA-bridged bhnd(4) devices:
+ * 
+ * - The core must have a Broadcom vendor ID.
+ * - The core devclass must match the bridge type.
+ * - The core must be the first device on the bus with the bridged device
+ *   class.
+ * 
+ * @param sc The bridge device state.
+ * @param cores The table of bridge-enumerated cores.
+ * @param num_cores The length of @p cores.
+ * @param core The core to check.
+ */
+static bool
+bhndb_is_hostb_device(device_t dev, device_t child) {
+	struct bhndb_softc	*sc;
+	struct bhnd_core_match	 md;
+	device_t		 hostb_dev, *devlist;
+	int                      devcnt, error;
+
+	
+	sc = device_get_softc(dev);
+
+	/* Requestor must be attached to the bhnd bus */
+	if (device_get_parent(child) != sc->bus_dev)
+		return (BHND_IS_HOSTB_DEVICE(device_get_parent(dev), child));
+
+	/* Determine required device class and set up a match descriptor. */
+	md = (struct bhnd_core_match) {
+		.vendor = BHND_MFGID_BCM,
+		.device = BHND_COREID_INVALID,
+		.hwrev = { BHND_HWREV_INVALID, BHND_HWREV_INVALID },
+		.class = sc->bridge_class,
+		.unit = 0
+	};
+
+	/* Pre-screen the device before searching over the full device list. */
+	if (!bhnd_device_matches(child, &md))
+		return (false);
+	
+	/* Must be the absolute first matching device on the bus. */
+	if ((error = device_get_children(sc->bus_dev, &devlist, &devcnt)))
+		return (false);
+
+	/* Sort by core index value, ascending */
+	qsort(devlist, devcnt, sizeof(*devlist), compare_core_index);
+
+	/* Find the actual hostb device */
+	hostb_dev = NULL;
+	for (int i = 0; i < devcnt; i++) {
+		if (bhnd_device_matches(devlist[i], &md)) {
+			hostb_dev = devlist[i];
+			break;
+		}
+	}
+
+	/* Clean up */
+	free(devlist, M_TEMP);
+
+	return (child == hostb_dev);
+}
+
 
 static struct resource *
 bhndb_alloc_resource(device_t dev, device_t child, int type,
@@ -847,7 +899,7 @@ bhndb_alloc_resource(device_t dev, device_t child, int type,
 	}
 
 	/* Validate resource addresses */
-	if (start > end || end < start || count > (end - start))
+	if (start > end || end < start || count > ((end - start) + 1))
 		return (NULL);
 	
 	/* Fetch the resource manager */
@@ -998,7 +1050,7 @@ bhndb_adjust_resource(device_t dev, device_t child, int type,
 		 * absolute start and end addresses.
 		 */
 		if (rman_get_start(r) != start  || end < start ||
-		    end - start > region->win->win_size)
+		    (end - start) + 1 > region->win->win_size)
 		{
 			error = EINVAL;
 			goto finish;
@@ -1070,6 +1122,7 @@ bhndb_try_activate_static_window(struct bhndb_softc *sc, device_t child,
 {
 	struct resource			*parent_res;
 	const struct bhndb_regwin	*win;
+	device_t			 bus_dev;
 	bhnd_addr_t			 addr;
 	bhnd_size_t			 parent_offset, size;
 	u_long				 r_start, r_end;
@@ -1078,24 +1131,29 @@ bhndb_try_activate_static_window(struct bhndb_softc *sc, device_t child,
 	r_start = rman_get_start(r);
 	r_end = rman_get_end(r);
 
-	/* Look for a core window enclosing the resource range. */
-	for (win = sc->hw->cfg->register_windows;
+	/*
+	 * Look for any static window capable of mapping this resource:
+	 * - Use the bus to find the actual base address and size of the
+	 *   static window.
+	 * - If the resource falls within this range, it can be activated
+	 *   with this static window.
+	 */
+	for (win = sc->cfg->register_windows;
 	    win->win_type != BHNDB_REGWIN_T_INVALID; win++)
 	{
-		device_t bhnd_child;
-
+		/* Only core windows are currently supported */
 		if (win->win_type != BHNDB_REGWIN_T_CORE)
 			continue;
 
-		/* Find the core's device on the bhnd bus */
-		bhnd_child = bhnd_find_child(sc->bus_dev, win->core.class,
+		/* Find a core that matches the window */
+		bus_dev = bhnd_find_child(sc->bus_dev, win->core.class,
 		    win->core.unit);
-		if (bhnd_child == NULL)
+		if (bus_dev == NULL)
 			continue;
 
-		/* Fetch the address and size of the core's mapped port. */
-		error = bhnd_get_port_addr(bhnd_child, win->core.port,
-		    win->core.region, &addr, &size);
+		/* Fetch the address and size of the mapped port. */
+		error = bhnd_get_port_addr(bus_dev, win->core.type,
+		    win->core.port, win->core.region, &addr, &size);
 		if (error)
 			return (error);
 
@@ -1106,7 +1164,7 @@ bhndb_try_activate_static_window(struct bhndb_softc *sc, device_t child,
 		if (r_start < addr || r_start > addr + size)
 			continue;
 
-		if (r_end > addr + size)
+		if ((r_end + 1) > addr + size)
 			continue;
 
 		/* Calculate subregion offset within the parent resource */
@@ -1127,7 +1185,7 @@ bhndb_try_activate_static_window(struct bhndb_softc *sc, device_t child,
 		/* Mark active */
 		if ((error = rman_activate_resource(r)))
 			return (error);
-		
+
 		return (0);
 	}
 
@@ -1257,7 +1315,7 @@ bhndb_alloc_bhnd_resource(device_t dev, device_t child, int type,
 	sc = device_get_softc(dev);
 
 	/* Allocate resource wrapper */
-	br = malloc(sizeof(struct bhnd_resource), M_BHND, M_WAITOK|M_ZERO);
+	br = malloc(sizeof(struct bhnd_resource), M_BHND, M_NOWAIT|M_ZERO);
 	if (br == NULL)
 		return (NULL);
 
@@ -1370,7 +1428,6 @@ bhndb_get_dma_tag(device_t dev, device_t child)
 static device_method_t bhndb_methods[] = {
 	/* Device interface */ \
 	DEVMETHOD(device_probe,			bhndb_generic_probe),
-	DEVMETHOD(device_attach,		bhndb_generic_attach),
 	DEVMETHOD(device_detach,		bhndb_generic_detach),
 	DEVMETHOD(device_shutdown,		bus_generic_shutdown),
 	DEVMETHOD(device_suspend,		bhndb_generic_suspend),
@@ -1408,10 +1465,11 @@ static device_method_t bhndb_methods[] = {
 
 	/* BHNDB interface */
 	DEVMETHOD(bhndb_get_chipid,		bhndb_get_chipid),
-	DEVMETHOD(bhndb_get_attached_bus,	bhndb_get_attached_bus),
+	DEVMETHOD(bhndb_init_full_config,	bhndb_init_full_config),
 
 	/* BHND interface */
-	DEVMETHOD(bhnd_is_hw_populated,		bhndb_is_hw_populated),
+	DEVMETHOD(bhnd_is_hw_disabled,		bhndb_is_hw_disabled),
+	DEVMETHOD(bhnd_is_hostb_device,		bhndb_is_hostb_device),
 	DEVMETHOD(bhnd_alloc_resource,		bhndb_alloc_bhnd_resource),
 	DEVMETHOD(bhnd_release_resource,	bhndb_release_bhnd_resource),
 	DEVMETHOD(bhnd_activate_resource,	bhndb_activate_bhnd_resource),

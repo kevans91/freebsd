@@ -36,69 +36,39 @@ INTERFACE bhnd;
 # bhnd(4) bus interface
 #
 
+HEADER {
+	/* forward declarations */
+	struct bhnd_core_info;
+	struct bhnd_chipid;
+	struct bhnd_resource;
+	struct bhnd_bus_ctx;
+}
+
 CODE {
 	#include <dev/bhnd/bhndvar.h>
-	
-	static int
-	bhnd_null_read_core_table(kobj_class_t driver, device_t dev,
-	    const struct bhnd_chipid *chipid, void *ioh,
-	    const struct bhnd_iosw *iosw, struct bhnd_core_info **cores,
-	    u_int *num_cores)
-	{
-		return (ENXIO);
-	}
 
 	static int
-	bhnd_null_get_port_rid(device_t dev, device_t child, u_int port,
-	    u_int region)
+	bhnd_null_get_port_rid(device_t dev, device_t child,
+	    bhnd_port_type port_type, u_int port, u_int region)
 	{
 		return (-1);
 	}
 	
 	static int
 	bhnd_null_decode_port_rid(device_t dev, device_t child, int type,
-	    int rid, u_int *port, u_int *region)
+	    int rid, bhnd_port_type *port_type, u_int *port, u_int *region)
 	{
 		return (ENOENT);
 	}
 	
 	static int
-	bhnd_null_get_port_addr(device_t dev, device_t child, u_int port,
-	    u_int region, bhnd_addr_t *addr, bhnd_size_t *size)
+	bhnd_null_get_port_addr(device_t dev, device_t child, 
+	    bhnd_port_type type, u_int port, u_int region, bhnd_addr_t *addr,
+	    bhnd_size_t *size)
 	{
 		return (ENOENT);
 	}
 }
-
-/**
- * Probe the bus defined by @p chipid, and if a supported bus type, enumerate
- * all devices on the bus.
- * 
- * The memory allocated for the table should be freed using
- * `free(*cores, M_BHND)`. @p cores and @p num_cores are not changed
- * when an error is returned.
- * 
- * @param	driver		the driver class.
- * @param	chipid		the chip's identification info.
- * @param	ioh		device i/o handle.
- * @param	iosw		device i/o callbacks.
- * @param[out]	cores		the table of parsed core descriptors.
- * @param[out]	num_cores	the number of core records in @p cores.
- * 
- * @retval 0		success
- * @retval ENXIO	if the bhnd(4) bus type is not supported.
- * @retval non-zero	if an error occurs during the open, a regular UNIX
- *			error code should be returned.
- */
-STATICMETHOD int read_core_table {
-	kobj_class_t driver;
-	device_t dev;
-	const struct bhnd_chipid *chipid;
-	void *ioh;
-	const struct bhnd_iosw *iosw;
-	struct bhnd_core_info **cores;
-	u_int *num_cores;
-} DEFAULT bhnd_null_read_core_table;
 
 /**
  * Returns true if @p child is serving as a host bridge for the bhnd
@@ -116,8 +86,8 @@ METHOD bool is_hostb_device {
 } DEFAULT bhnd_generic_is_hostb_device;
 
 /**
- * Return true if the hardware components required by @p child are populated on
- * the hardware board.
+ * Return true if the hardware components required by @p child are unpopulated
+ * or otherwise unusable.
  *
  * In some cases, enumerated devices may have pins that are left floating, or
  * the hardware may otherwise be non-functional; this method allows a parent
@@ -127,10 +97,10 @@ METHOD bool is_hostb_device {
  * @param dev The device whose child is being examined.
  * @param child The child device.
  */
-METHOD bool is_hw_populated {
+METHOD bool is_hw_disabled {
 	device_t dev;
 	device_t child;
-} DEFAULT bhnd_generic_is_hw_populated;
+} DEFAULT bhnd_generic_is_hw_disabled;
 
 /**
  * Allocate a bhnd resource.
@@ -197,6 +167,7 @@ METHOD int deactivate_resource {
  *
  * @param dev The bus device.
  * @param child The bhnd child.
+ * @param port_type The port type.
  * @param port_num The index of the child interconnect port.
  * @param region_num The index of the port-mapped address region.
  *
@@ -205,28 +176,33 @@ METHOD int deactivate_resource {
 METHOD int get_port_rid {
 	device_t dev;
 	device_t child;
+	bhnd_port_type port_type;
 	u_int port_num;
 	u_int region_num;
 } DEFAULT bhnd_null_get_port_rid;
 
 
 /**
- * Decode a port / region pair on @p child defined by @p rid.
+ * Decode a port / region pair on @p child defined by @p type and @p rid.
  *
  *
  * @param dev The bus device.
  * @param child The bhnd child.
- * @param port The port identifier.
- * @param region The identifier of the memory region on @p port.
+ * @param type The resource type.
+ * @param rid The resource ID.
+ * @param[out] port_type The port's type.
+ * @param[out] port The port identifier.
+ * @param[out] region The identifier of the memory region on @p port.
  * 
- * @retval int The RID for the given @p port and @p region on @p device.
- * @retval non-zero No matching port/region found.
+ * @retval 0 success
+ * @retval non-zero No matching type/rid found.
  */
 METHOD int decode_port_rid {
 	device_t dev;
 	device_t child;
 	int type;
 	int rid;
+	bhnd_port_type *port_type;
 	u_int *port;
 	u_int *region;
 } DEFAULT bhnd_null_decode_port_rid;
@@ -236,6 +212,7 @@ METHOD int decode_port_rid {
  *
  * @param dev The bus device.
  * @param child The bhnd child.
+ * @param port_type The port type.
  * @param port The port identifier.
  * @param region The identifier of the memory region on @p port.
  * @param[out] region_addr The region's base address.
@@ -247,6 +224,7 @@ METHOD int decode_port_rid {
 METHOD int get_port_addr {
 	device_t dev;
 	device_t child;
+	bhnd_port_type port_type;
 	u_int port;
 	u_int region;
 	bhnd_addr_t *region_addr;
