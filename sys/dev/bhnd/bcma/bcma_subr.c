@@ -66,7 +66,7 @@ bcma_alloc_corecfg(u_int core_index, int core_unit, uint16_t vendor,
 		.vendor = vendor,
 		.device = device,
 		.hwrev = hwrev,
-		.core_id = core_index,
+		.core_idx = core_index,
 		.unit = core_unit
 	};
 	
@@ -156,13 +156,13 @@ bcma_dinfo_init_resource_info(device_t bus, struct bcma_devinfo *dinfo,
 	STAILQ_FOREACH(port, ports, sp_link) {
 		STAILQ_FOREACH(map, &port->sp_maps, m_link) {
 			/*
-			* Create the corresponding device resource list entry.
-			* 
-			* We necessarily skip registration of the region in the 
-			* per-device resource_list if the memory range is not
-			* representable using rman/resource API's u_long address
-			* type.
-			*/
+			 * Create the corresponding device resource list entry.
+			 * 
+			 * We necessarily skip registration of the region in the 
+			 * per-device resource_list if the memory range is not
+			 * representable using rman/resource API's u_long
+			 * address type.
+			 */
 			end = map->m_base + map->m_size;
 			if (map->m_base <= ULONG_MAX && end <= ULONG_MAX) {
 				map->m_rid = resource_list_add_next(
@@ -172,7 +172,7 @@ bcma_dinfo_init_resource_info(device_t bus, struct bcma_devinfo *dinfo,
 				device_printf(bus,
 				    "core%u %s%u.%u: region %llx-%llx extends "
 				        "beyond supported addressable range\n",
-				    dinfo->corecfg->core_info.core_id,
+				    dinfo->corecfg->core_info.core_idx,
 				    bhnd_port_type_name(port->sp_type),
 				    port->sp_num, map->m_region_num,
 				    (unsigned long long) map->m_base,
@@ -186,7 +186,7 @@ bcma_dinfo_init_resource_info(device_t bus, struct bcma_devinfo *dinfo,
  * Allocate and initialize new device info structure, assuming ownership
  * of the provided core configuration.
  * 
- * @param dev The requesting bus device.
+ * @param bus The requesting bus device.
  * @param corecfg Device core configuration.
  */
 struct bcma_devinfo *
@@ -199,10 +199,15 @@ bcma_alloc_dinfo(device_t bus, struct bcma_corecfg *corecfg)
 		return NULL;
 
 	dinfo->corecfg = corecfg;
+	dinfo->res_agent = NULL;
+	dinfo->rid_agent = -1;
 
 	resource_list_init(&dinfo->resources);
 
+	/* The device ports must always be initialized first to ensure that
+	 * rid 0 maps to the first device port */
 	bcma_dinfo_init_resource_info(bus, dinfo, &corecfg->dev_ports);
+
 	bcma_dinfo_init_resource_info(bus, dinfo, &corecfg->bridge_ports);
 	bcma_dinfo_init_resource_info(bus, dinfo, &corecfg->wrapper_ports);
 
@@ -212,13 +217,20 @@ bcma_alloc_dinfo(device_t bus, struct bcma_corecfg *corecfg)
 /**
  * Deallocate the given device info structure and any associated resources.
  * 
+ * @param bus The requesting bus device.
  * @param dinfo Device info to be deallocated.
  */
 void
-bcma_free_dinfo(struct bcma_devinfo *dinfo)
+bcma_free_dinfo(device_t bus, struct bcma_devinfo *dinfo)
 {
 	bcma_free_corecfg(dinfo->corecfg);
 	resource_list_free(&dinfo->resources);
+
+	/* Release agent resource, if any */
+	if (dinfo->res_agent != NULL) {
+		bhnd_release_resource(bus, SYS_RES_MEMORY, dinfo->rid_agent,
+		    dinfo->res_agent);
+	}
 
 	free(dinfo, M_BHND);
 }

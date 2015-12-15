@@ -44,13 +44,16 @@ __FBSDID("$FreeBSD$");
  */
 
 /*
- * Define a bhndb_port_prio table.
+ * Define a bhndb_port_priority table.
  */
 #define	BHNDB_PORTS(...)	\
 	.ports		= _BHNDB_PORT_ARRAY(__VA_ARGS__),		\
 	.num_ports	= (sizeof(_BHNDB_PORT_ARRAY(__VA_ARGS__)) /	\
 	    sizeof(_BHNDB_PORT_ARRAY(__VA_ARGS__)[0]))
-#define	_BHNDB_PORT_ARRAY(...) (const struct bhndb_port_prio[]) { __VA_ARGS__ }
+
+#define	_BHNDB_PORT_ARRAY(...) (const struct bhndb_port_priority[]) {	\
+	__VA_ARGS__							\
+}
 
 /*
  * Define a core priority record for all cores matching @p devclass and
@@ -69,42 +72,37 @@ __FBSDID("$FreeBSD$");
 		.class	= (BHND_DEVCLASS_ ## _devclass),		\
 		.unit	= (_unit)					\
 	},								\
-	.priority = (BHNDB_RES_PRIO_ ## _priority),		\
+	.priority = (BHNDB_PRIORITY_ ## _priority),		\
 	BHNDB_PORTS(__VA_ARGS__)					\
 }
 
-/* Define a port priority record for the (_type, 0, 0) type/port/region
- * triplet, using the standard BHND_DEFAULT_CORE_SIZE */
-#define	BHNDB_PORT0_PRIO(_type, _priority) {			\
+/* Define a port priority record for the type/port/region
+ * triplet. */
+#define	BHNDB_PORT_PRIO(_type, _port, _region, _priority) {	\
 	.type		= (BHND_PORT_ ## _type),		\
-	.port		= 0,					\
-	.region		= 0,					\
-	.min_size	= BHND_DEFAULT_CORE_SIZE,		\
-	.priority	= (BHNDB_RES_PRIO_ ## _priority)	\
+	.port		= _port,				\
+	.region		= _region,				\
+	.priority	= (BHNDB_PRIORITY_ ## _priority)	\
 }
 
-/* Define a standard port priority set, consisting of the
- * device and agent register blocks. */
-#define	BHNDB_DEFAULT_PORT_PRIO			\
-	/* Register block */			\
-	BHNDB_PORT0_PRIO(DEVICE,	DEFAULT),	\
-						\
-	/* Agent */				\
-	BHNDB_PORT0_PRIO(AGENT,		LOW)
+/* Define a port priority record for the default (_type, 0, 0) type/port/region
+ * triplet. */
+#define	BHNDB_PORT0_PRIO(_type, _priority)	\
+	BHNDB_PORT_PRIO(_type, 0, 0, _priority)
 
 /**
  * Generic resource priority configuration usable with all currently supported
- * bcma(4) and siba(4)-based PCI devices.
+ * bcma(4)-based PCI devices.
  */
-const struct bhndb_core_prio bhndb_generic_res_prio_table[] = {
+const struct bhndb_hw_priority bhndb_bcma_priority_table[] = {
 	/*
 	 * Ignorable device classes.
 	 * 
 	 * Runtime access to these cores is not required, and no register
 	 * windows should be reserved for these device types.
 	 */
-	BHNDB_CLASS_PRIO(SOCI,		-1,	NONE),
-	BHNDB_CLASS_PRIO(SOCB,		-1,	NONE),
+	BHNDB_CLASS_PRIO(SOC_ROUTER,	-1,	NONE),
+	BHNDB_CLASS_PRIO(SOC_BRIDGE,	-1,	NONE),
 	BHNDB_CLASS_PRIO(EROM,		-1,	NONE),
 	BHNDB_CLASS_PRIO(OTHER,		-1,	NONE),
 
@@ -114,8 +112,21 @@ const struct bhndb_core_prio bhndb_generic_res_prio_table[] = {
 	 * These devices do not sit in a performance-critical path and can be
 	 * treated as a low allocation priority.
 	 */
-	BHNDB_CLASS_PRIO(CC,		-1,	LOW,		BHNDB_DEFAULT_PORT_PRIO),
-	BHNDB_CLASS_PRIO(PMU,		-1,	LOW,		BHNDB_DEFAULT_PORT_PRIO),
+	BHNDB_CLASS_PRIO(CC,		-1,	LOW,
+		/* Device Block */
+		BHNDB_PORT0_PRIO(DEVICE,	LOW),
+
+		/* CC agent registers are not accessed via the bridge. */
+		BHNDB_PORT0_PRIO(AGENT,		NONE)
+	),
+
+	BHNDB_CLASS_PRIO(PMU,		-1,	LOW,
+		/* Device Block */
+		BHNDB_PORT0_PRIO(DEVICE,	LOW),
+
+		/* PMU agent registers are not accessed via the bridge. */
+		BHNDB_PORT0_PRIO(AGENT,		NONE)
+	),
 
 	/*
 	 * Default Core Behavior
@@ -123,7 +134,63 @@ const struct bhndb_core_prio bhndb_generic_res_prio_table[] = {
 	 * All other cores are assumed to require effecient runtime access to
 	 * the default device port, and if supported by the bus, an agent port.
 	 */
-	BHNDB_CLASS_PRIO(INVALID,	-1,	DEFAULT,	BHNDB_DEFAULT_PORT_PRIO),
+	BHNDB_CLASS_PRIO(INVALID,	-1,	DEFAULT,
+		/* Device Block */
+		BHNDB_PORT0_PRIO(DEVICE,	HIGH),
 
-	BHNDB_CORE_PRIO_TABLE_END
+		/* Agent Block */
+		BHNDB_PORT0_PRIO(AGENT,		DEFAULT)
+	),
+
+	BHNDB_HW_PRIORITY_TABLE_END
+};
+
+/**
+ * Generic resource priority configuration usable with all currently supported
+ * siba(4)-based PCI devices.
+ */
+const struct bhndb_hw_priority bhndb_siba_priority_table[] = {
+	/*
+	 * Ignorable device classes.
+	 * 
+	 * Runtime access to these cores is not required, and no register
+	 * windows should be reserved for these device types.
+	 */
+	BHNDB_CLASS_PRIO(SOC_ROUTER,	-1,	NONE),
+	BHNDB_CLASS_PRIO(SOC_BRIDGE,	-1,	NONE),
+	BHNDB_CLASS_PRIO(EROM,		-1,	NONE),
+	BHNDB_CLASS_PRIO(OTHER,		-1,	NONE),
+
+	/*
+	 * Low priority device classes.
+	 * 
+	 * These devices do not sit in a performance-critical path and can be
+	 * treated as a low allocation priority.
+	 * 
+	 * Agent ports are marked as 'NONE' on siba(4) devices, as they
+	 * will be fully mappable via register windows shared with the
+	 * device0.0 port.
+	 */
+	BHNDB_CLASS_PRIO(CC,		-1,	LOW,
+		/* Device Block */
+		BHNDB_PORT_PRIO(DEVICE,	0,	0,	LOW)
+	),
+
+	BHNDB_CLASS_PRIO(PMU,		-1,	LOW,
+		/* Device Block */
+		BHNDB_PORT_PRIO(DEVICE,	0,	0,	LOW)
+	),
+
+	/*
+	 * Default Core Behavior
+	 * 
+	 * All other cores are assumed to require effecient runtime access to
+	 * the device port.
+	 */
+	BHNDB_CLASS_PRIO(INVALID,	-1,	DEFAULT,
+		/* Device Block */
+		BHNDB_PORT_PRIO(DEVICE,	0,	0,	HIGH)
+	),
+
+	BHNDB_HW_PRIORITY_TABLE_END
 };

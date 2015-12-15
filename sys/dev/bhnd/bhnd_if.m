@@ -45,7 +45,15 @@ HEADER {
 }
 
 CODE {
+	#include <sys/systm.h>
+
 	#include <dev/bhnd/bhndvar.h>
+	
+	static struct bhnd_chipid *
+	bhnd_null_get_chipid(device_t dev, device_t child)
+	{
+		panic("bhnd_get_chipid unimplemented");
+	}
 
 	static int
 	bhnd_null_get_port_rid(device_t dev, device_t child,
@@ -62,7 +70,7 @@ CODE {
 	}
 	
 	static int
-	bhnd_null_get_port_addr(device_t dev, device_t child, 
+	bhnd_null_get_region_addr(device_t dev, device_t child, 
 	    bhnd_port_type type, u_int port, u_int region, bhnd_addr_t *addr,
 	    bhnd_size_t *size)
 	{
@@ -101,6 +109,79 @@ METHOD bool is_hw_disabled {
 	device_t dev;
 	device_t child;
 } DEFAULT bhnd_generic_is_hw_disabled;
+
+/**
+ * Return the probe (and attach) order for @p child. 
+ *
+ * All devices on the bhnd(4) bus will be probed, attached, or resumed in
+ * ascending order; they will be suspended, shutdown, and detached in
+ * descending order.
+ *
+ * The following device methods will be dispatched in ascending probe order
+ * by the bus:
+ *
+ * - DEVICE_PROBE()
+ * - DEVICE_ATTACH()
+ * - DEVICE_RESUME()
+ *
+ * The following device methods will be dispatched in descending probe order
+ * by the bus:
+ *
+ * - DEVICE_SHUTDOWN()
+ * - DEVICE_DETACH()
+ * - DEVICE_SUSPEND()
+ *
+ * @param dev The device whose child is being examined.
+ * @param child The child device.
+ *
+ * Refer to BHND_PROBE_* and BHND_PROBE_ORDER_* for the standard set of
+ * priorities.
+ */
+METHOD int get_probe_order {
+	device_t dev;
+	device_t child;
+} DEFAULT bhnd_generic_get_probe_order;
+
+/**
+ * Return the BHND chip identification for the parent bus.
+ *
+ * @param dev The device whose child is being examined.
+ * @param child The child device.
+ */
+METHOD const struct bhnd_chipid * get_chipid {
+	device_t dev;
+	device_t child;
+} DEFAULT bhnd_null_get_chipid;
+
+/**
+ * Reset the device's hardware core.
+ *
+ * @param dev The parent of @p child.
+ * @param child The device to be reset.
+ * @param flags Device-specific core flags to be supplied on reset.
+ *
+ * @retval 0 success
+ * @retval non-zero error
+ */
+METHOD int reset_core {
+	device_t dev;
+	device_t child;
+	uint16_t flags;
+}
+
+/**
+ * Suspend a device hardware core.
+ *
+ * @param dev The parent of @p child.
+ * @param child The device to be reset.
+ *
+ * @retval 0 success
+ * @retval non-zero error
+ */
+METHOD int suspend_core {
+	device_t dev;
+	device_t child;
+}
 
 /**
  * Allocate a bhnd resource.
@@ -162,7 +243,36 @@ METHOD int deactivate_resource {
 } DEFAULT bhnd_generic_deactivate_bhnd_resource;
 
 /**
- * Return the SYS_RES_MEMORY resource-ID for a port /region pair attached to
+ * Return the number of ports of type @p type attached to @p child.
+ *
+ * @param dev The device whose child is being examined.
+ * @param child The child device.
+ * @param type The port type being queried.
+ */
+METHOD u_int get_port_count {
+	device_t dev;
+	device_t child;
+	bhnd_port_type type;
+}
+
+/**
+ * Return the number of memory regions mapped to @p child @p port of
+ * type @p type.
+ *
+ * @param dev The device whose child is being examined.
+ * @param child The child device.
+ * @param port The port number being queried.
+ * @param type The port type being queried.
+ */
+METHOD u_int get_region_count {
+	device_t dev;
+	device_t child;
+	bhnd_port_type type;
+	u_int port;
+}
+
+/**
+ * Return the SYS_RES_MEMORY resource-ID for a port/region pair attached to
  * @p child.
  *
  * @param dev The bus device.
@@ -221,7 +331,7 @@ METHOD int decode_port_rid {
  * @retval 0 success
  * @retval non-zero No matching port/region found.
  */
-METHOD int get_port_addr {
+METHOD int get_region_addr {
 	device_t dev;
 	device_t child;
 	bhnd_port_type port_type;
@@ -229,7 +339,7 @@ METHOD int get_port_addr {
 	u_int region;
 	bhnd_addr_t *region_addr;
 	bhnd_size_t *region_size;
-} DEFAULT bhnd_null_get_port_addr;
+} DEFAULT bhnd_null_get_region_addr;
 
 
 /** An implementation of bus_read_1() compatible with bhnd_resource */
@@ -245,7 +355,7 @@ METHOD uint16_t bus_read_2 {
 	device_t dev;
 	device_t child;
 	struct bhnd_resource *r;
-	bus_size_t offset
+	bus_size_t offset;
 }
 
 /** An implementation of bus_read_4() compatible with bhnd_resource */
@@ -266,7 +376,7 @@ METHOD void bus_write_1 {
 }
 
 /** An implementation of bus_write_2() compatible with bhnd_resource */
-METHOD void bhnd_bus_write_2 {
+METHOD void bus_write_2 {
 	device_t dev;
 	device_t child;
 	struct bhnd_resource *r;
@@ -275,7 +385,7 @@ METHOD void bhnd_bus_write_2 {
 }
 
 /** An implementation of bus_write_4() compatible with bhnd_resource */
-METHOD void bhnd_bus_write_4 {
+METHOD void bus_write_4 {
 	device_t dev;
 	device_t child;
 	struct bhnd_resource *r;
@@ -284,7 +394,7 @@ METHOD void bhnd_bus_write_4 {
 }
 
 /** An implementation of bus_barrier() compatible with bhnd_resource */
-METHOD void bhnd_bus_barrier {
+METHOD void bus_barrier {
 	device_t dev;
 	device_t child;
 	struct bhnd_resource *r;

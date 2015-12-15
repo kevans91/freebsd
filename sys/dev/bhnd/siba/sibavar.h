@@ -45,7 +45,10 @@
  * Internal definitions shared by siba(4) driver implementations.
  */
 
+struct siba_addrspace;
 struct siba_devinfo;
+struct siba_port;
+struct siba_core_id;
 
 int			 siba_probe(device_t dev);
 int			 siba_attach(device_t dev);
@@ -54,22 +57,89 @@ int			 siba_detach(device_t dev);
 uint16_t		 siba_get_bhnd_mfgid(uint16_t ocp_vendor);
 uint8_t			 siba_get_ncores(const struct bhnd_chipid *chipid);
 
-struct bhnd_core_info	 siba_parse_core_info(uint32_t idhigh, u_int core_id,
-			     int unit);
+struct siba_core_id	 siba_parse_core_id(uint32_t idhigh, uint32_t idlow,
+			     u_int core_idx, int unit);
 
 int			 siba_add_children(device_t bus,
 			     const struct bhnd_chipid *chipid);
 
 struct siba_devinfo	*siba_alloc_dinfo(device_t dev,
-			     const struct bhnd_core_info *core_info);
-void			 siba_free_dinfo(struct siba_devinfo *dinfo);
+			     const struct siba_core_id *core_id);
+void			 siba_free_dinfo(device_t dev,
+			     struct siba_devinfo *dinfo);
+
+struct siba_port	*siba_dinfo_get_port(struct siba_devinfo *dinfo,
+			     bhnd_port_type port_type, u_int port_num);
+
+struct siba_addrspace	*siba_find_port_addrspace(struct siba_port *port,
+			     uint8_t sid);
+
+int			 siba_append_dinfo_region(struct siba_devinfo *dinfo,
+			     bhnd_port_type port_type, u_int port_num,
+			     u_int region_num, uint8_t sid, uint32_t base,
+			     uint32_t size, uint32_t bus_reserved);
+
+u_int			 siba_admatch_offset(uint8_t addrspace);
+int			 siba_parse_admatch(uint32_t am, uint32_t *addr,
+			     uint32_t *size);
+
+/* Sonics configuration register blocks */
+#define	SIBA_CFG_NUM_2_2	1			/**< sonics <= 2.2 maps SIBA_CFG0. */
+#define	SIBA_CFG_NUM_2_3	2			/**< sonics <= 2.3 maps SIBA_CFG0 and SIBA_CFG1 */
+#define	SIBA_CFG_NUM_MAX	SIBA_CFG_NUM_2_3	/**< maximum number of supported config
+							     register blocks */
+
+/** siba(4) address space descriptor */
+struct siba_addrspace {
+	uint32_t	sa_base;	/**< base address */
+	uint32_t	sa_size;	/**< size */
+	u_int		sa_region_num;	/**< bhnd region id */
+	uint8_t		sa_sid;		/**< siba-assigned address space ID */
+	int		sa_rid;		/**< bus resource id */
+
+	STAILQ_ENTRY(siba_addrspace) sa_link;
+};
+
+/** siba(4) port descriptor */
+struct siba_port {
+	bhnd_port_type		 sp_type;	/**< port type */
+	u_int			 sp_num;	/**< port number */
+	u_int			 sp_num_addrs;	/**< number of address space mappings */
+
+	STAILQ_HEAD(, siba_addrspace) sp_addrs;	/**< address spaces mapped to this port */
+};
+
+/**
+ * siba(4) per-core identification info.
+ */
+struct siba_core_id {
+	struct bhnd_core_info	core_info;	/**< standard bhnd(4) core info */
+	uint16_t		sonics_vendor;	/**< OCP vendor identifier used to generate
+						  *  the JEDEC-106 bhnd(4) vendor identifier. */
+	uint8_t			sonics_rev;	/**< sonics backplane revision code */
+	uint8_t			num_addrspace;	/**< number of address ranges mapped to
+						     this core. */
+	uint8_t			num_cfg_blocks;	/**< number of Sonics configuration register
+						     blocks mapped to the core's enumeration
+						     space */
+};
 
 /**
  * siba(4) per-device info
  */
 struct siba_devinfo {
-	struct resource_list	resources;	/**< per-core memory regions. */
-	struct bhnd_core_info	core_info;	/**< IP core/block config */
+	struct resource_list	 resources;	/**< per-core memory regions. */
+	struct siba_core_id	 core_id;	/**< core identification info */
+
+	struct siba_port	 device_port;	/**< device port holding ownership
+						 *   of all siba address space
+						 *   entries for this core. */
+
+	/** SIBA_CFG* register blocks */
+	struct bhnd_resource	*cfg[SIBA_CFG_NUM_MAX];
+
+	/** SIBA_CFG* resource IDs */
+	int			 cfg_rid[SIBA_CFG_NUM_MAX];
 };
 
 

@@ -37,6 +37,7 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/bhnd/bhnd_ids.h>
 #include <dev/bhnd/bhndb/bhndbvar.h>
+#include <dev/bhnd/bhndb/bhndb_hwdata.h>
 
 #include "bcmavar.h"
 
@@ -50,11 +51,11 @@ __FBSDID("$FreeBSD$");
 static int
 bcma_bhndb_probe(device_t dev)
 {
-	struct bhnd_chipid	cid;
+	const struct bhnd_chipid *cid;
 
 	/* Check bus type */
 	cid = BHNDB_GET_CHIPID(device_get_parent(dev), dev);
-	if (cid.chip_type != BHND_CHIPTYPE_BCMA)
+	if (cid->chip_type != BHND_CHIPTYPE_BCMA)
 		return (ENXIO);
 
 	/* Delegate to default probe implementation */
@@ -64,17 +65,17 @@ bcma_bhndb_probe(device_t dev)
 static int
 bcma_bhndb_attach(device_t dev)
 {
-	struct bhnd_chipid	 cid;
-	struct resource		*erom_res;
-	int			 error;
-	int			 rid;
+	const struct bhnd_chipid	*cid;
+	struct resource			*erom_res;
+	int				 error;
+	int				 rid;
 
 	cid = BHNDB_GET_CHIPID(device_get_parent(dev), dev);
 
 	/* Map the EROM resource and enumerate our children. */
 	rid = 0;
-	erom_res = bus_alloc_resource(dev, SYS_RES_MEMORY, &rid, cid.enum_addr,
-		cid.enum_addr + BCMA_EROM_TABLE_SIZE, BCMA_EROM_TABLE_SIZE,
+	erom_res = bus_alloc_resource(dev, SYS_RES_MEMORY, &rid, cid->enum_addr,
+		cid->enum_addr + BCMA_EROM_TABLE_SIZE, BCMA_EROM_TABLE_SIZE,
 		RF_ACTIVE);
 	if (erom_res == NULL) {
 		device_printf(dev, "failed to allocate EROM resource\n");
@@ -89,17 +90,85 @@ bcma_bhndb_attach(device_t dev)
 		return (error);
 
 	/* Initialize full bridge configuration */
-	if ((error = BHNDB_INIT_FULL_CONFIG(device_get_parent(dev), dev)))
+	error = BHNDB_INIT_FULL_CONFIG(device_get_parent(dev), dev,
+	    bhndb_bcma_priority_table);
+	if (error)
 		return (error);
 
 	/* Call our superclass' implementation */
 	return (bcma_attach(dev));
 }
 
+static int
+bcma_bhndb_suspend_child(device_t dev, device_t child)
+{
+	struct bcma_devinfo	*dinfo;
+	int			 error;
+
+	if (device_get_parent(child) != dev)
+		BUS_SUSPEND_CHILD(device_get_parent(dev), child);
+	
+	if (device_is_suspended(child))
+		return (EBUSY);
+
+	dinfo = device_get_ivars(child);
+
+	/* Suspend the child */
+	if ((error = bhnd_generic_br_suspend_child(dev, child)))
+		return (error);
+
+	/* Suspend child's agent resource  */
+	if (dinfo->res_agent != NULL)
+		BHNDB_SUSPEND_RESOURCE(device_get_parent(dev), dev,
+		    SYS_RES_MEMORY, dinfo->res_agent->res);
+	
+	return (0);
+}
+
+static int
+bcma_bhndb_resume_child(device_t dev, device_t child)
+{
+	struct bcma_devinfo	*dinfo;
+	int			 error;
+
+	if (device_get_parent(child) != dev)
+		BUS_SUSPEND_CHILD(device_get_parent(dev), child);
+
+	if (!device_is_suspended(child))
+		return (EBUSY);
+
+	dinfo = device_get_ivars(child);
+
+	/* Resume child's agent resource  */
+	if (dinfo->res_agent != NULL) {
+		error = BHNDB_RESUME_RESOURCE(device_get_parent(dev), dev,
+		    SYS_RES_MEMORY, dinfo->res_agent->res);
+		if (error)
+			return (error);
+	}
+
+	/* Resume the child */
+	if ((error = bhnd_generic_br_resume_child(dev, child))) {
+		/* On failure, re-suspend the agent resource */
+		if (dinfo->res_agent != NULL) {
+			BHNDB_SUSPEND_RESOURCE(device_get_parent(dev), dev,
+			    SYS_RES_MEMORY, dinfo->res_agent->res);
+		}
+
+		return (error);
+	}
+
+	return (0);
+}
+
 static device_method_t bcma_bhndb_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe,			bcma_bhndb_probe),
 	DEVMETHOD(device_attach,		bcma_bhndb_attach),
+
+	/* Bus interface */
+	DEVMETHOD(bus_suspend_child,		bcma_bhndb_suspend_child),
+	DEVMETHOD(bus_resume_child,		bcma_bhndb_resume_child),
 
 	DEVMETHOD_END
 };

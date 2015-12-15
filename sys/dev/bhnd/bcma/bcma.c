@@ -54,14 +54,72 @@ bcma_probe(device_t dev)
 int
 bcma_attach(device_t dev)
 {
-	/* Bus' generic attach will probe and attach any enumerated children */
-	return (bus_generic_attach(dev));
+	struct bcma_devinfo	*dinfo;
+	device_t		*devs, child;
+	int			 ndevs;
+	int			 error;
+
+
+	if ((error = device_get_children(dev, &devs, &ndevs)))
+		return (error);
+
+	/*
+	 * Map our children's agent register block.
+	 */
+	for (int i = 0; i < ndevs; i++) {
+		bhnd_addr_t	addr;
+		bhnd_size_t	size;
+		u_long		r_start, r_count, r_end;
+
+		child = devs[i];
+		dinfo = device_get_ivars(child);
+
+		KASSERT(!device_is_suspended(child),
+		    ("bcma(4) stateful suspend handling requires that devices "
+		        "not be suspended before bcma_attach()"));
+		
+		/* Verify that the agent register block exists and is
+		 * mappable */
+		if (bhnd_get_port_rid(child, BHND_PORT_AGENT, 0, 0) == -1)
+			continue;
+
+		/* Fetch the address of the agent register block */
+		error = bhnd_get_region_addr(child, BHND_PORT_AGENT, 0, 0,
+		    &addr, &size);
+		if (error) {
+			device_printf(dev, "failed fetching agent register "
+			    "block address for core %d\n", i);
+			goto cleanup;
+		}
+
+		/* Allocate the resource */
+		r_start = addr;
+		r_count = size;
+		r_end = r_start + r_count - 1;
+
+		dinfo->rid_agent = 0;
+		dinfo->res_agent = bhnd_alloc_resource(dev, SYS_RES_MEMORY,
+		    &dinfo->rid_agent, r_start, r_end, r_count, RF_ACTIVE);
+		if (dinfo->res_agent == NULL) {
+			device_printf(dev, "failed allocating agent register "
+			    "block for core %d\n", i);
+			error = ENXIO;
+			goto cleanup;
+		}
+	}
+
+cleanup:
+	free(devs, M_BHND);
+	if (error)
+		return (error);
+	
+	return (bhnd_generic_attach(dev));
 }
 
 int
 bcma_detach(device_t dev)
 {
-	return (bus_generic_detach(dev));
+	return (bhnd_generic_detach(dev));
 }
 
 static int
@@ -93,7 +151,7 @@ bcma_read_ivar(device_t dev, device_t child, int index, uintptr_t *result)
 		*result = (uintptr_t) bhnd_core_name(ci);
 		return (0);
 	case BHND_IVAR_CORE_INDEX:
-		*result = ci->core_id;
+		*result = ci->core_idx;
 		return (0);
 	case BHND_IVAR_CORE_UNIT:
 		*result = ci->unit;
@@ -126,7 +184,7 @@ bcma_child_deleted(device_t dev, device_t child)
 {
 	struct bcma_devinfo *dinfo = device_get_ivars(child);
 	if (dinfo != NULL)
-		bcma_free_dinfo(dinfo);
+		bcma_free_dinfo(dev, dinfo);
 }
 
 static struct resource_list *
@@ -134,6 +192,91 @@ bcma_get_resource_list(device_t dev, device_t child)
 {
 	struct bcma_devinfo *dinfo = device_get_ivars(child);
 	return (&dinfo->resources);
+}
+
+
+static int
+bcma_reset_core(device_t dev, device_t child, uint16_t flags)
+{
+	struct bcma_devinfo *dinfo;
+
+	if (device_get_parent(child) != dev)
+		BHND_RESET_CORE(device_get_parent(dev), child, flags);
+
+	dinfo = device_get_ivars(child);
+
+	/* Can't reset the core without access to the agent registers */
+	if (dinfo->res_agent == NULL)
+		return (ENODEV);
+
+	// TODO - perform reset
+
+	return (ENXIO);
+}
+
+static int
+bcma_suspend_core(device_t dev, device_t child)
+{
+	struct bcma_devinfo *dinfo;
+
+	if (device_get_parent(child) != dev)
+		BHND_SUSPEND_CORE(device_get_parent(dev), child);
+
+	dinfo = device_get_ivars(child);
+
+	/* Can't suspend the core without access to the agent registers */
+	if (dinfo->res_agent == NULL)
+		return (ENODEV);
+
+	// TODO - perform suspend
+
+	return (ENXIO);
+}
+
+static u_int
+bcma_get_port_count(device_t dev, device_t child, bhnd_port_type type)
+{
+	struct bcma_devinfo *dinfo;
+
+	/* delegate non-bus-attached devices to our parent */
+	if (device_get_parent(child) != dev)
+		return (BHND_GET_PORT_COUNT(device_get_parent(dev), child,
+		    type));
+
+	dinfo = device_get_ivars(child);
+	switch (type) {
+	case BHND_PORT_DEVICE:
+		return (dinfo->corecfg->num_dev_ports);
+	case BHND_PORT_BRIDGE:
+		return (dinfo->corecfg->num_bridge_ports);
+	case BHND_PORT_AGENT:
+		return (dinfo->corecfg->num_wrapper_ports);
+	}
+}
+
+static u_int
+bcma_get_region_count(device_t dev, device_t child, bhnd_port_type type,
+    u_int port_num)
+{
+	struct bcma_devinfo	*dinfo;
+	struct bcma_sport_list	*ports;
+	struct bcma_sport	*port;
+
+	/* delegate non-bus-attached devices to our parent */
+	if (device_get_parent(child) != dev)
+		return (BHND_GET_REGION_COUNT(device_get_parent(dev), child,
+		    type, port_num));
+
+	dinfo = device_get_ivars(child);
+	ports = bcma_corecfg_get_port_list(dinfo->corecfg, type);
+	
+	STAILQ_FOREACH(port, ports, sp_link) {
+		if (port->sp_num == port_num)
+			return (port->sp_num_maps);
+	}
+
+	/* not found */
+	return (0);
 }
 
 static int
@@ -203,7 +346,7 @@ bcma_decode_port_rid(device_t dev, device_t child, int type, int rid,
 }
 
 static int
-bcma_get_port_addr(device_t dev, device_t child, bhnd_port_type port_type,
+bcma_get_region_addr(device_t dev, device_t child, bhnd_port_type port_type,
     u_int port_num, u_int region_num, bhnd_addr_t *addr, bhnd_size_t *size)
 {
 	struct bcma_devinfo	*dinfo;
@@ -301,7 +444,7 @@ bcma_add_children(device_t bus, struct resource *erom_res, bus_size_t erom_offse
 	
 failed:
 	if (dinfo != NULL)
-		bcma_free_dinfo(dinfo);
+		bcma_free_dinfo(bus, dinfo);
 
 	if (corecfg != NULL)
 		bcma_free_corecfg(corecfg);
@@ -323,9 +466,13 @@ static device_method_t bcma_methods[] = {
 	DEVMETHOD(bus_get_resource_list,	bcma_get_resource_list),
 
 	/* BHND interface */
+	DEVMETHOD(bhnd_reset_core,		bcma_reset_core),
+	DEVMETHOD(bhnd_suspend_core,		bcma_suspend_core),
+	DEVMETHOD(bhnd_get_port_count,		bcma_get_port_count),
+	DEVMETHOD(bhnd_get_region_count,	bcma_get_region_count),
 	DEVMETHOD(bhnd_get_port_rid,		bcma_get_port_rid),
 	DEVMETHOD(bhnd_decode_port_rid,		bcma_decode_port_rid),
-	DEVMETHOD(bhnd_get_port_addr,		bcma_get_port_addr),
+	DEVMETHOD(bhnd_get_region_addr,		bcma_get_region_addr),
 
 	DEVMETHOD_END
 };

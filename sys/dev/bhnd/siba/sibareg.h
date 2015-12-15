@@ -51,48 +51,62 @@
 #define	SIBA_MAX_CORES	\
     (SIBA_ENUM_SIZE/SIBA_CORE_SIZE)			/**< Maximum number of cores */
 
+#define	SIBA_ADDRSPACE_CORE	0			/**< address space identifier of the
+							     core enumeration block. */
+
 /**< Evaluates to the bus address of the @p idx core register block */
 #define	SIBA_CORE_ADDR(idx)	\
     (SIBA_ENUM_ADDR + ((idx) * SIBA_CORE_SIZE))
 
-#define	SIBA_CFG1_OFFSET	0xf00	/**< register block 1 */
-#define	SIBA_CFG2_OFFSET	0xe00	/**< register block 2 (sonics >= 2.3) */
+/*
+ * Sonics configuration registers are mapped to each core's enumeration
+ * space, at the end of the 4kb device register block, in reverse
+ * order:
+ * 
+ * [0x0000-0x0dff]	core registers
+ * [0x0e00-0x0eff]	SIBA_R1 registers	(sonics >= 2.3)
+ * [0x0f00-0x0fff]	SIBA_R0 registers
+ */
 
-#define	SIBA_CFG_SIZE		0x100	/**< SIBA_CFG* register block size */
+#define	SIBA_CFG0_OFFSET	0xf00	/**< first configuration block */
+#define	SIBA_CFG1_OFFSET	0xe00	/**< second configuration block (sonics >= 2.3) */
 
-/* Define a register relative to either the CFG1 or CFG2 block offset */
-#define	SB_REG(cb, off)	(SIBA_CFG ## cb ## _OFFSET + (off))
-#define	SB1_REG(off)	SB_REG(1, (off))
-#define	SB2_REG(off)	SB_REG(2, (off))
+#define	SIBA_CFG_SIZE		0x100	/**< cfg register block size */
 
-#define	SIBA_IPSFLAG		SB1_REG(0x08)	/**< initiator port ocp slave flag */
-#define	SIBA_TPSFLAG		SB1_REG(0x18)	/**< target port ocp slave flag */
-#define	SIBA_TMERRLOGA		SB1_REG(0x48)	/**< sonics >= 2.3 */
-#define	SIBA_TMERRLOG		SB1_REG(0x50)	/**< sonics >= 2.3 */
-#define	SIBA_ADMATCH3		SB1_REG(0x60)	/**< address match3 */
-#define	SIBA_ADMATCH2		SB1_REG(0x68)	/**< address match2 */
-#define	SIBA_ADMATCH1		SB1_REG(0x70)	/**< address match1 */
-#define	SIBA_IMSTATE		SB1_REG(0x90)	/**< initiator agent state */
-#define	SIBA_INTVEC		SB1_REG(0x94)	/**< interrupt mask */
-#define	SIBA_TMSTATELOW		SB1_REG(0x98)	/**< target state */
-#define	SIBA_TMSTATEHIGH	SB1_REG(0x9c)	/**< target state */
-#define	SIBA_BWA0		SB1_REG(0xa0)	/**< bandwidth allocation table0 */
-#define	SIBA_IMCONFIGLOW	SB1_REG(0xa8)	/**< initiator configuration */
-#define	SIBA_IMCONFIGHIGH	SB1_REG(0xac)	/**< initiator configuration */
-#define	SIBA_ADMATCH0		SB1_REG(0xb0)	/**< address match0 */
-#define	SIBA_TMCONFIGLOW	SB1_REG(0xb8)	/**< target configuration */
-#define	SIBA_TMCONFIGHIGH	SB1_REG(0xbc)	/**< target configuration */
-#define	SIBA_BCONFIG		SB1_REG(0xc0)	/**< broadcast configuration */
-#define	SIBA_BSTATE		SB1_REG(0xc8)	/**< broadcast state */
-#define	SIBA_ACTCNFG		SB1_REG(0xd8)	/**< activate configuration */
-#define	SIBA_FLAGST		SB1_REG(0xe8)	/**< current sbflags */
-#define	SIBA_IDLOW		SB1_REG(0xf8)	/**< identification */
-#define	SIBA_IDHIGH		SB1_REG(0xfc)	/**< identification */
+/* Return the SIBA_CORE_ADDR-relative offset for a SIBA_CFG* register. */
+#define	SB0_REG_ABS(off)	((off) + SIBA_CFG0_OFFSET)
+#define	SB1_REG_ABS(off)	((off) + SIBA_CFG1_OFFSET)
 
-#define	SIBA_IMERRLOGA		SB2_REG(0xa8)	/**< sonics >= 2.3 */
-#define	SIBA_IMERRLOG		SB2_REG(0xb0)	/**< sonics >= 2.3 */
-#define	SIBA_TMPORTCONNID0	SB2_REG(0xd8)	/**< sonics >= 2.3 */
-#define	SIBA_TMPORTLOCK0	SB2_REG(0xf8)	/**< sonics >= 2.3 */
+/* SIBA_CFG0 registers */
+#define	SIBA_CFG0_IPSFLAG	0x08	/**< initiator port ocp slave flag */
+#define	SIBA_CFG0_TPSFLAG	0x18	/**< target port ocp slave flag */
+#define	SIBA_CFG0_TMERRLOGA	0x48	/**< sonics >= 2.3 */
+#define	SIBA_CFG0_TMERRLOG	0x50	/**< sonics >= 2.3 */
+#define	SIBA_CFG0_ADMATCH3	0x60	/**< address match3 */
+#define	SIBA_CFG0_ADMATCH2	0x68	/**< address match2 */
+#define	SIBA_CFG0_ADMATCH1	0x70	/**< address match1 */
+#define	SIBA_CFG0_IMSTATE	0x90	/**< initiator agent state */
+#define	SIBA_CFG0_INTVEC	0x94	/**< interrupt mask */
+#define	SIBA_CFG0_TMSTATELOW	0x98	/**< target state */
+#define	SIBA_CFG0_TMSTATEHIGH	0x9c	/**< target state */
+#define	SIBA_CFG0_BWA0		0xa0	/**< bandwidth allocation table0 */
+#define	SIBA_CFG0_IMCONFIGLOW	0xa8	/**< initiator configuration */
+#define	SIBA_CFG0_IMCONFIGHIGH	0xac	/**< initiator configuration */
+#define	SIBA_CFG0_ADMATCH0	0xb0	/**< address match0 */
+#define	SIBA_CFG0_TMCONFIGLOW	0xb8	/**< target configuration */
+#define	SIBA_CFG0_TMCONFIGHIGH	0xbc	/**< target configuration */
+#define	SIBA_CFG0_BCONFIG	0xc0	/**< broadcast configuration */
+#define	SIBA_CFG0_BSTATE	0xc8	/**< broadcast state */
+#define	SIBA_CFG0_ACTCNFG	0xd8	/**< activate configuration */
+#define	SIBA_CFG0_FLAGST	0xe8	/**< current sbflags */
+#define	SIBA_CFG0_IDLOW		0xf8	/**< identification */
+#define	SIBA_CFG0_IDHIGH	0xfc	/**< identification */
+
+/* SIBA_CFG1 registers (sonics >= 2.3) */
+#define	SIBA_CFG1_IMERRLOGA	0xa8	/**< (sonics >= 2.3) */
+#define	SIBA_CFG1_IMERRLOG	0xb0	/**< sbtmerrlog (sonics >= 2.3) */
+#define	SIBA_CFG1_TMPORTCONNID0	0xd8	/**< sonics >= 2.3 */
+#define	SIBA_CFG1_TMPORTLOCK0	0xf8	/**< sonics >= 2.3 */
 
 /* sbipsflag */
 #define	SIBA_IPS_INT1_MASK	0x3f		/* which sbflags get routed to mips interrupt 1 */
@@ -163,6 +177,7 @@
 
 /* sbadmatch0 */
 #define	SIBA_AM_TYPE_MASK	0x3		/* address type */
+#define	SIBA_AM_TYPE_SHIFT	0x0
 #define	SIBA_AM_AD64		0x4		/* reserved */
 #define	SIBA_AM_ADINT0_MASK	0xf8		/* type0 size */
 #define	SIBA_AM_ADINT0_SHIFT	3

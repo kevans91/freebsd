@@ -42,6 +42,7 @@
 #include "bhnd_if.h"
 
 extern devclass_t bhnd_devclass;
+extern devclass_t bhnd_hostb_devclass;
 
 /**
  * bhnd child instance variables
@@ -57,6 +58,36 @@ enum bhnd_device_vars {
 	BHND_IVAR_CORE_UNIT,	/**< Bus-assigned core unit number,
 				     assigned sequentially (starting at 0) for
 				     each vendor/device pair. */
+};
+
+/**
+ * bhnd device probe priority bands.
+ */
+enum {
+	BHND_PROBE_ROOT         = 0,    /**< Nexus or host bridge */
+	BHND_PROBE_BUS		= 1000,	/**< Busses and bridges */
+	BHND_PROBE_CPU		= 2000,	/**< CPU devices */
+	BHND_PROBE_INTERRUPT	= 3000,	/**< Interrupt controllers. */
+	BHND_PROBE_TIMER	= 4000,	/**< Timers and clocks. */
+	BHND_PROBE_RESOURCE	= 5000,	/**< Resource discovery (including NVRAM/SPROM) */
+	BHND_PROBE_DEFAULT	= 6000,	/**< Default device priority */
+};
+
+/**
+ * Constants defining fine grained ordering within a BHND_PROBE_* priority band.
+ * 
+ * Example:
+ * @code
+ * BHND_PROBE_BUS + BHND_PROBE_ORDER_FIRST
+ * @endcode
+ */
+enum {
+	BHND_PROBE_ORDER_FIRST		= 0,
+	BHND_PROBE_ORDER_EARLY		= 25,
+	BHND_PROBE_ORDER_MIDDLE		= 50,
+	BHND_PROBE_ORDER_LATE		= 75,
+	BHND_PROBE_ORDER_LAST		= 100
+
 };
 
 /*
@@ -117,7 +148,7 @@ struct bhnd_core_info {
 	uint16_t	vendor;		/**< vendor */
 	uint16_t	device;		/**< device */
 	uint16_t	hwrev;		/**< hardware revision */
-	u_int		core_id;	/**< bus-assigned core identifier */
+	u_int		core_idx;	/**< bus-assigned core index */
 	int		unit;		/**< bus-assigned core unit */
 };
 
@@ -177,6 +208,15 @@ bool				 bhnd_device_matches(device_t dev,
 				     const struct bhnd_core_match *desc);
 
 struct bhnd_core_info		 bhnd_get_core_info(device_t dev);
+
+
+int				 bhnd_alloc_resources(device_t dev,
+				     struct resource_spec *rs,
+				     struct bhnd_resource **res);
+
+void				 bhnd_release_resources(device_t dev,
+				     const struct resource_spec *rs,
+				     struct bhnd_resource **res);
 
 struct bhnd_chipid		 bhnd_parse_chipid(uint32_t idreg,
 				     bhnd_addr_t enum_addr);
@@ -240,13 +280,12 @@ bhnd_alloc_resource(device_t dev, int type, int *rid, u_long start,
 {
 	return BHND_ALLOC_RESOURCE(device_get_parent(dev), dev, type, rid,
 	    start, end, count, flags);
-};
+}
+
 
 /**
- * Allocate a resource from a device's parent bhnd(4) bus.
- * 
- * This is a convenience wrapper for bhnd_alloc_resource; the default
- * start, end, and count values for the resource will be requested.
+ * Allocate a resource from a device's parent bhnd(4) bus, using the
+ * resource's default start, end, and count values.
  * 
  * @param dev The device requesting resource ownership.
  * @param type The type of resource to allocate. This may be any type supported
@@ -262,7 +301,7 @@ static inline struct bhnd_resource *
 bhnd_alloc_resource_any(device_t dev, int type, int *rid, u_int flags)
 {
 	return bhnd_alloc_resource(dev, type, rid, 0UL, ~0UL, 1, flags);
-};
+}
 
 /**
  * Activate a previously allocated bhnd resource.
@@ -281,7 +320,7 @@ bhnd_activate_resource(device_t dev, int type, int rid,
    struct bhnd_resource *r)
 {
 	return BHND_ACTIVATE_RESOURCE(device_get_parent(dev), dev, type, rid, r);
-};
+}
 
 /**
  * Deactivate a previously activated bhnd resource.
@@ -300,7 +339,7 @@ bhnd_deactivate_resource(device_t dev, int type, int rid,
    struct bhnd_resource *r)
 {
 	return BHND_DEACTIVATE_RESOURCE(device_get_parent(dev), dev, type, rid, r);
-};
+}
 
 /**
  * Free a resource allocated by bhnd_alloc_resource().
@@ -319,7 +358,33 @@ bhnd_release_resource(device_t dev, int type, int rid,
    struct bhnd_resource *r)
 {
 	return BHND_RELEASE_RESOURCE(device_get_parent(dev), dev, type, rid, r);
-};
+}
+
+/**
+ * Return the number of ports of type @p type attached to @p def.
+ *
+ * @param dev The device being queried.
+ * @param type The port type being queried.
+ */
+static inline u_int
+bhnd_get_port_count(device_t child, bhnd_port_type type) {
+	return (BHND_GET_PORT_COUNT(device_get_parent(child), child, type));
+}
+
+/**
+ * Return the number of memory regions mapped to @p child @p port of
+ * type @p type.
+ *
+ * @param dev The device whose child is being examined.
+ * @param child The child device.
+ * @param port The port number being queried.
+ * @param type The port type being queried.
+ */
+static inline u_int
+bhnd_get_region_count(device_t child, bhnd_port_type type, u_int port) {
+	return (BHND_GET_REGION_COUNT(device_get_parent(child), child, type,
+	    port));
+}
 
 /**
  * Return the resource-ID for a memory region on the given device port.
@@ -374,10 +439,10 @@ bhnd_decode_port_rid(device_t dev, int type, int rid, bhnd_port_type *port_type,
  * @retval non-zero No matching port/region found.
  */
 static inline int
-bhnd_get_port_addr(device_t dev, bhnd_port_type port_type, u_int port,
+bhnd_get_region_addr(device_t dev, bhnd_port_type port_type, u_int port,
     u_int region, bhnd_addr_t *region_addr, bhnd_size_t *region_size)
 {
-	return BHND_GET_PORT_ADDR(device_get_parent(dev), dev, port_type,
+	return BHND_GET_REGION_ADDR(device_get_parent(dev), dev, port_type,
 	    port, region, region_addr, region_size);
 }
 

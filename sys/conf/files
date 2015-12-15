@@ -748,7 +748,11 @@ dev/ath/if_ath_btcoex.c		optional ath \
 	compile-with "${NORMAL_C} -I$S/dev/ath"
 dev/ath/if_ath_debug.c		optional ath \
 	compile-with "${NORMAL_C} -I$S/dev/ath"
+dev/ath/if_ath_descdma.c	optional ath \
+	compile-with "${NORMAL_C} -I$S/dev/ath"
 dev/ath/if_ath_keycache.c	optional ath \
+	compile-with "${NORMAL_C} -I$S/dev/ath"
+dev/ath/if_ath_ioctl.c		optional ath \
 	compile-with "${NORMAL_C} -I$S/dev/ath"
 dev/ath/if_ath_led.c		optional ath \
 	compile-with "${NORMAL_C} -I$S/dev/ath"
@@ -1054,6 +1058,8 @@ contrib/dev/ath/ath_hal/ar9300/ar9300_stub.c optional ath_hal | ath_ar9300 \
 	compile-with "${NORMAL_C} -I$S/dev/ath -I$S/dev/ath/ath_hal -I$S/contrib/dev/ath/ath_hal"
 contrib/dev/ath/ath_hal/ar9300/ar9300_stub_funcs.c optional ath_hal | ath_ar9300 \
 	compile-with "${NORMAL_C} -I$S/dev/ath -I$S/dev/ath/ath_hal -I$S/contrib/dev/ath/ath_hal"
+contrib/dev/ath/ath_hal/ar9300/ar9300_spectral.c optional ath_hal | ath_ar9300 \
+	compile-with "${NORMAL_C} -I$S/dev/ath -I$S/dev/ath/ath_hal -I$S/contrib/dev/ath/ath_hal"
 contrib/dev/ath/ath_hal/ar9300/ar9300_timer.c optional ath_hal | ath_ar9300 \
 	compile-with "${NORMAL_C} -I$S/dev/ath -I$S/dev/ath/ath_hal -I$S/contrib/dev/ath/ath_hal"
 contrib/dev/ath/ath_hal/ar9300/ar9300_xmit.c optional ath_hal | ath_ar9300 \
@@ -1108,8 +1114,8 @@ dev/bhnd/bhndb/bhndb_bus_if.m	optional bhndbus | bhndb
 dev/bhnd/bhndb/bhndb_hwdata.c	optional bhndbus | bhndb
 dev/bhnd/bhndb/bhndb_if.m	optional bhndbus | bhndb
 dev/bhnd/bhndb/bhndb_pci.c	optional bhndbus pci | bhndb pci
-dev/bhnd/bhndb/bhndb_pci_hwdata.c	optional bhndbus pci | bhndb pci
-dev/bhnd/bhndb/bhndb_subr.c	optional bhndbus | bhndb
+dev/bhnd/bhndb/bhndb_pci_hwdata.c optional bhndbus pci | bhndb pci
+dev/bhnd/bhndb/bhndb_subr.c	optional bhndbus pci | bhndb
 # bhnd bus drivers
 dev/bhnd/bcma/bcma.c		optional bhndbus | bcma
 dev/bhnd/bcma/bcma_bhndb.c	optional bhndbus | bcma bhndb
@@ -1118,12 +1124,13 @@ dev/bhnd/bcma/bcma_subr.c	optional bhndbus | bcma
 #
 dev/bhnd/siba/siba.c		optional bhndbus | siba
 dev/bhnd/siba/siba_bhndb.c	optional bhndbus | siba bhndb
-dev/bhnd/siba/siba_nexus.c	optional siba_nexus
+dev/bhnd/siba/siba_nexus.c	optional siba_nexus siba
 dev/bhnd/siba/siba_subr.c	optional bhndbus | siba
 #
 # bhnd core drivers
-dev/bhnd/cores/bhnd_chipc.c	optional bhndbus | bhnd_chipc
-dev/bhnd/cores/bhnd_pci_hostb.c	optional bhndbus pci | bhnd_hostb bhndb pci
+dev/bhnd/cores/bhnd_chipc.c	optional bhndbus | bhnd
+dev/bhnd/cores/bhnd_pcib.c	optional bhnd_pcib bhnd pci
+dev/bhnd/cores/bhnd_pci_hostb.c	optional bhndbus | bhndb bhnd pci
 #
 dev/bktr/bktr_audio.c		optional bktr pci
 dev/bktr/bktr_card.c		optional bktr pci
@@ -1142,6 +1149,7 @@ dev/bwi/bwiphy.c		optional bwi
 dev/bwi/bwirf.c			optional bwi
 dev/bwi/if_bwi.c		optional bwi
 dev/bwi/if_bwi_pci.c		optional bwi pci
+dev/bwn/bwn_mac.c		optional bwn
 dev/bwn/if_bwn_pci.c		optional bwn pci
 dev/cardbus/cardbus.c		optional cardbus
 dev/cardbus/cardbus_cis.c	optional cardbus
@@ -2626,12 +2634,13 @@ dev/usb/net/if_mos.c		optional mos
 dev/usb/net/if_rue.c		optional rue
 dev/usb/net/if_smsc.c		optional smsc
 dev/usb/net/if_udav.c		optional udav
+dev/usb/net/if_ure.c		optional ure
 dev/usb/net/if_usie.c		optional usie
 dev/usb/net/if_urndis.c		optional urndis
 dev/usb/net/ruephy.c		optional rue
-dev/usb/net/usb_ethernet.c	optional aue | axe | axge | cdce | cue | kue | \
-					 mos | rue | smsc | udav | ipheth | \
-					 urndis
+dev/usb/net/usb_ethernet.c	optional uether | aue | axe | axge | cdce | \
+					 cue | ipheth | kue | mos | rue | \
+					 smsc | udav | ure | urndis
 dev/usb/net/uhso.c		optional uhso
 #
 # USB WLAN drivers
@@ -3480,7 +3489,7 @@ net/if_dead.c			standard
 net/if_debug.c			optional ddb
 net/if_disc.c			optional disc
 net/if_edsc.c			optional edsc
-net/if_enc.c			optional enc ipsec inet | enc ipsec inet6
+net/if_enc.c			optional enc inet | enc inet6
 net/if_epair.c			optional epair
 net/if_ethersubr.c		optional ether
 net/if_fddisubr.c		optional fddi
@@ -3654,6 +3663,7 @@ netinet/in.c			optional inet
 netinet/in_debug.c		optional inet ddb
 netinet/in_kdtrace.c		optional inet | inet6
 netinet/ip_carp.c		optional inet carp | inet6 carp
+netinet/in_fib.c		optional inet
 netinet/in_gif.c		optional gif inet | netgraph_gif inet
 netinet/ip_gre.c		optional gre inet
 netinet/ip_id.c			optional inet
@@ -3720,6 +3730,7 @@ netinet6/frag6.c		optional inet6
 netinet6/icmp6.c		optional inet6
 netinet6/in6.c			optional inet6
 netinet6/in6_cksum.c		optional inet6
+netinet6/in6_fib.c		optional inet6
 netinet6/in6_gif.c		optional gif inet6 | netgraph_gif inet6
 netinet6/in6_ifattach.c		optional inet6
 netinet6/in6_mcast.c		optional inet6

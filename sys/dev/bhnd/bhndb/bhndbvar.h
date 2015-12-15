@@ -36,10 +36,11 @@
 #include <sys/bus.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
+#include <sys/malloc.h>
 #include <sys/mutex.h>
 #include <sys/rman.h>
 
-#include <dev/bhnd/bhnd.h>
+#include <dev/bhnd/bhndvar.h>
 #include "bhndb.h"
 
 #include "bhndb_if.h"
@@ -49,6 +50,8 @@
  */
 
 DECLARE_CLASS(bhndb_driver);
+
+struct bhndb_resources;
 
 int	bhndb_generic_probe(device_t dev);
 int	bhndb_generic_detach(device_t dev);
@@ -61,27 +64,13 @@ int	bhndb_generic_write_ivar(device_t dev, device_t child, int index,
 
 int	bhndb_attach(device_t dev, bhnd_devclass_t bridge_devclass);
 
-size_t				 bhndb_regwin_count(
-				     const struct bhndb_regwin *table,
-				     bhndb_regwin_type_t type);
+int	bhnd_generic_br_suspend_child(device_t dev, device_t child);
+int	bhnd_generic_br_resume_child(device_t dev, device_t child);
 
-const struct bhndb_regwin	*bhndb_regwin_find_type(
-				     const struct bhndb_regwin *table,
-				     bhndb_regwin_type_t type,
-				     bus_size_t min_size);
-
-const struct bhndb_regwin	*bhndb_regwin_find_core(
-				     const struct bhndb_regwin *table,
-				     bhnd_devclass_t class, int unit,
-				     bhnd_port_type port_type, u_int port,
-				     u_int region);
-
-
-const struct bhndb_regwin	*bhndb_regwin_find_best(
-				     const struct bhndb_regwin *table,
-				     bhnd_devclass_t class, int unit,
-				     bhnd_port_type port_type, u_int port,
-				     u_int region, bus_size_t min_size);
+/** bhndb child instance state */
+struct bhndb_devinfo {
+        struct resource_list    resources;	/**< child resources. */
+};
 
 /**
  * bhndb driver instance state. Must be first member of all subclass
@@ -89,23 +78,16 @@ const struct bhndb_regwin	*bhndb_regwin_find_best(
  */
 struct bhndb_softc {
 	device_t			 dev;		/**< bridge device */
-	const struct bhndb_hwcfg	*cfg;		/**< hardware configuration */
 	struct bhnd_chipid		 chipid;	/**< chip identification */
 	bhnd_devclass_t			 bridge_class;	/**< bridge core type */
 
 	device_t			 parent_dev;	/**< parent device */
-	size_t				 res_count;	/**< parent bus resource count */
-	struct resource_spec		*res_spec;	/**< parent bus resource specs */
-	struct resource			**res;		/**< parent bus resources */
-
 	device_t			 bus_dev;	/**< child bhnd(4) bus */
-	struct rman			 mem_rman;	/**< bridged bus memory manager */
 
-	struct mtx			 sc_mtx;	/**< softc lock. */
-	
-	struct bhndb_regwin_region	*dw_regions;	/**< dynamic window regions */
-	size_t				 dw_count;	/**< number of dynamic window regions. */
-	uint32_t			 dw_freelist;	/**< dw_regions free list */
+	struct rman			 mem_rman;	/**< bridged bus memory manager */
+	struct mtx			 sc_mtx;	/**< resource lock. */
+
+	struct bhndb_resources		*bus_res;	/**< bus resource state */
 };
 
 #endif /* _BHND_BHNDBVAR_H_ */
