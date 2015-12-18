@@ -49,52 +49,83 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/bhnd/bhnd.h>
 
-#include "bhnd_pcibvar.h"
-#include "bhnd_pcibreg.h"
-#include "bhnd_pciebreg.h"
+#include "bhnd_pcireg.h"
+#include "bhnd_pci_hostbvar.h"
 
-static const struct resource_spec bhnd_pci_hostb_rspec[BHND_PCIB_MAX_RSPEC] = {
+static uint32_t				 pcihb_get_quirks(device_t dev,
+					     const struct bhnd_pci_device *id);
+
+static const struct bhnd_pci_device	*pcihb_find_dev_entry(device_t dev);
+
+/*
+ * Supported PCI bridge cores
+ */
+static const struct bhnd_pci_device bhnd_pci_devs[] = {
+	/* PCI */
+	BHND_HOSTB_DEV(PCI,	"PCI",
+	    BHND_QUIRK_HWREV_RANGE	(0, 5,	BHND_PCI_QUIRK_SBINTVEC),
+	    BHND_QUIRK_HWREV_GTE	(0,	BHND_PCI_QUIRK_SBTOPCI2_PREF_BURST),
+	    BHND_QUIRK_HWREV_GTE	(11,	BHND_PCI_QUIRK_SBTOPCI2_READMULTI),
+	    BHND_QUIRK_HWREV_END
+	),
+
+	/* PCI Gen 1 */
+	BHND_HOSTB_DEV(PCIE,	"PCIe",
+	    BHND_QUIRK_HWREV_EQ		(0,	BHND_PCIE_QUIRK_PCIPM_REQEN | BHND_PCIE_QUIRK_SERDES_L0s_HANG),
+	    BHND_QUIRK_HWREV_RANGE	(0, 1,	BHND_PCIE_QUIRK_IGNORE_VDM),
+	    BHND_QUIRK_HWREV_RANGE	(3, 5,	BHND_PCIE_QUIRK_ASPM_OVR | BHND_PCIE_QUIRK_SERDES_POLARITY),
+	    BHND_QUIRK_HWREV_LTE	(6,	BHND_PCIE_QUIRK_L1_IDLE_THRESH),
+	    BHND_QUIRK_HWREV_GTE	(6,	BHND_PCIE_QUIRK_SPROM_L23_PCI_RESET),
+	    BHND_QUIRK_HWREV_EQ		(7,	BHND_PCIE_QUIRK_SERDES_NOPLLDOWN),
+	    BHND_QUIRK_HWREV_GTE	(8,	BHND_PCIE_QUIRK_L1_TIMER_PERF),
+	    BHND_QUIRK_HWREV_LTE	(9,	BHND_PCIE_QUIRK_SERDES_NOSETBLOCK),
+
+	    BHND_QUIRK_HWREV_END
+	),
+
+	{ BHND_COREID_INVALID, NULL, BHND_PCI_REGS_PCI, NULL }
+};
+
+/* Standard core resource specification */
+static const struct resource_spec bhnd_pci_hostb_rspec[] = {
 	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
 	{ -1, -1, 0 }
 };
-
 #define	CORE_RES_IDX	0
 
-#define	BPCI_REG_GET			BHND_PCIB_REG_GET
-#define	BPCI_REG_SET			BHND_PCIB_REG_SET
-#define	BPCI_COMMON_REG_GET(_r, _a)	BHND_PCIB_COMMON_REG_GET(sc, _r, _a)
-#define	BPCI_COMMON_REG_SET(_r, _a, _v)	BHND_PCIB_COMMON_REG_SET(sc, _r, _a, _v)
-#define	BPCI_COMMON_REG(_name)		BHND_PCIB_COMMON_REG(sc, _name)
-
-#define	BPCI_COMMON_REG_OFFSET(_base, _offset)	\
-	(BPCI_COMMON_REG(_base) + BPCI_COMMON_REG(_offset))
-
-static const struct bhnd_hostb_device {
-	uint16_t		 vendor;
-	uint16_t		 device;
-	bhndb_pcib_rdefs_t	 rdefs;
-	const char		*desc;
-} bhnd_hostb_devs[] = {
-	{ BHND_MFGID_BCM,	BHND_COREID_PCI,	BHNDB_PCIB_RDEFS_PCI,
-	    "Broadcom PCI-BHND host bridge" },
-	{ BHND_MFGID_BCM,	BHND_COREID_PCIE,	BHNDB_PCIB_RDEFS_PCIE,
-	    "Broadcom PCIe-G1 PCI-BHND host bridge" },
-	{ BHND_MFGID_BCM,	BHND_COREID_PCIE2,	BHNDB_PCIB_RDEFS_PCIE,
-	    "Broadcom PCIe-G2 PCI-BHND host bridge" },
-	{ BHND_MFGID_INVALID,	BHND_COREID_INVALID,	BHNDB_PCIB_RDEFS_PCI,
-	    NULL }
-};
-
-static const struct bhnd_hostb_device *
-find_dev_entry(device_t dev)
+/**
+ * Collect all quirks defined in @p id that match @p dev.
+ */
+static uint32_t 
+pcihb_get_quirks(device_t dev, const struct bhnd_pci_device *id)
 {
-	const struct bhnd_hostb_device *id;
+	struct bhnd_device_quirk	*dq;
+	uint32_t			 quirks;
+	uint16_t			 hwrev;
 
-	for (id = bhnd_hostb_devs; id->device != BHND_COREID_INVALID; id++) {
-		if (bhnd_get_vendor(dev) == id->vendor &&
-		    bhnd_get_device(dev) != id->device)
+	hwrev = bhnd_get_hwrev(dev);
+	quirks = BHND_PCI_QUIRK_NONE;
+
+	for (dq = id->quirks; dq->quirks != 0; dq++) {
+		if (bhnd_hwrev_matches(hwrev, &dq->hwrev))
+			quirks |= dq->quirks;
+	};
+
+	return (quirks);
+}
+
+/**
+ * Find the device table entry for @p dev, if any.
+ */
+static const struct bhnd_pci_device *
+pcihb_find_dev_entry(device_t dev)
+{
+	const struct bhnd_pci_device *id;
+
+	for (id = bhnd_pci_devs; id->device != BHND_COREID_INVALID; id++) {
+		if (bhnd_get_vendor(dev) == BHND_MFGID_BCM &&
+		    bhnd_get_device(dev) == id->device)
 			return (id);
-
 	}
 
 	return (NULL);
@@ -103,13 +134,13 @@ find_dev_entry(device_t dev)
 static int
 bhnd_pci_hostb_probe(device_t dev)
 {
-	const struct bhnd_hostb_device *id;
+	const struct bhnd_pci_device *id;
 
 	/* Ignore PCI cores not in host bridge mode. */
 	if (!bhnd_is_hostb_device(dev))
 		return (ENXIO);
 
-	if ((id = find_dev_entry(dev)) == NULL)
+	if ((id = pcihb_find_dev_entry(dev)) == NULL)
 		return (ENXIO);
 
 	device_set_desc(dev, id->desc);
@@ -122,7 +153,7 @@ bhnd_pci_hostb_probe(device_t dev)
 * PCI core.
 */
 static void
-bhndb_pci_sprom_target_war(struct bhnd_pcib_softc *sc)
+bhndb_pci_sprom_target_war(struct bhnd_pci_hostb_softc *sc)
 {
 	bus_size_t	sprom_addr;
 	u_int		sprom_core_idx;
@@ -146,24 +177,18 @@ bhndb_pci_sprom_target_war(struct bhnd_pcib_softc *sc)
 static int
 bhnd_pci_hostb_attach(device_t dev)
 {
-	const struct bhnd_hostb_device	*id;
-	struct bhnd_pcib_softc		*sc;
+	const struct bhnd_pci_device	*id;
+	struct bhnd_pci_hostb_softc	*sc;
 	int				 error;
 
-	id = find_dev_entry(dev);
+	id = pcihb_find_dev_entry(dev);
 	KASSERT(id != NULL, ("device entry went missing"));
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
-	sc->rdefs = find_dev_entry(dev)->rdefs;
-
-	/* We can't support the PCIe Gen 2 cores until we get development
-	 * hardware */
-	if (id->vendor == BHND_MFGID_BCM && id->device == BHND_COREID_PCIE2) {
-		device_printf(dev, "PCIe-Gen2 core support unimplemented "
-		    "unsupported\n");
-		return (ENXIO);
-	}
+	sc->regs = id->regs;
+	sc->quirks = pcihb_get_quirks(dev, id);
+	BHND_PCI_LOCK_INIT(sc);
 
 	/*
 	 * Map our PCI core registers
@@ -183,10 +208,11 @@ bhnd_pci_hostb_attach(device_t dev)
 static int
 bhnd_pci_hostb_detach(device_t dev)
 {
-	struct bhnd_pcib_softc	*sc;
+	struct bhnd_pci_hostb_softc	*sc;
 
 	sc = device_get_softc(dev);
 	bhnd_release_resources(dev, sc->rspec, sc->res);
+	BHND_PCI_LOCK_DESTROY(sc);
 
 	return (0);
 }
@@ -213,6 +239,6 @@ static device_method_t bhnd_pci_hostb_methods[] = {
 	DEVMETHOD_END
 };
 
-DEFINE_CLASS_0(bhnd_hostb, bhnd_pci_hostb_driver, bhnd_pci_hostb_methods, sizeof(struct bhnd_pcib_softc));
+DEFINE_CLASS_0(bhnd_hostb, bhnd_pci_hostb_driver, bhnd_pci_hostb_methods, sizeof(struct bhnd_pci_hostb_softc));
 
 DRIVER_MODULE(bhnd_pci_hostb, bhnd, bhnd_pci_hostb_driver, bhnd_hostb_devclass, 0, 0);

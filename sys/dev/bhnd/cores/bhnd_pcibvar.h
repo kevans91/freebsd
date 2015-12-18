@@ -32,92 +32,15 @@
 #ifndef _BHND_CORES_PCIBVAR_H_
 #define _BHND_CORES_PCIBVAR_H_
 
+#include "bhnd_pcivar.h"
+
+/* PCI bridge driver-specific state */
 #define	BHND_PCIB_MAX_RES	2
 #define	BHND_PCIB_MAX_RSPEC	(BHND_PCIB_MAX_RES+1)
-
-/* Device register definitions */
-typedef enum {
-	BHNDB_PCIB_RDEFS_PCI	= 0,	/* PCI register definitions */
-	BHNDB_PCIB_RDEFS_PCIE	= 1,	/* PCIe-Gen1 register definitions */
-} bhndb_pcib_rdefs_t;
-
-/* Common BHND_PCI_*_REG_(GET|SET) implementation */
-#define	_BHND_PCI_REG_GET(_regval, _mask, _shift)		\
-	((_regval & _mask) >> _shift)
-#define _BHND_PCI_REG_SET(_regval, _mask, _shift, _setval)	\
-	(((_regval) & ~ _mask) | (((_setval) << _shift) & _mask))
-
-/**
- * Extract a register value by applying _MASK and _SHIFT defines.
- * 
- * @param _regv The register value containing the desired attribute
- * @param _attr The register attribute name to which to append `_MASK`/`_SHIFT`
- * suffixes.
- */
-#define	BHND_PCIB_REG_GET(_regv, _attr)	\
-	_BHND_PCI_REG_GET(_regv, _attr ## _MASK, _attr ## _SHIFT)
-
-/**
- * Set a register value by applying _MASK and _SHIFT defines.
- * 
- * @param _regv The register value containing the desired attribute
- * @param _attr The register attribute name to which to append `_MASK`/`_SHIFT`
- * suffixes.
- * @param _val The value to bet set in @p _regv.
- */
-#define	BHND_PCIB_REG_SET(_regv, _attr, _val)		\
-	_BHND_PCI_REG_SET(_regv, _attr ## _MASK, _attr ## _SHIFT, _val)
-
-/**
- * Extract a register value by applying _MASK and _SHIFT defines to the common
- * PCI/PCIe register definition @p _regv
- * 
- * @param _sc The pcib device state.
- * @param _regv The register value containing the desired attribute
- * @param _attr The register attribute name to which to prepend the register
- * definition prefix and append `_MASK`/`_SHIFT` suffixes.
- */
-#define BHND_PCIB_COMMON_REG_GET(_sc, _regv, _attr)	\
-	_BHND_PCI_REG_GET(_regv,			\
-	    BHND_PCIB_COMMON_REG(sc, _attr ## _MASK),	\
-	    BHND_PCIB_COMMON_REG(sc, _attr ## _SHIFT))
-
-/**
- * Set a register value by applying _MASK and _SHIFT defines to the common
- * PCI/PCIe register definition @p _regv
- * 
- * @param _sc The pcib device state.
- * @param _regv The register value containing the desired attribute
- * @param _attr The register attribute name to which to prepend the register
- * definition prefix and append `_MASK`/`_SHIFT` suffixes.
- * @param _val The value to bet set in @p _regv.
- */
-#define BHND_PCIB_COMMON_REG_SET(_sc, _regv, _attr, _val)	\
-	_BHND_PCI_REG_SET(_regv,				\
-	    BHND_PCIB_COMMON_REG(sc, _attr ## _MASK),		\
-	    BHND_PCIB_COMMON_REG(sc, _attr ## _SHIFT),		\
-	    _val)
-
-
-/**
- * Evaluates to the offset of a common PCI/PCIe register definition. 
- * 
- * This will trigger a compile-time error if the register is not defined
- * for all supported PCI/PCIe cores.
- * 
- * This should be optimized down to a constant value if the register constant
- * is the same across the register definitions.
- */
-#define	BHND_PCIB_COMMON_REG(_sc, _name)	(			\
-	(_sc)->rdefs == BHNDB_PCIB_RDEFS_PCI ? BHND_PCI_ ## _name :	\
-	BHND_PCIE_ ## _name						\
-)
-
-
 struct bhnd_pcib_softc {
 	device_t		 dev;	/**< pci device */
 	struct bhnd_resource	*core;	/**< core registers. */
-	bhndb_pcib_rdefs_t	 rdefs;	/**< device register definitions */
+	bhnd_pci_regs_t	 	 regs;	/**< device register family */
 
 	struct resource_spec	 rspec[BHND_PCIB_MAX_RSPEC];
 	struct bhnd_resource	*res[BHND_PCIB_MAX_RES];

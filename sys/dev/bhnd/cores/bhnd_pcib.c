@@ -48,7 +48,8 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/bhnd/bhnd.h>
 
-#include "bhnd_pcibreg.h"
+#include "bhnd_pcireg.h"
+
 #include "bhnd_pcibvar.h"
 
 static const struct bhnd_pcib_device {
@@ -58,7 +59,6 @@ static const struct bhnd_pcib_device {
 } bhnd_pcib_devs[] = {
 	{ BHND_MFGID_BCM,	BHND_COREID_PCI,	"BHND Host-PCI bridge" },
 	{ BHND_MFGID_BCM,	BHND_COREID_PCIE,	"BHND Host-PCI bridge (PCIe Gen1)" },
-	{ BHND_MFGID_BCM,	BHND_COREID_PCIE2,	"BHND Host-PCI bridge (PCIe Gen2)" },
 	{ BHND_MFGID_INVALID,	BHND_COREID_INVALID,	NULL }
 };
 
