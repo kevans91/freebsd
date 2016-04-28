@@ -282,7 +282,8 @@ static void	iwm_update_sched(struct iwm_softc *, int, int, uint8_t,
 #endif
 static const struct iwm_rate *
 	iwm_tx_fill_cmd(struct iwm_softc *, struct iwm_node *,
-			struct ieee80211_frame *, struct iwm_tx_cmd *);
+			struct ieee80211_frame *, struct iwm_tx_cmd *,
+			struct mbuf *);
 static int	iwm_tx(struct iwm_softc *, struct mbuf *,
                        struct ieee80211_node *, int);
 static int	iwm_raw_xmit(struct ieee80211_node *, struct mbuf *,
@@ -2578,56 +2579,53 @@ iwm_tx_rateidx_lookup(struct iwm_softc *sc, struct iwm_node *in,
  */
 static const struct iwm_rate *
 iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
-	struct ieee80211_frame *wh, struct iwm_tx_cmd *tx)
+	struct ieee80211_frame *wh, struct iwm_tx_cmd *tx,
+	struct mbuf *m)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211_node *ni = &in->in_ni;
+	struct ieee80211vap *vap = ni->ni_vap;
+	const struct ieee80211_txparam *tp; 
 	const struct iwm_rate *rinfo;
 	int type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
 	int ridx, rate_flags;
+	uint8_t rate;
 
 	tx->rts_retry_limit = IWM_RTS_DFAULT_RETRY_LIMIT;
 	tx->data_retry_limit = IWM_DEFAULT_TX_RETRY;
 
-	/*
-	 * XXX TODO: everything about the rate selection here is terrible!
-	 */
+	tp = &vap->iv_txparms[ieee80211_chan2mode(ic->ic_curchan)];
 
-	if (type == IEEE80211_FC0_TYPE_DATA) {
-		int i;
-		/* for data frames, use RS table */
-		(void) ieee80211_ratectl_rate(ni, NULL, 0);
-		i = iwm_tx_rateidx_lookup(sc, in, ni->ni_txrate);
-		ridx = in->in_ridx[i];
-
-		/* This is the index into the programmed table */
-		tx->initial_rate_index = i;
-		tx->tx_flags |= htole32(IWM_TX_CMD_FLG_STA_RATE);
-		IWM_DPRINTF(sc, IWM_DEBUG_XMIT | IWM_DEBUG_TXRATE,
-		    "%s: start with i=%d, txrate %d\n",
-		    __func__, i, iwm_rates[ridx].rate);
-		/* XXX no rate_n_flags? */
-		return &iwm_rates[ridx];
+	if (type != IEEE80211_FC0_TYPE_DATA || (m->m_flags & M_EAPOL)) {
+		rate = tp->mgmtrate;
+	} else if (IEEE80211_IS_MULTICAST(wh->i_addr1)) {
+		rate = tp->mcastrate;
+	} else if (tp->ucastrate != IEEE80211_FIXED_RATE_NONE) {
+		rate = tp->ucastrate;
+	} else { 
+		rate = ni->ni_txrate;
 	}
 
-	/*
-	 * For non-data, use the lowest supported rate for the given
-	 * operational mode.
-	 *
-	 * Note: there may not be any rate control information available.
-	 * This driver currently assumes if we're transmitting data
-	 * frames, use the rate control table.  Grr.
-	 *
-	 * XXX TODO: use the configured rate for the traffic type!
-	 */
-	if (ic->ic_curmode == IEEE80211_MODE_11A) {
+
 		/*
-		 * XXX this assumes the mode is either 11a or not 11a;
-		 * definitely won't work for 11n.
-		 */
-		ridx = IWM_RIDX_OFDM;
-	} else {
-		ridx = IWM_RIDX_CCK;
+		 * This still feels wrong -- we now use the configured rate, but
+		 * we're still making the assumption that we have rate control
+		 * information. 
+		 * XXX TODO: Don't assume rate control information is present 
+		*/
+	(void) ieee80211_ratectl_rate(ni, NULL, 0);
+	tx->initial_rate_index = iwm_tx_rateidx_lookup(sc, in, rate);
+	ridx = in->in_ridx[tx->initial_rate_index];
+
+	if(type == IEEE80211_FC0_TYPE_DATA) {
+		tx->tx_flags |= htole32(IWM_TX_CMD_FLG_STA_RATE);
+
+		IWM_DPRINTF(sc, IWM_DEBUG_XMIT | IWM_DEBUG_TXRATE,
+		    "%s: start with i=%d, txrate %d\n",
+		    __func__, tx->initial_rate_index, iwm_rates[ridx].rate);
+
+		/* XXX no rate_n_flags? */
+		return &iwm_rates[ridx];
 	}
 
 	rinfo = &iwm_rates[ridx];
@@ -2690,7 +2688,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	tx = (void *)cmd->data;
 	memset(tx, 0, sizeof(*tx));
 
-	rinfo = iwm_tx_fill_cmd(sc, in, wh, tx);
+	rinfo = iwm_tx_fill_cmd(sc, in, wh, tx, m);
 
 	/* Encrypt the frame if need be. */
 	if (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) {
