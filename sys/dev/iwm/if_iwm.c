@@ -2589,8 +2589,9 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	int type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
 	int ridx, rate_flags;
 	uint8_t rate, lookup_rate = 0;
-
 	int i, ant_ind;
+	uint8_t last_ant;
+
 
 	tx->rts_retry_limit = IWM_RTS_DFAULT_RETRY_LIMIT;
 	tx->data_retry_limit = IWM_DEFAULT_TX_RETRY;
@@ -2609,6 +2610,7 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 		lookup_rate = 1;
 	}
 
+	last_ant = sc->sc_tx_last_antenna;
 	/* rotate antenna used if more than are valid */
 	for (i = 0, ant_ind = sc->sc_tx_last_antenna;
 		i < IWM_RATE_MCS_ANT_NUM; i++) {
@@ -2619,6 +2621,11 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 			break;
 		} 
 	}
+
+	IWM_DPRINTF(sc, IWM_DEBUG_XMIT, "%s: ant=%d; lastant=%d\n",
+			__func__, sc->sc_tx_last_antenna,
+			last_ant); 
+	
 
 	rate_flags = (1 << sc->sc_tx_last_antenna) << IWM_RATE_MCS_ANT_POS;
 
@@ -2632,13 +2639,13 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 		tx->initial_rate_index = iwm_tx_rateidx_lookup(sc, in, rate);
 		ridx = in->in_ridx[tx->initial_rate_index];
 
+		/* Ignore rate_n_flags rate, read given rate index */
 		tx->tx_flags |= htole32(IWM_TX_CMD_FLG_STA_RATE);
 
 		IWM_DPRINTF(sc, IWM_DEBUG_XMIT | IWM_DEBUG_TXRATE,
 		    "%s: start with i=%d, txrate %d\n",
 		    __func__, tx->initial_rate_index, iwm_rates[ridx].rate);
 
-			/* XXX no rate_n_flags? */
 		return iwm_rates[ridx].rate;
 	}
 
