@@ -476,6 +476,7 @@ struct iwm_softc {
 	struct iwm_bf_data	sc_bf;
 
 	int			sc_tx_timer;
+	int			sc_tx_last_antenna;
 
 	struct iwm_scan_cmd	*sc_scan_cmd;
 	size_t			sc_scan_cmd_len;

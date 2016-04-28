@@ -2588,7 +2588,9 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	const struct ieee80211_txparam *tp; 
 	int type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
 	int ridx, rate_flags;
-	uint8_t rate;
+	uint8_t rate, lookup_rate = 0;
+
+	int i, ant_ind;
 
 	tx->rts_retry_limit = IWM_RTS_DFAULT_RETRY_LIMIT;
 	tx->data_retry_limit = IWM_DEFAULT_TX_RETRY;
@@ -2604,7 +2606,28 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	} else { 
 		/* for data frames, use RS table */
 		rate = ni->ni_txrate;
+		lookup_rate = 1;
+	}
 
+	/* rotate antenna used if more than are valid */
+	for (i = 0, ant_ind = sc->sc_tx_last_antenna;
+		i < IWM_RATE_MCS_ANT_NUM; i++) {
+		ant_ind = (ant_ind + 1) % IWM_RATE_MCS_ANT_NUM;
+
+		if (IWM_FW_VALID_TX_ANT(sc) & (1 << ant_ind)) {
+			sc->sc_tx_last_antenna = ant_ind;
+			break;
+		} 
+	}
+
+	rate_flags = (1 << sc->sc_tx_last_antenna) << IWM_RATE_MCS_ANT_POS;
+
+	if (IEEE80211_IS_CHAN_CCK(ni->ni_chan))
+		rate_flags |= IWM_RATE_MCS_CCK_MSK;
+
+	tx->rate_n_flags = htole32(rate_flags | ieee80211_rate2plcp(rate, ic->ic_phytype));
+
+	if(lookup_rate) {
 		(void) ieee80211_ratectl_rate(ni, NULL, 0);
 		tx->initial_rate_index = iwm_tx_rateidx_lookup(sc, in, rate);
 		ridx = in->in_ridx[tx->initial_rate_index];
@@ -2615,19 +2638,9 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 		    "%s: start with i=%d, txrate %d\n",
 		    __func__, tx->initial_rate_index, iwm_rates[ridx].rate);
 
-		/* XXX no rate_n_flags? */
+			/* XXX no rate_n_flags? */
 		return iwm_rates[ridx].rate;
 	}
-
-
-	/* XXX TODO: hard-coded TX antenna? */
-	rate_flags = 1 << IWM_RATE_MCS_ANT_POS;
-
-	if (IEEE80211_IS_CHAN_CCK(ni->ni_chan))
-		rate_flags |= IWM_RATE_MCS_CCK_MSK;
-
-	/* XXX hard-coded tx rate */
-	tx->rate_n_flags = htole32(rate_flags | ieee80211_rate2plcp(rate, ic->ic_phytype));
 
 	/* this should be the preconfigured rate for traffic type */ 
 	return rate;
