@@ -280,7 +280,7 @@ static void	iwm_cmd_done(struct iwm_softc *, struct iwm_rx_packet *);
 static void	iwm_update_sched(struct iwm_softc *, int, int, uint8_t,
                                  uint16_t);
 #endif
-static const struct iwm_rate *
+static uint8_t
 	iwm_tx_fill_cmd(struct iwm_softc *, struct iwm_node *,
 			struct ieee80211_frame *, struct iwm_tx_cmd *,
 			struct mbuf *);
@@ -2577,7 +2577,7 @@ iwm_tx_rateidx_lookup(struct iwm_softc *sc, struct iwm_node *in,
  * unfilled for data frames (firmware takes care of that).
  * Return the selected TX rate.
  */
-static const struct iwm_rate *
+static uint8_t
 iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	struct ieee80211_frame *wh, struct iwm_tx_cmd *tx,
 	struct mbuf *m)
@@ -2603,21 +2603,13 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	} else if (tp->ucastrate != IEEE80211_FIXED_RATE_NONE) {
 		rate = tp->ucastrate;
 	} else { 
+		/* for data frames, use RS table */
 		rate = ni->ni_txrate;
-	}
 
+		(void) ieee80211_ratectl_rate(ni, NULL, 0);
+		tx->initial_rate_index = iwm_tx_rateidx_lookup(sc, in, rate);
+		ridx = in->in_ridx[tx->initial_rate_index];
 
-		/*
-		 * This still feels wrong -- we now use the configured rate, but
-		 * we're still making the assumption that we have rate control
-		 * information. 
-		 * XXX TODO: Don't assume rate control information is present 
-		*/
-	(void) ieee80211_ratectl_rate(ni, NULL, 0);
-	tx->initial_rate_index = iwm_tx_rateidx_lookup(sc, in, rate);
-	ridx = in->in_ridx[tx->initial_rate_index];
-
-	if(type == IEEE80211_FC0_TYPE_DATA) {
 		tx->tx_flags |= htole32(IWM_TX_CMD_FLG_STA_RATE);
 
 		IWM_DPRINTF(sc, IWM_DEBUG_XMIT | IWM_DEBUG_TXRATE,
@@ -2625,25 +2617,20 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 		    __func__, tx->initial_rate_index, iwm_rates[ridx].rate);
 
 		/* XXX no rate_n_flags? */
-		return &iwm_rates[ridx];
+		return &iwm_rates[ridx].rate;
 	}
 
-	rinfo = &iwm_rates[ridx];
-
-	IWM_DPRINTF(sc, IWM_DEBUG_TXRATE, "%s: ridx=%d; rate=%d, CCK=%d\n",
-	    __func__, ridx,
-	    rinfo->rate,
-	    !! (IWM_RIDX_IS_CCK(ridx))
-	    );
 
 	/* XXX TODO: hard-coded TX antenna? */
 	rate_flags = 1 << IWM_RATE_MCS_ANT_POS;
 	if (IWM_RIDX_IS_CCK(ridx))
 		rate_flags |= IWM_RATE_MCS_CCK_MSK;
+
 	/* XXX hard-coded tx rate */
 	tx->rate_n_flags = htole32(rate_flags | rinfo->plcp);
 
-	return rinfo;
+	/* this should be the preconfigured rate for traffic type */ 
+	return rate;
 }
 
 #define TB0_SIZE 16
@@ -2661,7 +2648,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	struct ieee80211_frame *wh;
 	struct ieee80211_key *k = NULL;
 	struct mbuf *m1;
-	const struct iwm_rate *rinfo;
+	uint8_t rate;
 	uint32_t flags;
 	u_int hdrlen;
 	bus_dma_segment_t *seg, segs[IWM_MAX_SCATTER];
@@ -2688,7 +2675,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	tx = (void *)cmd->data;
 	memset(tx, 0, sizeof(*tx));
 
-	rinfo = iwm_tx_fill_cmd(sc, in, wh, tx, m);
+	rate = iwm_tx_fill_cmd(sc, in, wh, tx, m);
 
 	/* Encrypt the frame if need be. */
 	if (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) {
@@ -2708,7 +2695,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		tap->wt_flags = 0;
 		tap->wt_chan_freq = htole16(ni->ni_chan->ic_freq);
 		tap->wt_chan_flags = htole16(ni->ni_chan->ic_flags);
-		tap->wt_rate = rinfo->rate;
+		tap->wt_rate = rate;
 		if (k != NULL)
 			tap->wt_flags |= IEEE80211_RADIOTAP_F_WEP;
 		ieee80211_radiotap_tx(vap, m);
