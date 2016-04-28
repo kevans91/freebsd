@@ -2586,7 +2586,6 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	struct ieee80211_node *ni = &in->in_ni;
 	struct ieee80211vap *vap = ni->ni_vap;
 	const struct ieee80211_txparam *tp; 
-	const struct iwm_rate *rinfo;
 	int type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
 	int ridx, rate_flags;
 	uint8_t rate;
@@ -2594,7 +2593,7 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	tx->rts_retry_limit = IWM_RTS_DFAULT_RETRY_LIMIT;
 	tx->data_retry_limit = IWM_DEFAULT_TX_RETRY;
 
-	tp = &vap->iv_txparms[ieee80211_chan2mode(ic->ic_curchan)];
+	tp = &vap->iv_txparms[ieee80211_chan2mode(ni->ni_chan)];
 
 	if (type != IEEE80211_FC0_TYPE_DATA || (m->m_flags & M_EAPOL)) {
 		rate = tp->mgmtrate;
@@ -2617,17 +2616,18 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 		    __func__, tx->initial_rate_index, iwm_rates[ridx].rate);
 
 		/* XXX no rate_n_flags? */
-		return &iwm_rates[ridx].rate;
+		return iwm_rates[ridx].rate;
 	}
 
 
 	/* XXX TODO: hard-coded TX antenna? */
 	rate_flags = 1 << IWM_RATE_MCS_ANT_POS;
-	if (IWM_RIDX_IS_CCK(ridx))
+
+	if (IEEE80211_IS_CHAN_CCK(ni->ni_chan))
 		rate_flags |= IWM_RATE_MCS_CCK_MSK;
 
 	/* XXX hard-coded tx rate */
-	tx->rate_n_flags = htole32(rate_flags | rinfo->plcp);
+	tx->rate_n_flags = htole32(rate_flags | ieee80211_rate2plcp(rate, ic->ic_phytype));
 
 	/* this should be the preconfigured rate for traffic type */ 
 	return rate;
