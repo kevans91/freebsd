@@ -543,10 +543,16 @@ tre_compile_literal(fastmatch_t *fg, const tre_char_t *pat, size_t n,
 	 fg->word ? 'y' : 'n', fg->newline ? 'y' : 'n'));
 
   FILL_QSBC;
-  FILL_BMGS;
+  if (fg->wlen == 0)
+    fg->sbmGs = NULL;
+  else
+    FILL_BMGS;
 #ifdef TRE_WCHAR
   FILL_QSBC_WIDE;
-  FILL_BMGS_WIDE;
+  if (fg->wlen == 0)
+    fg->bmGs = NULL;
+  else
+    FILL_BMGS_WIDE;
 #endif
 
   return REG_OK;
