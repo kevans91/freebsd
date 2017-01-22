@@ -321,10 +321,12 @@ procline(struct str *l, int nottext)
 	size_t st = 0, nst = 0;
 	unsigned int i;
 	int c = 0, m = 0, r = 0, lastmatches = 0, leflags = eflags;
+	int startm = 0;
 
 	/* Loop to process the whole line */
 	while (st <= l->len) {
 		lastmatches = 0;
+		startm = m;
 		if (st > 0)
 			leflags |= REG_NOTBOL;
 		/* Loop to compare with all the patterns */
@@ -373,11 +375,10 @@ procline(struct str *l, int nottext)
 					c++;
 
 				if (m < MAX_LINE_MATCHES) {
-						/* Conflicting matches? */
-					if (m > 0 && overlaps(pmatch, matches[m-1])) {
-						/* Replace previous match if the new one is earlier and/or longer */
+					/* Replace previous match if the new one is earlier and/or longer */
+					if (m > startm) {
 						if (pmatch.rm_so < matches[m-1].rm_so ||
-							(pmatch.rm_eo - pmatch.rm_so) >= (matches[m-1].rm_eo - matches[m-1].rm_so)) {
+							(pmatch.rm_eo - pmatch.rm_so) > (matches[m-1].rm_eo - matches[m-1].rm_so)) {
 							matches[m-1] = pmatch;
 							nst = pmatch.rm_eo;
 						}
