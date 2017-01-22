@@ -99,6 +99,18 @@ static int	fastcmp(const fastmatch_t *fg, const void *data,
     fg->pattern[siz] = '\0';						\
   }									\
 
+#define CONV_MBS_PAT(src, dest, destsz)					\
+  {									\
+    destsz = wcstombs(NULL, src, 0);				\
+    if (destsz == (size_t)-1)						\
+      return REG_BADPAT;						\
+    dest = xmalloc(destsz + 1);					\
+    if (dest == NULL)						\
+      return REG_ESPACE;						\
+    wcstombs(dest, src, destsz);				\
+    dest[destsz] = '\0';						\
+  }									\
+
 #define IS_OUT_OF_BOUNDS						\
   ((!fg->reversed							\
     ? ((type == STR_WIDE) ? ((j + fg->wlen) > len)			\
@@ -566,7 +578,7 @@ tre_compile_fast(fastmatch_t *fg, const tre_char_t *pat, size_t n,
   CHECK_MATCHALL(false);
 
   /* Handle word-boundary matching when GNU extensions are enabled */
-  if ((cflags & REG_GNU) && (n >= 14) &&
+  if ((n >= 14) &&
       (memcmp(pat, TRE_CHAR("[[:<:]]"), 7 * sizeof(tre_char_t)) == 0) &&
       (memcmp(pat + n - 7, TRE_CHAR("[[:>:]]"),
 	      7 * sizeof(tre_char_t)) == 0))
@@ -631,7 +643,7 @@ tre_compile_fast(fastmatch_t *fg, const tre_char_t *pat, size_t n,
 	    if (escaped)
 	      {
 		if (!_escmap)
-		  _escmap = xmalloc(n * sizeof(bool));
+		  _escmap = xcalloc(n, sizeof(bool));
 		if (!_escmap)
 		  {
 		    xfree(tmp);
@@ -711,36 +723,38 @@ badpat:
    * than in to the wide string so traverse the converted string, as well,
    * to store these positions.
    */
-  if (fg->hasdot || (fg->wescmap != NULL))
-    {
-      if (fg->wescmap != NULL)
-	{
-	  fg->escmap = xmalloc(fg->len * sizeof(bool));
-	  if (!fg->escmap)
-	    {
-	      tre_free_fast(fg);
-	      return REG_ESPACE;
-	    }
+  if (fg->hasdot || (fg->wescmap != NULL)) {
+	if (fg->wescmap != NULL) {
+		fg->escmap = xcalloc(fg->len, sizeof(bool));
+		if (!fg->escmap) {
+			tre_free_fast(fg);
+			return REG_ESPACE;
+		}
 	}
 
-      escaped = false;
-      for (unsigned int i = 0; i < fg->len; i++)
-	if (fg->pattern[i] == '\\')
-	  escaped = !escaped;
-	else if (fg->pattern[i] == '.' && fg->escmap && escaped)
-	  {
-	    fg->escmap[i] = true;
-	    escaped = false;
-	  }
-	else if (fg->pattern[i] == '.' && !escaped)
-	  {
-	    hasdot = i;
-	    if (firstdot == -1)
-	      firstdot = i;
-	  }
-	else
-	  escaped = false;
-    }
+	escaped = false;
+	char *_checkpat = NULL;
+	size_t _checklen = 0;
+	unsigned int escofs = 0;
+	/* Make a copy of the original pattern, because fg->pattern has already been stripped */
+	CONV_MBS_PAT(pat, _checkpat, _checklen);
+	for (unsigned int i = 0; i < n; i++) {
+		if (_checkpat[i] == '\\') {
+			escaped = !escaped;
+			if(escaped)
+				++ escofs;
+		} else if (_checkpat[i] == '.' && fg->escmap && escaped) {
+			fg->escmap[i - escofs] = true;
+			escaped = false;
+		} else if (_checkpat[i] == '.' && !escaped) {
+			hasdot = i;
+			if (firstdot == -1)
+				firstdot = i;
+		} else
+			escaped = false;
+	}
+	xfree(_checkpat);
+  }
 #else
   SAVE_PATTERN(tmp, pos, fg->pattern, fg->len);
   fg->escmap = _escmap;
