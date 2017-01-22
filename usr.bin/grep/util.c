@@ -299,12 +299,6 @@ procfile(const char *fn)
 }
 
 #define iswword(x)	(iswalnum((x)) || (x) == L'_')
-#define overlaps(a,b) ( \
-		((a.rm_so) >= (b.rm_so) && (a.rm_so) <= (b.rm_eo-1)) || \
-		((a.rm_eo-1) >= (b.rm_so) && (a.rm_eo) <= (b.rm_eo)) || \
-		((a.rm_so) < (b.rm_so) && (a.rm_eo-1) >= (b.rm_so)) || \
-		((a.rm_so) < (b.rm_eo-1) && (a.rm_eo) >= (b.rm_eo)) \
-		)
 
 /*
  * Processes a line comparing it with the specified patterns.  Each pattern
