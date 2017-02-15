@@ -1553,7 +1553,7 @@ mountnfs(struct nfs_args *argp, struct mount *mp, struct sockaddr *nam,
 	 * traversals of the mount point (i.e. "..") will not work if
 	 * the nfsnode gets flushed out of the cache. Ufs does not have
 	 * this problem, because one can identify root inodes by their
-	 * number == ROOTINO (2).
+	 * number == UFS_ROOTINO (2).
 	 */
 	if (nmp->nm_fhsize > 0) {
 		/*

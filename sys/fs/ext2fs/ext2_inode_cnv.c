@@ -127,9 +127,9 @@ ext2_ei2i(struct ext2fs_dinode *ei, struct inode *ip)
 	ip->i_uid |= (uint32_t)ei->e2di_uid_high << 16;
 	ip->i_gid |= (uint32_t)ei->e2di_gid_high << 16;
 
-	for (i = 0; i < NDADDR; i++)
+	for (i = 0; i < EXT2_NDADDR; i++)
 		ip->i_db[i] = ei->e2di_blocks[i];
-	for (i = 0; i < NIADDR; i++)
+	for (i = 0; i < EXT2_NIADDR; i++)
 		ip->i_ib[i] = ei->e2di_blocks[EXT2_NDIR_BLOCKS + i];
 }
 
@@ -190,9 +190,9 @@ ext2_i2ei(struct inode *ip, struct ext2fs_dinode *ei)
 	ei->e2di_gid = ip->i_gid & 0xffff;
 	ei->e2di_gid_high = ip->i_gid >> 16 & 0xffff;
 
-	for (i = 0; i < NDADDR; i++)
+	for (i = 0; i < EXT2_NDADDR; i++)
 		ei->e2di_blocks[i] = ip->i_db[i];
-	for (i = 0; i < NIADDR; i++)
+	for (i = 0; i < EXT2_NIADDR; i++)
 		ei->e2di_blocks[EXT2_NDIR_BLOCKS + i] = ip->i_ib[i];
 
 	return (0);
