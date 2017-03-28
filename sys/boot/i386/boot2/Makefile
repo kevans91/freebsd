@@ -39,8 +39,6 @@ CFLAGS=	-fomit-frame-pointer \
 
 CFLAGS.gcc+=	-Os \
 		-fno-asynchronous-unwind-tables \
-		-fno-guess-branch-probability \
-		-fno-unit-at-a-time \
 		--param max-inline-insns-single=100
 .if ${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} <= 40201
 CFLAGS.gcc+=   -mno-align-long-strings
