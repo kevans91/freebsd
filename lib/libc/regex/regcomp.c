@@ -663,6 +663,12 @@ p_simp_re(struct parse *p,
 		ASTERN(O_PLUS, pos);
 		INSERT(OQUEST_, pos);
 		ASTERN(O_QUEST, pos);
+	} else if (EATTWO('\\', '?')) {
+		INSERT(OQUEST_, pos);
+		ASTERN(O_QUEST, pos);
+	} else if (EATTWO('\\', '+')) {
+		INSERT(OPLUS_, pos);
+		ASTERN(O_PLUS, pos);
 	} else if (EATTWO('\\', '{')) {
 		count = p_count(p);
 		if (EAT(',')) {
