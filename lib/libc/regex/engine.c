@@ -183,6 +183,17 @@ matcher(struct re_guts *g,
 	if (stop < start)
 		return(REG_INVARG);
 
+	/* Trivial zero-length match on empty sub */
+	if (g->iflags & EMPTBR) {
+		if (nmatch > 0) {
+			pmatch[0].rm_so = pmatch[0].rm_eo = 0;
+
+			for (i = 1; i < nmatch; i++)
+				pmatch[i].rm_so = pmatch[i].rm_eo = -1;
+		}
+		return(0);
+	}
+
 	/* prescreening; this does wonders for this rather slow code */
 	if (g->must != NULL) {
 		if (g->charjump != NULL && g->matchjump != NULL) {

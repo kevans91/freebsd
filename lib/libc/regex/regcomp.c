@@ -323,22 +323,28 @@ p_ere(struct parse *p,
 		conc = HERE();
 		while (MORE() && (c = PEEK()) != '|' && c != stop)
 			p_ere_exp(p);
-		(void)REQUIRE(HERE() != conc, REG_EMPTY);	/* require nonempty */
 
-		if (!EAT('|'))
-			break;		/* NOTE BREAK OUT */
+		/* Empty expression; break out*/
+		if (HERE() == conc) {
+			if (stop == OUT)
+				p->g->iflags |= EMPTBR;
+			break;
+		} else {
+			if (!EAT('|'))
+				break;		/* NOTE BREAK OUT */
 
-		if (first) {
-			INSERT(OCH_, conc);	/* offset is wrong */
-			prevfwd = conc;
-			prevback = conc;
-			first = 0;
+			if (first) {
+				INSERT(OCH_, conc);	/* offset is wrong */
+				prevfwd = conc;
+				prevback = conc;
+				first = 0;
+			}
+			ASTERN(OOR1, prevback);
+			prevback = THERE();
+			AHEAD(prevfwd);			/* fix previous offset */
+			prevfwd = HERE();
+			EMIT(OOR2, 0);			/* offset is very wrong */
 		}
-		ASTERN(OOR1, prevback);
-		prevback = THERE();
-		AHEAD(prevfwd);			/* fix previous offset */
-		prevfwd = HERE();
-		EMIT(OOR2, 0);			/* offset is very wrong */
 	}
 
 	if (!first) {		/* tail-end fixups */
