@@ -416,7 +416,7 @@ p_ere_exp(struct parse *p)
 		p->g->neol++;
 		break;
 	case '|':
-		SETERROR(REG_EMPTY);
+		p->g->iflags |= EMPTBR;
 		break;
 	case '*':
 	case '+':
