@@ -28,6 +28,7 @@ ${PACKAGE}DATA_FILES+=		data/bracket.in
 ${PACKAGE}DATA_FILES+=		data/c_comments.in
 ${PACKAGE}DATA_FILES+=		data/complex.in
 ${PACKAGE}DATA_FILES+=		data/error.in
+${PACKAGE}DATA_FILES+=		data/gnuext.in
 ${PACKAGE}DATA_FILES+=		data/meta.in
 ${PACKAGE}DATA_FILES+=		data/nospec.in
 ${PACKAGE}DATA_FILES+=		data/paren.in
