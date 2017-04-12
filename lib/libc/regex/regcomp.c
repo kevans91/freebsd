@@ -361,6 +361,7 @@ p_ere_exp(struct parse *p)
 	sopno pos;
 	int count;
 	int count2;
+	int i;
 	sopno subno;
 	int wascaret = 0;
 
@@ -434,6 +435,29 @@ p_ere_exp(struct parse *p)
 			break;
 		case '>':
 			EMIT(OEOW, 0);
+			break;
+		case '1':
+		case '2':
+		case '3':
+		case '4':
+		case '5':
+		case '6':
+		case '7':
+		case '8':
+		case '9':
+			i = wc - '0';
+			assert(i < NPAREN);
+			if (p->pend[i] != 0) {
+				assert(i <= p->g->nsub);
+				EMIT(OBACK_, i);
+				assert(p->pbegin[i] != 0);
+				assert(OP(p->strip[p->pbegin[i]]) == OLPAREN);
+				assert(OP(p->strip[p->pend[i]]) == ORPAREN);
+				(void) dupl(p, p->pbegin[i]+1, p->pend[i]);
+				EMIT(O_BACK, i);
+			} else
+				SETERROR(REG_ESUBREG);
+			p->g->backrefs = 1;
 			break;
 		default:
 			ordinary(p, wc);
