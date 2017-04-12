@@ -4,9 +4,11 @@ ab\+c	b	abc	abc
 # BRE Branching
 abc\|de	b	abc	abc
 a\|b\|c	b	abc	a
+\(ab\|bc\)	b	abcd	ab
 # ERE Backrefs
-(ab)\1	C	NOMATCH
+(ab)\1	-	ab
 (ab)\1	-	abab	abab
+\1(ab)	C	ESUBREG
 (a)(b)(c)(d)(e)(f)(g)(h)(i)\9	-	abcdefghii	abcdefghii
 # \w, \W, \s, \S (alnum, ^alnum, space, ^space)
 \w+	&	-%@a0X-	a0X
