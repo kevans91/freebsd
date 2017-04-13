@@ -18,7 +18,11 @@ a\|b\|c	b	abc	a
 \babc\b	&	<abc>	abc
 \Babc\B	&	<abc>	b
 # Empty subexpressions
-abc\|	b	abc	abc
+abc\|	b	abc	""
 foo\|	b	abc	""
+\|abc	b	abc	""
+\|foo	b	abc	""
 abc|	-	abc	""
 foo|	-	abc	""
+|abc	-	abc	""
+|foo	-	abc	""
