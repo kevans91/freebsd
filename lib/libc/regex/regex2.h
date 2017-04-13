@@ -102,7 +102,8 @@ typedef long sopno;
 #define	O_CH	(18L<<OPSHIFT)	/* end choice	back to OOR1		*/
 #define	OBOW	(19L<<OPSHIFT)	/* begin word	-			*/
 #define	OEOW	(20L<<OPSHIFT)	/* end word	-			*/
-
+#define	OWBND	(21L<<OPSHIFT)	/* word bound	-			*/
+#define	ONWBND	(22L<<OPSHIFT)	/* not		-			*/
 /*
  * Structures for [] character-set representation.
  */

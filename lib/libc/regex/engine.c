@@ -427,6 +427,8 @@ dissect(struct match *m,
 		case OEOL:
 		case OBOW:
 		case OEOW:
+		case OWBND:
+		case ONWBND:
 			break;
 		case OANY:
 		case OANYOF:
@@ -632,22 +634,24 @@ backref(struct match *m,
 			else
 				return(NULL);
 			break;
+		case OWBND:
 		case OBOW:
 			if (sp < m->endp && ISWORD(*sp) &&
 			    ((sp == m->beginp && !(m->eflags&REG_NOTBOL)) ||
 			    (sp > m->offp && !ISWORD(*(sp-1)))))
 				{ /* yes */ }
-			else
+			else if (OP(s) == OBOW)
 				return(NULL);
-			break;
+			/* FALLTHROUGH */
 		case OEOW:
-			if (( (sp == m->endp && !(m->eflags&REG_NOTEOL)) ||
+			if (OP(s) != OBOW && \
+			    ( (sp == m->endp && !(m->eflags&REG_NOTEOL)) ||
 					(sp < m->endp && *sp == '\n' &&
 						(m->g->cflags&REG_NEWLINE)) ||
 					(sp < m->endp && !ISWORD(*sp)) ) &&
 					(sp > m->beginp && ISWORD(*(sp-1))) )
 				{ /* yes */ }
-			else
+			else if (OP(s) != OBOW)
 				return(NULL);
 			break;
 		case O_QUEST:
@@ -1022,12 +1026,13 @@ step(struct re_guts *g,
 			if (ch == EOL || ch == BOLEOL)
 				FWD(aft, bef, 1);
 			break;
+		case OWBND:
 		case OBOW:
 			if (ch == BOW)
 				FWD(aft, bef, 1);
-			break;
+			/* FALLTHROUGH */
 		case OEOW:
-			if (ch == EOW)
+			if (OP(s) != OBOW && ch == EOW)
 				FWD(aft, bef, 1);
 			break;
 		case OANY:

@@ -442,6 +442,12 @@ p_ere_exp(struct parse *p)
 		case '>':
 			EMIT(OEOW, 0);
 			break;
+		case 'b':
+			EMIT(OWBND, 0);
+			break;
+		case 'B':
+			EMIT(ONWBND, 0);
+			break;
 		case '1':
 		case '2':
 		case '3':
@@ -630,6 +636,12 @@ p_simp_re(struct parse *p,
 		break;
 	case BACKSL|'>':
 		EMIT(OEOW, 0);
+		break;
+	case BACKSL|'b':
+		EMIT(OWBND, 0);
+		break;
+	case BACKSL|'B':
+		EMIT(ONWBND, 0);
 		break;
 	case BACKSL|'{':
 		SETERROR(REG_BADRPT);
@@ -1519,6 +1531,8 @@ findmust(struct parse *p, struct re_guts *g)
 			/* FALLTHROUGH */
 		case OBOW:		/* things that break a sequence */
 		case OEOW:
+		case OWBND:
+		case ONWBND:
 		case OBOL:
 		case OEOL:
 		case O_QUEST:
@@ -1672,6 +1686,8 @@ altoffset(sop *scan, int offset)
 			try++;
 		case OBOW:
 		case OEOW:
+		case OWBND:
+		case ONWBND:
 		case OLPAREN:
 		case ORPAREN:
 		case OOR2:
