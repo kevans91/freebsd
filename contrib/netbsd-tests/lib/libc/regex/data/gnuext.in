@@ -16,7 +16,9 @@ a\|b\|c	b	abc	a
 # Word boundaries (\b, \B, \<, \>, \`, \')
 # (is/not boundary, start/end word, start/end subject string)
 \babc\b	&	<abc>	abc
-\Babc\B	&	<abc>	b
+\B[abc]\B	&	<abc>	b
+\B[abc]+	-	<abc>	bc
+\B[abc]\+	b	<abc>	bc
 # Empty subexpressions
 abc\|	b	abc	""
 foo\|	b	abc	""
