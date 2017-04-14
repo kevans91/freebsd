@@ -26,6 +26,8 @@ a\|b\|c	b	abc	a
 \`abc\'	&	abc	abc
 \`.+\'	-	abNc	abNc
 \`.\+\'	b	abNc	abNc
+(\`a)	-	Na
+(a\')	-	aN
 # Empty subexpressions
 abc\|	b	abc	""
 foo\|	b	abc	""
