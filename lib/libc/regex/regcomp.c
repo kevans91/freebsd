@@ -396,6 +396,12 @@ p_ere_exp(struct parse *p, struct branchc *bc)
 		(void)REQUIRE(MORE(), REG_EESCAPE);
 		wc = WGETNEXT();
 		switch (wc) {
+		case '`':
+			EMIT(OBOS, 0);
+			break;
+		case '\'':
+			EMIT(OEOS, 0);
+			break;
 		case '<':
 			EMIT(OBOW, 0);
 			break;
@@ -710,6 +716,12 @@ p_simp_re(struct parse *p,
 		break;
 	case '[':
 		p_bracket(p);
+		break;
+	case BACKSL|'`':
+		EMIT(OBOS, 0);
+		break;
+	case BACKSL|'\'':
+		EMIT(OEOS, 0);
 		break;
 	case BACKSL|'<':
 		EMIT(OBOW, 0);
