@@ -93,7 +93,9 @@ static int p_simp_re(struct parse *p, int starordinary);
 static int p_count(struct parse *p);
 static void p_bracket(struct parse *p);
 static void p_b_term(struct parse *p, cset *cs);
+static int p_b_pseudoclass(struct parse *p, char c);
 static void p_b_cclass(struct parse *p, cset *cs);
+static void p_b_cclass_named(struct parse *p, cset *cs, const char[]);
 static void p_b_eclass(struct parse *p, cset *cs);
 static wint_t p_b_symbol(struct parse *p);
 static wint_t p_b_coll_elem(struct parse *p, wint_t endc);
@@ -448,6 +450,12 @@ p_ere_exp(struct parse *p)
 		case 'B':
 			EMIT(ONWBND, 0);
 			break;
+		case 'W':
+		case 'w':
+		case 'S':
+		case 's':
+			p_b_pseudoclass(p, wc);
+			break;
 		case '1':
 		case '2':
 		case '3':
@@ -605,6 +613,7 @@ p_simp_re(struct parse *p,
 	int starordinary)	/* is a leading * an ordinary character? */
 {
 	int c;
+	int cc;
 	int count;
 	int count2;
 	sopno pos;
@@ -619,7 +628,8 @@ p_simp_re(struct parse *p,
 	c = GETNEXT();
 	if (c == '\\') {
 		(void)REQUIRE(MORE(), REG_EESCAPE);
-		c = BACKSL | GETNEXT();
+		cc = GETNEXT();
+		c = BACKSL | cc;
 	}
 	switch (c) {
 	case '.':
@@ -665,6 +675,12 @@ p_simp_re(struct parse *p,
 	case BACKSL|')':	/* should not get here -- must be user */
 	case BACKSL|'}':
 		SETERROR(REG_EPAREN);
+		break;
+	case BACKSL|'W':
+	case BACKSL|'w':
+	case BACKSL|'S':
+	case BACKSL|'s':
+		p_b_pseudoclass(p, cc);
 		break;
 	case BACKSL|'1':
 	case BACKSL|'2':
@@ -882,6 +898,41 @@ p_b_term(struct parse *p, cset *cs)
 }
 
 /*
+ - p_b_pseudoclass - parse a pseudo-class (\w, \W, \s, \S)
+ == static int p_b_pseudoclass(struct parse *p, char c)
+ */
+static int
+p_b_pseudoclass(struct parse *p, char c) {
+	cset *cs;
+
+	if ((cs = allocset(p)) == NULL)
+		return(0);
+
+	if (p->g->cflags&REG_ICASE)
+		cs->icase = 1;
+
+	switch (c) {
+	case 'W':
+		cs->invert = 1;
+		/* PASSTHROUGH */
+	case 'w':
+		p_b_cclass_named(p, cs, "alnum");
+		break;
+	case 'S':
+		cs->invert = 1;
+		/* PASSTHROUGH */
+	case 's':
+		p_b_cclass_named(p, cs, "space");
+		break;
+	default:
+		return(0);
+	}
+
+	EMIT(OANYOF, (int)(cs - p->g->sets));
+	return(1);
+}
+
+/*
  - p_b_cclass - parse a character-class name and deal with it
  == static void p_b_cclass(struct parse *p, cset *cs);
  */
@@ -890,7 +941,6 @@ p_b_cclass(struct parse *p, cset *cs)
 {
 	char *sp = p->next;
 	size_t len;
-	wctype_t wct;
 	char clname[16];
 
 	while (MORE() && isalpha((uch)PEEK()))
@@ -902,6 +952,17 @@ p_b_cclass(struct parse *p, cset *cs)
 	}
 	memcpy(clname, sp, len);
 	clname[len] = '\0';
+
+	p_b_cclass_named(p, cs, clname);
+}
+/*
+ - p_b_cclass_named - deal with a named character class
+ == static void p_b_cclass_named(struct parse *p, cset *cs, const char []);
+ */
+static void
+p_b_cclass_named(struct parse *p, cset *cs, const char clname[]) {
+	wctype_t wct;
+
 	if ((wct = wctype(clname)) == 0) {
 		SETERROR(REG_ECTYPE);
 		return;
