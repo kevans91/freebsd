@@ -798,6 +798,7 @@ fast(	struct match *m,
 	states st = m->st;
 	states fresh = m->fresh;
 	states tmp = m->tmp;
+	sopno nxop;
 	const char *p = start;
 	wint_t c;
 	wint_t lastc;		/* previous c */
@@ -866,8 +867,10 @@ fast(	struct match *m,
 		if (flagch != BOW && flagch != EOW &&
 		    lastc != OUT && c != OUT && ISWORD(lastc) == ISWORD(c))
 			sflags |= SNWBND;
+		nxop = OP(m->g->strip[startst]);
 		/* sflags are used for many 0-length matching events, so check those */
-		if (flagch == BOW || flagch == EOW || sflags != 0) {
+		if (flagch == BOW || flagch == EOW ||
+		    nxop == ONWBND || nxop == OBOS || nxop == OEOS) {
 			st = step(m->g, startst, stopst, st, flagch, st, sflags);
 			SP("boweownwbnd", st, c);
 		}
@@ -912,6 +915,7 @@ slow(	struct match *m,
 	states st = m->st;
 	states empty = m->empty;
 	states tmp = m->tmp;
+	sopno nxop;
 	const char *p = start;
 	wint_t c;
 	wint_t lastc;		/* previous c */
@@ -977,8 +981,10 @@ slow(	struct match *m,
 		if (flagch != BOW && flagch != EOW &&
 		    lastc != OUT && c != OUT && ISWORD(lastc) == ISWORD(c))
 			sflags |= SNWBND;
+		nxop = OP(m->g->strip[startst]);
 		/* Consume a match for BOW/EOW markers */
-		if (flagch == BOW || flagch == EOW || OP(m->g->strip[startst]) == ONWBND) {
+		if (flagch == BOW || flagch == EOW ||
+		    nxop == ONWBND || nxop == OBOS || nxop == OEOS) {
 			st = step(m->g, startst, stopst, st, flagch, st, sflags);
 			SP("sboweownbwnd", st, c);
 		}
