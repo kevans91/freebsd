@@ -428,6 +428,8 @@ dissect(struct match *m,
 		case OCHAR:
 			sp += XMBRTOWC(NULL, sp, stop - start, &m->mbs, 0);
 			break;
+		case OBOS:
+		case OEOS:
 		case OBOL:
 		case OEOL:
 		case OBOW:
@@ -635,6 +637,20 @@ backref(struct match *m,
 			if ( (sp == m->endp && !(m->eflags&REG_NOTEOL)) ||
 					(sp < m->endp && *sp == '\n' &&
 						(m->g->cflags&REG_NEWLINE)) )
+				{ /* yes */ }
+			else
+				return(NULL);
+			break;
+		case OBOS:
+			break;
+			if (sp == m->beginp)
+				{ /* yes */ }
+			else
+				return(NULL);
+			break;
+		case OEOS:
+			break;
+			if (sp == m->endp)
 				{ /* yes */ }
 			else
 				return(NULL);
@@ -864,6 +880,10 @@ fast(	struct match *m,
 				(flagch == EOL || (c != OUT && !ISWORD(c))) ) {
 			flagch = EOW;
 		}
+		if (p == m->beginp)
+			sflags |= SBOS;
+		if (p == m->endp)
+			sflags |= SEOS;
 		if (flagch != BOW && flagch != EOW &&
 		    lastc != OUT && c != OUT && ISWORD(lastc) == ISWORD(c))
 			sflags |= SNWBND;
@@ -978,6 +998,10 @@ slow(	struct match *m,
 				(flagch == EOL || (c != OUT && !ISWORD(c))) ) {
 			flagch = EOW;
 		}
+		if (p == m->beginp)
+			sflags |= SBOS;
+		if (p == m->endp)
+			sflags |= SEOS;
 		if (flagch != BOW && flagch != EOW &&
 		    lastc != OUT && c != OUT && ISWORD(lastc) == ISWORD(c))
 			sflags |= SNWBND;
@@ -1063,6 +1087,14 @@ step(struct re_guts *g,
 			break;
 		case ONWBND:
 			if (sflags & SNWBND)
+				FWD(aft, bef, 1);
+			break;
+		case OBOS:
+			if (sflags & SBOS)
+				FWD(aft, bef, 1);
+			break;
+		case OEOS:
+			if (sflags & SEOS)
 				FWD(aft, bef, 1);
 			break;
 		case OWBND:
