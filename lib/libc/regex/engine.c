@@ -651,7 +651,7 @@ backref(struct match *m,
 				return(NULL);
 			/* FALLTHROUGH */
 		case OEOW:
-			if (OP(s) != OBOW && \
+			if (OP(s) != OBOW &&
 			    ( (sp == m->endp && !(m->eflags&REG_NOTEOL)) ||
 					(sp < m->endp && *sp == '\n' &&
 						(m->g->cflags&REG_NEWLINE)) ||
