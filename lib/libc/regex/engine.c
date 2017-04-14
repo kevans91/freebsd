@@ -106,7 +106,7 @@ static const char *dissect(struct match *m, const char *start, const char *stop,
 static const char *backref(struct match *m, const char *start, const char *stop, sopno startst, sopno stopst, sopno lev, int);
 static const char *fast(struct match *m, const char *start, const char *stop, sopno startst, sopno stopst);
 static const char *slow(struct match *m, const char *start, const char *stop, sopno startst, sopno stopst);
-static states step(struct re_guts *g, sopno start, sopno stop, states bef, wint_t ch, states aft);
+static states step(struct re_guts *g, sopno start, sopno stop, states bef, wint_t ch, states aft, int);
 #define MAX_RECURSION	100
 #define	BOL	(OUT-1)
 #define	EOL	(BOL-1)
@@ -634,6 +634,13 @@ backref(struct match *m,
 			else
 				return(NULL);
 			break;
+		case ONWBND:
+			if (sp > m->beginp && sp < m->endp &&
+			    ISWORD(*(sp-1)) == ISWORD(*sp))
+				{ /* yes */ }
+			else
+				return(NULL);
+			break;
 		case OWBND:
 		case OBOW:
 			if (sp < m->endp && ISWORD(*sp) &&
@@ -793,11 +800,12 @@ fast(	struct match *m,
 	int i;
 	const char *coldp;	/* last p after which no match was underway */
 	size_t clen;
+	int nwbnd = 0;
 
 	CLEAR(st);
 	SET1(st, startst);
 	SP("fast", st, *p);
-	st = step(m->g, startst, stopst, st, NOTHING, st);
+	st = step(m->g, startst, stopst, st, NOTHING, st, !nwbnd);
 	ASSIGN(fresh, st);
 	SP("start", st, *p);
 	coldp = NULL;
@@ -812,6 +820,7 @@ fast(	struct match *m,
 		c = (uch)*(start - 1);
 	}
 	for (;;) {
+		nwbnd = 0;
 		/* next character */
 		lastc = c;
 		if (p == m->endp) {
@@ -837,7 +846,7 @@ fast(	struct match *m,
 		}
 		if (i != 0) {
 			for (; i > 0; i--)
-				st = step(m->g, startst, stopst, st, flagch, st);
+				st = step(m->g, startst, stopst, st, flagch, st, !nwbnd);
 			SP("boleol", st, c);
 		}
 
@@ -850,9 +859,14 @@ fast(	struct match *m,
 				(flagch == EOL || (c != OUT && !ISWORD(c))) ) {
 			flagch = EOW;
 		}
-		if (flagch == BOW || flagch == EOW) {
-			st = step(m->g, startst, stopst, st, flagch, st);
-			SP("boweow", st, c);
+		if (flagch != BOW && flagch != EOW &&
+		    lastc != OUT && c != OUT && ISWORD(lastc) == ISWORD(c))
+			nwbnd = 1;
+		if (flagch == BOW || flagch == EOW || OP(m->g->strip[startst]) == ONWBND) {
+			st = step(m->g, startst, stopst, st, flagch, st, !nwbnd);
+			SP("boweownwbnd", st, c);
+			/* Reset nwbnd; it no longer matters */
+			nwbnd = 0;
 		}
 
 		/* are we done? */
@@ -863,9 +877,9 @@ fast(	struct match *m,
 		ASSIGN(tmp, st);
 		ASSIGN(st, fresh);
 		assert(c != OUT);
-		st = step(m->g, startst, stopst, tmp, c, st);
+		st = step(m->g, startst, stopst, tmp, c, st, !nwbnd);
 		SP("aft", st, c);
-		assert(EQ(step(m->g, startst, stopst, st, NOTHING, st), st));
+		assert(EQ(step(m->g, startst, stopst, st, NOTHING, st, !nwbnd), st));
 		p += clen;
 	}
 
@@ -899,12 +913,13 @@ slow(	struct match *m,
 	int i;
 	const char *matchp;	/* last p at which a match ended */
 	size_t clen;
+	int nwbnd = 0;
 
 	AT("slow", start, stop, startst, stopst);
 	CLEAR(st);
 	SET1(st, startst);
 	SP("sstart", st, *p);
-	st = step(m->g, startst, stopst, st, NOTHING, st);
+	st = step(m->g, startst, stopst, st, NOTHING, st, !nwbnd);
 	matchp = NULL;
 	if (start == m->offp || (start == m->beginp && !(m->eflags&REG_NOTBOL)))
 		c = OUT;
@@ -917,6 +932,7 @@ slow(	struct match *m,
 		c = (uch)*(start - 1);
 	}
 	for (;;) {
+		nwbnd = 0;
 		/* next character */
 		lastc = c;
 		if (p == m->endp) {
@@ -940,7 +956,7 @@ slow(	struct match *m,
 		}
 		if (i != 0) {
 			for (; i > 0; i--)
-				st = step(m->g, startst, stopst, st, flagch, st);
+				st = step(m->g, startst, stopst, st, flagch, st, !nwbnd);
 			SP("sboleol", st, c);
 		}
 
@@ -953,9 +969,15 @@ slow(	struct match *m,
 				(flagch == EOL || (c != OUT && !ISWORD(c))) ) {
 			flagch = EOW;
 		}
-		if (flagch == BOW || flagch == EOW) {
-			st = step(m->g, startst, stopst, st, flagch, st);
-			SP("sboweow", st, c);
+		if (flagch != BOW && flagch != EOW &&
+		    lastc != OUT && c != OUT && ISWORD(lastc) == ISWORD(c))
+			nwbnd = 1;
+		/* Consume a match for BOW/EOW markers */
+		if (flagch == BOW || flagch == EOW || OP(m->g->strip[startst]) == ONWBND) {
+			st = step(m->g, startst, stopst, st, flagch, st, !nwbnd);
+			/* Reset nwbnd; it no longer matters */
+			nwbnd = 0;
+			SP("sboweownbwnd", st, c);
 		}
 
 		/* are we done? */
@@ -968,9 +990,9 @@ slow(	struct match *m,
 		ASSIGN(tmp, st);
 		ASSIGN(st, empty);
 		assert(c != OUT);
-		st = step(m->g, startst, stopst, tmp, c, st);
+		st = step(m->g, startst, stopst, tmp, c, st, !nwbnd);
 		SP("saft", st, c);
-		assert(EQ(step(m->g, startst, stopst, st, NOTHING, st), st));
+		assert(EQ(step(m->g, startst, stopst, st, NOTHING, st, !nwbnd), st));
 		p += clen;
 	}
 
@@ -997,7 +1019,8 @@ step(struct re_guts *g,
 	sopno stop,		/* state after stop state within strip */
 	states bef,		/* states reachable before */
 	wint_t ch,		/* character or NONCHAR code */
-	states aft)		/* states already known reachable after */
+	states aft,		/* states already known reachable after */
+	int wbnd)		/* word boundary occurs here*/
 {
 	cset *cs;
 	sop s;
@@ -1024,6 +1047,10 @@ step(struct re_guts *g,
 			break;
 		case OEOL:
 			if (ch == EOL || ch == BOLEOL)
+				FWD(aft, bef, 1);
+			break;
+		case ONWBND:
+			if (!wbnd)
 				FWD(aft, bef, 1);
 			break;
 		case OWBND:
