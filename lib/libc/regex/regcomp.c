@@ -85,6 +85,7 @@ struct branchc {
 	sopno fwd;
 
 	int nbranch;
+	int nsimple;
 	int outer;
 };
 
@@ -95,14 +96,14 @@ extern "C" {
 
 /* === regcomp.c === */
 static void p_ere(struct parse *p, int stop);
-static void p_ere_exp(struct parse *p);
+static void p_ere_exp(struct parse *p, struct branchc *bc);
 static void p_str(struct parse *p);
 static int p_branch_eat_delim(struct parse *p);
 static void p_branch_ins_offset(struct parse *p, struct branchc *bc);
 static void p_branch_fix_tail(struct parse *p, struct branchc *bc);
 static int p_branch_do(struct parse *p, struct branchc *bc);
 static void p_bre(struct parse *p, int end1, int end2);
-static int p_simp_re(struct parse *p, int starordinary);
+static int p_simp_re(struct parse *p, struct branchc *bc);
 static int p_count(struct parse *p);
 static void p_bracket(struct parse *p);
 static void p_b_term(struct parse *p, cset *cs);
@@ -154,6 +155,7 @@ static char nuls[10];		/* place to point scanner in event of error */
 #define	MORE2()	(p->next+1 < p->end)
 #define	SEE(c)	(MORE() && PEEK() == (c))
 #define	SEETWO(a, b)	(MORE() && MORE2() && PEEK() == (a) && PEEK2() == (b))
+#define SEESPEC(a) ((p->g->cflags&REG_EXTENDED) ? SEE(a) : SEETWO('\\', a))
 #define	EAT(c)	((SEE(c)) ? (NEXT(), 1) : 0)
 #define	EATTWO(a, b)	((SEETWO(a, b)) ? (NEXT2(), 1) : 0)
 #define	NEXT()	(p->next++)
@@ -327,7 +329,6 @@ static void
 p_ere(struct parse *p,
 	int stop)		/* character this ERE should end at */
 {
-	char c;
 	struct branchc bc;
 
 	bc.nbranch = 0;
@@ -338,8 +339,11 @@ p_ere(struct parse *p,
 	for (;;) {
 		/* do a bunch of concatenated expressions */
 		bc.start = HERE();
-		while (MORE() && (c = PEEK()) != '|' && c != stop)
-			p_ere_exp(p);
+		bc.nsimple = 0;
+		while (MORE() && !SEESPEC('|') && !SEE(stop)) {
+			p_ere_exp(p, &bc);
+			++bc.nsimple;
+		}
 		if (!p_branch_do(p, &bc))
 			break;
 	}
@@ -353,7 +357,7 @@ p_ere(struct parse *p,
  == static void p_ere_exp(struct parse *p);
  */
 static void
-p_ere_exp(struct parse *p)
+p_ere_exp(struct parse *p, struct branchc *bc)
 {
 	char c;
 	wint_t wc;
@@ -407,9 +411,6 @@ p_ere_exp(struct parse *p)
 		EMIT(OEOL, 0);
 		p->g->iflags |= USEEOL;
 		p->g->neol++;
-		break;
-	case '|':
-		p->g->iflags |= EMPTBR;
 		break;
 	case '*':
 	case '+':
@@ -599,7 +600,7 @@ p_branch_fix_tail(struct parse *p, struct branchc *bc)
 static int
 p_branch_do(struct parse *p, struct branchc *bc)
 {
-	int eaten = 0;
+	int ate = 0;
 
 	/* Empty expression; set the flag if necessary*/
 	if (HERE() == bc->start) {
@@ -607,14 +608,16 @@ p_branch_do(struct parse *p, struct branchc *bc)
 			p->g->iflags |= EMPTBR;
 		return (0);
 	} else {
+		ate = p_branch_eat_delim(p);
+
 		/* If we hit another branch immediately, skip it and set flag */
-		if ((eaten = p_branch_eat_delim(p)) > 1) {
+		if (ate > 1 || (ate == 1 && !MORE())) {
 			if (bc->outer)
 				p->g->iflags |= EMPTBR;
 			return (0);
-		} else if (!eaten || !MORE())
+		}
+		if (ate == 0 || !MORE())
 			return (0);
-
 		p_branch_ins_offset(p, bc);
 	}
 
@@ -636,27 +639,38 @@ p_bre(struct parse *p,
 	int end1,		/* first terminating character */
 	int end2)		/* second terminating character */
 {
-	sopno start = HERE();
-	int first = 1;			/* first subexpression? */
 	int wasdollar = 0;
+	struct branchc bc;
 
-	if (EAT('^')) {
-		EMIT(OBOL, 0);
-		p->g->iflags |= USEBOL;
-		p->g->nbol++;
-	}
-	while (MORE() && !SEETWO(end1, end2)) {
-		wasdollar = p_simp_re(p, first);
-		first = 0;
-	}
-	if (wasdollar) {	/* oops, that was a trailing anchor */
-		DROP(1);
-		EMIT(OEOL, 0);
-		p->g->iflags |= USEEOL;
-		p->g->neol++;
+	bc.nbranch = 0;
+	bc.outer = 0;
+	if (end1 == OUT && end2 == OUT)
+		bc.outer = 1;
+
+	for (;;) {
+		bc.start = HERE();
+		bc.nsimple = 0;
+		if (EAT('^')) {
+			EMIT(OBOL, 0);
+			p->g->iflags |= USEBOL;
+			p->g->nbol++;
+		}
+		while (MORE() && !SEESPEC('|') && !SEETWO(end1, end2)) {
+			wasdollar = p_simp_re(p, &bc);
+			++bc.nsimple;
+		}
+		if (wasdollar) {	/* oops, that was a trailing anchor */
+			DROP(1);
+			EMIT(OEOL, 0);
+			p->g->iflags |= USEEOL;
+			p->g->neol++;
+		}
+		if (!p_branch_do(p, &bc))
+			break;
 	}
 
-	(void)REQUIRE(HERE() != start, REG_EMPTY);	/* require nonempty */
+	p_branch_fix_tail(p, &bc);
+	assert(!MORE() || SEE(end1));
 }
 
 /*
@@ -665,7 +679,7 @@ p_bre(struct parse *p,
  */
 static int			/* was the simple RE an unbackslashed $? */
 p_simp_re(struct parse *p,
-	int starordinary)	/* is a leading * an ordinary character? */
+	struct branchc *bc)
 {
 	int c;
 	int cc;			/* convenient/control character */
@@ -761,7 +775,7 @@ p_simp_re(struct parse *p,
 		p->g->backrefs = 1;
 		break;
 	case '*':
-		(void)REQUIRE(starordinary, REG_BADRPT);
+		(void)REQUIRE(bc->nsimple == 0, REG_BADRPT);
 		/* FALLTHROUGH */
 	default:
 		p->next--;
