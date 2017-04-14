@@ -95,14 +95,13 @@ extern "C" {
 #endif
 
 /* === regcomp.c === */
-static void p_ere(struct parse *p, int stop);
-static void p_ere_exp(struct parse *p, struct branchc *bc);
+static int p_ere_exp(struct parse *p, struct branchc *bc);
 static void p_str(struct parse *p);
 static int p_branch_eat_delim(struct parse *p);
 static void p_branch_ins_offset(struct parse *p, struct branchc *bc);
 static void p_branch_fix_tail(struct parse *p, struct branchc *bc);
 static int p_branch_do(struct parse *p, struct branchc *bc);
-static void p_bre(struct parse *p, int end1, int end2);
+static void p_re(struct parse *p, int end1, int end2);
 static int p_simp_re(struct parse *p, struct branchc *bc);
 static int p_count(struct parse *p);
 static void p_bracket(struct parse *p);
@@ -281,12 +280,10 @@ regcomp(regex_t * __restrict preg,
 	/* do it */
 	EMIT(OEND, 0);
 	g->firststate = THERE();
-	if (cflags&REG_EXTENDED)
-		p_ere(p, OUT);
-	else if (cflags&REG_NOSPEC)
+	if (cflags&REG_NOSPEC)
 		p_str(p);
 	else
-		p_bre(p, OUT, OUT);
+		p_re(p, OUT, OUT);
 	EMIT(OEND, 0);
 	g->laststate = THERE();
 
@@ -322,41 +319,10 @@ regcomp(regex_t * __restrict preg,
 }
 
 /*
- - p_ere - ERE parser top level, concatenation and alternation
- == static void p_ere(struct parse *p, int_t stop);
- */
-static void
-p_ere(struct parse *p,
-	int stop)		/* character this ERE should end at */
-{
-	struct branchc bc;
-
-	bc.nbranch = 0;
-	bc.outer = 0;
-	if (stop == OUT)
-		bc.outer = 1;
-
-	for (;;) {
-		/* do a bunch of concatenated expressions */
-		bc.start = HERE();
-		bc.nsimple = 0;
-		while (MORE() && !SEESPEC('|') && !SEE(stop)) {
-			p_ere_exp(p, &bc);
-			++bc.nsimple;
-		}
-		if (!p_branch_do(p, &bc))
-			break;
-	}
-
-	p_branch_fix_tail(p, &bc);
-	assert(!MORE() || SEE(stop));
-}
-
-/*
  - p_ere_exp - parse one subERE, an atom possibly followed by a repetition op
- == static void p_ere_exp(struct parse *p);
+ == static int p_ere_exp(struct parse *p);
  */
-static void
+static int
 p_ere_exp(struct parse *p, struct branchc *bc)
 {
 	char c;
@@ -381,7 +347,7 @@ p_ere_exp(struct parse *p, struct branchc *bc)
 			p->pbegin[subno] = HERE();
 		EMIT(OLPAREN, subno);
 		if (!SEE(')'))
-			p_ere(p, ')');
+			p_re(p, ')', IGN);
 		if (subno < NPAREN) {
 			p->pend[subno] = HERE();
 			assert(p->pend[subno] != 0);
@@ -487,12 +453,12 @@ p_ere_exp(struct parse *p, struct branchc *bc)
 	}
 
 	if (!MORE())
-		return;
+		return (0);
 	c = PEEK();
 	/* we call { a repetition if followed by a digit */
 	if (!( c == '*' || c == '+' || c == '?' ||
 				(c == '{' && MORE2() && isdigit((uch)PEEK2())) ))
-		return;		/* no repetition, we're done */
+		return (0);		/* no repetition, we're done */
 	NEXT();
 
 	(void)REQUIRE(!wascaret, REG_BADRPT);
@@ -538,12 +504,13 @@ p_ere_exp(struct parse *p, struct branchc *bc)
 	}
 
 	if (!MORE())
-		return;
+		return (0);
 	c = PEEK();
 	if (!( c == '*' || c == '+' || c == '?' ||
 				(c == '{' && MORE2() && isdigit((uch)PEEK2())) ) )
-		return;
+		return (0);
 	SETERROR(REG_BADRPT);
+	return (0);
 }
 
 /*
@@ -558,6 +525,10 @@ p_str(struct parse *p)
 		ordinary(p, WGETNEXT());
 }
 
+/*
+ * Eat consecutive branch delimiters for the kind of expression that we are
+ * parsing, return the number of delimiters that we ate.
+ */
 static int
 p_branch_eat_delim(struct parse *p)
 {
@@ -571,6 +542,10 @@ p_branch_eat_delim(struct parse *p)
 	return nskip;
 }
 
+/*
+ * Insert necessary branch book-keeping operations. This emits a
+ * bogus 'next' offset, since we still have more to parse
+ */
 static void
 p_branch_ins_offset(struct parse *p, struct branchc *bc) {
 	if (!bc->nbranch) {
@@ -587,6 +562,10 @@ p_branch_ins_offset(struct parse *p, struct branchc *bc) {
 	++bc->nbranch;
 }
 
+/*
+ * Fix the offset of the tail branch, if we actually had any branches.
+ * This is to correct the bogus placeholder offset that we use.
+ */
 static void
 p_branch_fix_tail(struct parse *p, struct branchc *bc)
 {
@@ -597,6 +576,11 @@ p_branch_fix_tail(struct parse *p, struct branchc *bc)
 	}
 }
 
+/*
+ * Take care of any branching requirements. This includes inserting the
+ * appropriate branching instructions as well as eating all of the branch
+ * delimiters until we either run out of pattern or need to parse more pattern.
+ */
 static int
 p_branch_do(struct parse *p, struct branchc *bc)
 {
@@ -625,7 +609,7 @@ p_branch_do(struct parse *p, struct branchc *bc)
 }
 
 /*
- - p_bre - BRE parser top level, anchoring and concatenation
+ - p_re - Top level parser, concatenation and BRE anchoring
  == static void p_bre(struct parse *p,  int end1, \
  ==	int end2);
  * Giving end1 as OUT essentially eliminates the end1/end2 check.
@@ -635,47 +619,64 @@ p_branch_do(struct parse *p, struct branchc *bc)
  * The amount of lookahead needed to avoid this kludge is excessive.
  */
 static void
-p_bre(struct parse *p,
+p_re(struct parse *p,
 	int end1,		/* first terminating character */
-	int end2)		/* second terminating character */
+	int end2)		/* second terminating character; ignored for EREs */
 {
 	int wasdollar = 0;
 	struct branchc bc;
+	int (*parse_expr)(struct parse *, struct branchc *);
 
 	bc.nbranch = 0;
 	bc.outer = 0;
 	if (end1 == OUT && end2 == OUT)
 		bc.outer = 1;
-
+	if (p->g->cflags&REG_EXTENDED)
+		parse_expr = p_ere_exp;
+	else
+		parse_expr = p_simp_re;
+#define SEEEND()	((p->g->cflags&REG_EXTENDED) ? SEE(end1) : SEETWO(end1, end2))
 	for (;;) {
 		bc.start = HERE();
 		bc.nsimple = 0;
-		if (EAT('^')) {
+		/*
+		 * Moving BOL/EOL bits into p_simp_re is more complicated than it needs to
+		 * be, because of the complications in looking for the end of the current
+		 * expression. They are better left here than trying to work out the
+		 * equivalent magic in p_simp_bre, mostly for the sake of readability.
+		 */
+		if (!(p->g->cflags&REG_EXTENDED) && EAT('^')) {
 			EMIT(OBOL, 0);
 			p->g->iflags |= USEBOL;
 			p->g->nbol++;
 		}
-		while (MORE() && !SEESPEC('|') && !SEETWO(end1, end2)) {
-			wasdollar = p_simp_re(p, &bc);
+		while (MORE() && !SEESPEC('|') && !SEEEND()) {
+			wasdollar = parse_expr(p, &bc);
 			++bc.nsimple;
 		}
-		if (wasdollar) {	/* oops, that was a trailing anchor */
+		if (!(p->g->cflags&REG_EXTENDED) && wasdollar) {	/* oops, that was a trailing anchor */
 			DROP(1);
 			EMIT(OEOL, 0);
 			p->g->iflags |= USEEOL;
 			p->g->neol++;
 		}
+		/*
+		 * p_branch_do's return value indicates whether we should continue parsing
+		 * or not. This is both for correctness and optimization, because it will
+		 * signal that we need not continue if it encountered an empty branch or
+		 * the end of the string immediately following a branch delimiter.
+		 */
 		if (!p_branch_do(p, &bc))
 			break;
 	}
-
+#undef SEE_END
 	p_branch_fix_tail(p, &bc);
 	assert(!MORE() || SEE(end1));
 }
 
 /*
  - p_simp_re - parse a simple RE, an atom possibly followed by a repetition
- == static int p_simp_re(struct parse *p, int starordinary);
+ == static int p_simp_re(struct parse *p, struct branchc *bc);
  */
 static int			/* was the simple RE an unbackslashed $? */
 p_simp_re(struct parse *p,
@@ -733,7 +734,7 @@ p_simp_re(struct parse *p,
 		EMIT(OLPAREN, subno);
 		/* the MORE here is an error heuristic */
 		if (MORE() && !SEETWO('\\', ')'))
-			p_bre(p, '\\', ')');
+			p_re(p, '\\', ')');
 		if (subno < NPAREN) {
 			p->pend[subno] = HERE();
 			assert(p->pend[subno] != 0);
