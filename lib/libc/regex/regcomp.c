@@ -88,8 +88,16 @@ extern "C" {
 static void p_ere(struct parse *p, int stop);
 static void p_ere_exp(struct parse *p);
 static void p_str(struct parse *p);
+static int p_branch_skip_bre(struct parse *p);
+static int p_branch_skip_ere(struct parse *p);
+static void p_branch_ins_offset(struct parse *p, sopno start, int first,
+    sopno *prevback, sopno *prevfwd);
+static void p_branch_fix_tail(struct parse *p, int first,
+    sopno *prevback, sopno *prevfwd);
 static void p_bre(struct parse *p, int end1, int end2);
 static int p_simp_re(struct parse *p, int starordinary);
+static int p_skip_bre_branch(struct parse *p);
+static int p_skip_ere_branch(struct parse *p);
 static int p_count(struct parse *p);
 static void p_bracket(struct parse *p);
 static void p_b_term(struct parse *p, cset *cs);
@@ -326,7 +334,7 @@ p_ere(struct parse *p,
 		while (MORE() && (c = PEEK()) != '|' && c != stop)
 			p_ere_exp(p);
 
-		/* Empty expression; break out*/
+		/* Empty expression; set the flag if necessary*/
 		if (HERE() == conc) {
 			if (stop == OUT)
 				p->g->iflags |= EMPTBR;
@@ -334,26 +342,21 @@ p_ere(struct parse *p,
 		} else {
 			if (!EAT('|'))
 				break;		/* NOTE BREAK OUT */
-
-			if (first) {
-				INSERT(OCH_, conc);	/* offset is wrong */
-				prevfwd = conc;
-				prevback = conc;
-				first = 0;
+			/* If we hit another branch immediately, skip it and set flag */
+			if (p_branch_skip_ere(p) > 0 && stop == OUT) {
+				p->g->iflags |= EMPTBR;
+				break;
 			}
-			ASTERN(OOR1, prevback);
-			prevback = THERE();
-			AHEAD(prevfwd);			/* fix previous offset */
-			prevfwd = HERE();
-			EMIT(OOR2, 0);			/* offset is very wrong */
+			/* Break out if we had only pipes to the end */
+			if (!MORE())
+				break;
+
+			p_branch_ins_offset(p, conc, first, &prevback, &prevfwd);
+			first = 0;
 		}
 	}
 
-	if (!first) {		/* tail-end fixups */
-		AHEAD(prevfwd);
-		ASTERN(O_CH, prevback);
-	}
-
+	p_branch_fix_tail(p, first, &prevback, &prevfwd);
 	assert(!MORE() || SEE(stop));
 }
 
@@ -564,6 +567,58 @@ p_str(struct parse *p)
 	(void)REQUIRE(MORE(), REG_EMPTY);
 	while (MORE())
 		ordinary(p, WGETNEXT());
+}
+
+static int
+p_branch_skip_bre(struct parse *p)
+{
+	int nskip = 0;
+	while (SEETWO('\\', '|')) {
+		NEXT();
+		++nskip;
+	}
+	return nskip;
+}
+
+static int
+p_branch_skip_ere(struct parse *p)
+{
+	int nskip = 0;
+	while (SEE('|')) {
+		NEXT();
+		++nskip;
+	}
+	return nskip;
+}
+
+static void
+p_branch_ins_offset(struct parse *p,
+    sopno start,
+    int first,
+    sopno *prevback,
+    sopno *prevfwd) {
+	if (first) {
+		INSERT(OCH_, start);	/* offset is wrong */
+		*prevfwd = start;
+		*prevback = start;
+	}
+
+	ASTERN(OOR1, *prevback);
+	*prevback = THERE();
+	AHEAD(*prevfwd);		/* fix previous offset */
+	*prevfwd = HERE();
+	EMIT(OOR2, 0);			/* offset is very wrong */
+}
+
+static void
+p_branch_fix_tail(struct parse *p, int first,
+    sopno *prevback, sopno *prevfwd)
+{
+	/* Fix bogus offset at the tail if we actually have branches */
+	if (!first) {
+		AHEAD(*prevfwd);
+		ASTERN(O_CH, *prevback);
+	}
 }
 
 /*
