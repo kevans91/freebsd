@@ -613,7 +613,7 @@ p_simp_re(struct parse *p,
 	int starordinary)	/* is a leading * an ordinary character? */
 {
 	int c;
-	int cc;
+	int cc;			/* convenient/control character */
 	int count;
 	int count2;
 	sopno pos;
