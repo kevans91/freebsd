@@ -32,7 +32,7 @@
 .\"	@(#)regex.3	8.4 (Berkeley) 3/20/94
 .\" $FreeBSD$
 .\"
-.Dd May 25, 2016
+.Dd April 15, 2017
 .Dt REGEX 3
 .Os
 .Sh NAME
@@ -124,6 +124,11 @@ This is a synonym for 0,
 provided as a counterpart to
 .Dv REG_EXTENDED
 to improve readability.
+.It Dv REG_POSIX
+Compile with more strict
+.St -p1003.2
+conformance. The default behavior is to compile with GNU extensions
+enabled.
 .It Dv REG_NOSPEC
 Compile with recognition of all special characters turned off.
 All characters are thus considered ordinary,
