@@ -246,6 +246,8 @@ try(char *f0, char *f1, char *f2, char *f3, char *f4, int opts)
 	char f0copy[1000];
 	char f2copy[1000];
 
+	if (opt('P', f1))
+		opts |= REG_POSIX;
 	strcpy(f0copy, f0);
 	re.re_endp = (opts&REG_PEND) ? f0copy + strlen(f0copy) : NULL;
 	fixstr(f0copy);

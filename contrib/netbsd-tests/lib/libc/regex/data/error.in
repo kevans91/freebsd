@@ -1,18 +1,18 @@
 # certain syntax errors and non-errors
-|		C	EMPTY
+|		CP	EMPTY
 |		b	|	|
 *		C	BADRPT
 *		b	*	*
 +		C	BADRPT
 ?		C	BADRPT
-""		&C	EMPTY
-()		-	abc	@abc
+""		&CP	EMPTY
+()		P	abc	@abc
 \(\)		b	abc	@abc
-a||b		C	EMPTY
-|ab		C	EMPTY
-ab|		C	EMPTY
-(|a)b		C	EMPTY
-(a|)b		C	EMPTY
+a||b		CP	EMPTY
+|ab		CP	EMPTY
+ab|		CP	EMPTY
+(|a)b		CP	EMPTY
+(a|)b		CP	EMPTY
 (*a)		C	BADRPT
 (+a)		C	BADRPT
 (?a)		C	BADRPT
