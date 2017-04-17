@@ -2,7 +2,7 @@
 # $FreeBSD$
 
 # regex sources
-.PATH: ${LIBC_SRCTOP}/regex
+.PATH: ${SRCTOP}/lib/libc/regex
 
 CFLAGS+=-DPOSIX_MISTAKE
 
