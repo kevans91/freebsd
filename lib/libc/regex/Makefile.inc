@@ -2,16 +2,19 @@
 # $FreeBSD$
 
 # regex sources
-.PATH: ${SRCTOP}/lib/libregex
+.PATH: ${LIBC_SRCTOP}/regex
 
 CFLAGS+=-DPOSIX_MISTAKE
 
 SRCS+=	regcomp.c regerror.c regexec.c regfree.c
 
-SYM_MAPS+=${SRCTOP}/lib/libregex/Symbol.map
+SYM_MAPS+=${LIBC_SRCTOP}/regex/Symbol.map
 
+# Only build manpages
+.if ${LIB} == "c"
 MAN+=	regex.3
 MAN+=	re_format.7
 
 MLINKS+=regex.3 regcomp.3 regex.3 regexec.3 regex.3 regerror.3
 MLINKS+=regexec.3 regfree.3
+.endif
