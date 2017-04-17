@@ -54,7 +54,9 @@ __FBSDID("$FreeBSD$");
 #include <wchar.h>
 #include <wctype.h>
 
+#ifdef LIBC_BUILD
 #include "collate.h"
+#endif
 
 #include "utils.h"
 #include "regex2.h"
@@ -207,7 +209,7 @@ regcomp(regex_t * __restrict preg,
 			return(REG_INVARG);
 		len = preg->re_endp - pattern;
 	} else
-		len = strlen((char *)pattern);
+		len = strlen(pattern);
 
 	/* do the mallocs early so failure handling is easy */
 	g = (struct re_guts *)malloc(sizeof(struct re_guts));
@@ -239,7 +241,7 @@ regcomp(regex_t * __restrict preg,
 
 	/* set things up */
 	p->g = g;
-	p->next = (char *)pattern;	/* convenience; we do not modify it */
+	p->next = __DECONST(char *, pattern);	/* convenience; we do not modify it */
 	p->end = p->next + len;
 	p->error = 0;
 	p->ncsalloc = 0;
@@ -767,9 +769,10 @@ p_b_term(struct parse *p, cset *cs)
 	char c;
 	wint_t start, finish;
 	wint_t i;
+#ifdef LIBC_BUILD
 	struct xlocale_collate *table =
 		(struct xlocale_collate*)__get_locale()->components[XLC_COLLATE];
-
+#endif
 	/* classify what we've got */
 	switch ((MORE()) ? PEEK() : '\0') {
 	case '[':
@@ -816,6 +819,7 @@ p_b_term(struct parse *p, cset *cs)
 		if (start == finish)
 			CHadd(p, cs, start);
 		else {
+#ifdef LIBC_BUILD
 			if (table->__collate_load_error || MB_CUR_MAX > 1) {
 				(void)REQUIRE(start <= finish, REG_ERANGE);
 				CHaddrange(p, cs, start, finish);
@@ -828,6 +832,20 @@ p_b_term(struct parse *p, cset *cs)
 						CHadd(p, cs, i);
 				}
 			}
+#else	/* !LIBC_BUILD */
+			if (MB_CUR_MAX > 1) {
+				(void)REQUIRE(start <= finish, REG_ERANGE);
+				CHaddrange(p, cs, start, finish);
+			} else {
+//				(void)REQUIRE(__wcollate_range_cmp(start, finish) <= 0, REG_ERANGE);
+				for (i = 0; i <= UCHAR_MAX; i++) {
+//					if (   __wcollate_range_cmp(start, i) <= 0
+//					    && __wcollate_range_cmp(i, finish) <= 0
+//					   )
+						CHadd(p, cs, i);
+				}
+			}
+#endif	/* LIBC_BUILD */
 		}
 		break;
 	}
@@ -905,7 +923,7 @@ p_b_coll_elem(struct parse *p,
 {
 	char *sp = p->next;
 	struct cname *cp;
-	int len;
+	size_t len;
 	mbstate_t mbs;
 	wchar_t wc;
 	size_t clen;
