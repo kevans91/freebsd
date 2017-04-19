@@ -56,7 +56,7 @@ NETBSD_ATF_TESTS_C+=	regex_att_test
 CFLAGS.$t+=	-I${TESTSRC} ${IMPLEMENTATION}
 .endfor
 
-.include "${.CURDIR}/../Makefile.netbsd-tests"
+.include "${.CURDIR:H}/Makefile.netbsd-tests"
 
 LIBADD.regex_att_test+=	util
 
