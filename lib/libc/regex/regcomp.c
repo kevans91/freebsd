@@ -68,8 +68,8 @@ __FBSDID("$FreeBSD$");
  * other clumsinesses
  */
 struct parse {
-	char *next;		/* next character in RE */
-	char *end;		/* end of string (-> NUL normally) */
+	const char *next;	/* next character in RE */
+	const char *end;	/* end of string (-> NUL normally) */
 	int error;		/* has an error been seen? */
 	sop *strip;		/* malloced strip */
 	sopno ssize;		/* malloced strip size (allocated) */
@@ -242,7 +242,7 @@ regcomp(regex_t * __restrict preg,
 
 	/* set things up */
 	p->g = g;
-	p->next = __DECONST(char *, pattern);	/* convenience; we do not modify it */
+	p->next = pattern;
 	p->end = p->next + len;
 	p->error = 0;
 	p->ncsalloc = 0;
@@ -864,7 +864,7 @@ p_b_term(struct parse *p, cset *cs)
 static void
 p_b_cclass(struct parse *p, cset *cs)
 {
-	char *sp = p->next;
+	const char *sp = p->next;
 	size_t len;
 	wctype_t wct;
 	char clname[16];
@@ -927,7 +927,7 @@ static wint_t			/* value of collating element */
 p_b_coll_elem(struct parse *p,
 	wint_t endc)		/* name ended by endc,']' */
 {
-	char *sp = p->next;
+	const char *sp = p->next;
 	struct cname *cp;
 	size_t len;
 	mbstate_t mbs;
@@ -979,8 +979,8 @@ othercase(wint_t ch)
 static void
 bothcases(struct parse *p, wint_t ch)
 {
-	char *oldnext = p->next;
-	char *oldend = p->end;
+	const char *oldnext = p->next;
+	const char *oldend = p->end;
 	char bracket[3 + MB_LEN_MAX];
 	size_t n;
 	mbstate_t mbs;
@@ -1033,8 +1033,8 @@ ordinary(struct parse *p, wint_t ch)
 static void
 nonnewline(struct parse *p)
 {
-	char *oldnext = p->next;
-	char *oldend = p->end;
+	const char *oldnext = p->next;
+	const char *oldend = p->end;
 	char bracket[4];
 
 	p->next = bracket;
