@@ -62,6 +62,7 @@ __DEFAULT_YES_OPTIONS = \
     BOOTPARAMD \
     BOOTPD \
     BSD_CPIO \
+    BSD_GREP_FASTMATCH \
     BSDINSTALL \
     BSNMP \
     BZIP2 \
@@ -96,10 +97,8 @@ __DEFAULT_YES_OPTIONS = \
     FTP \
     GAMES \
     GCOV \
-    GNU \
     GNU_DIFF \
     GNU_GREP \
-    GNU_GREP_COMPAT \
     GPIO \
     GPL_DTC \
     GROFF \
@@ -182,12 +181,14 @@ __DEFAULT_NO_OPTIONS = \
     BSD_GREP \
     CLANG_EXTRAS \
     DTRACE_TESTS \
+    GNU_GREP_COMPAT \
     HESIOD \
     LIBSOFT \
     NAND \
     OFED \
     OPENLDAP \
     REPRODUCIBLE_BUILD \
+    RPCBIND_WARMSTART_SUPPORT \
     SHARED_TOOLCHAIN \
     SORT_THREADS \
     SVN \
@@ -451,7 +452,6 @@ MK_${vv:H}:=	${MK_${vv:T}}
 .for var in \
     BLACKLIST \
     BZIP2 \
-    GNU \
     INET \
     INET6 \
     KERBEROS \
