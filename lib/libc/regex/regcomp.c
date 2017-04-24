@@ -929,7 +929,6 @@ p_b_coll_elem(struct parse *p,
 {
 	const char *sp = p->next;
 	struct cname *cp;
-	size_t len;
 	mbstate_t mbs;
 	wchar_t wc;
 	size_t clen, len;
