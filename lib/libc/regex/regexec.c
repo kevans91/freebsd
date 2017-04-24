@@ -226,7 +226,7 @@ regexec(const regex_t * __restrict preg,
 
 	if (MB_CUR_MAX > 1)
 		return(mmatcher(g, string, nmatch, pmatch, eflags));
-	else if (g->nstates <= (sopno)(CHAR_BIT*sizeof(states1)) && !(eflags&REG_LARGE))
+	else if (g->nstates <= CHAR_BIT*sizeof(states1) && !(eflags&REG_LARGE))
 		return(smatcher(g, string, nmatch, pmatch, eflags));
 	else
 		return(lmatcher(g, string, nmatch, pmatch, eflags));

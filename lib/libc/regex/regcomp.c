@@ -932,7 +932,7 @@ p_b_coll_elem(struct parse *p,
 	size_t len;
 	mbstate_t mbs;
 	wchar_t wc;
-	size_t clen;
+	size_t clen, len;
 
 	while (MORE() && !SEETWO(endc, ']'))
 		NEXT();
