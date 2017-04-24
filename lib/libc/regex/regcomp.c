@@ -1511,7 +1511,7 @@ findmust(struct parse *p, struct re_guts *g)
 		case O_QUEST:
 		case O_CH:
 		case OEND:
-			if (newlen > g->mlen) {		/* ends one */
+			if (newlen > (sopno)g->mlen) {		/* ends one */
 				start = newstart;
 				g->mlen = newlen;
 				if (offset > -1) {
@@ -1526,7 +1526,7 @@ findmust(struct parse *p, struct re_guts *g)
 			newlen = 0;
 			break;
 		case OANY:
-			if (newlen > g->mlen) {		/* ends one */
+			if (newlen > (sopno)g->mlen) {		/* ends one */
 				start = newstart;
 				g->mlen = newlen;
 				if (offset > -1) {
@@ -1544,7 +1544,7 @@ findmust(struct parse *p, struct re_guts *g)
 			break;
 		case OANYOF:		/* may or may not invalidate offset */
 			/* First, everything as OANY */
-			if (newlen > g->mlen) {		/* ends one */
+			if (newlen > (sopno)g->mlen) {		/* ends one */
 				start = newstart;
 				g->mlen = newlen;
 				if (offset > -1) {
@@ -1567,7 +1567,7 @@ findmust(struct parse *p, struct re_guts *g)
 			 * save the last known good offset, in case the
 			 * must sequence doesn't occur later.
 			 */
-			if (newlen > g->mlen) {		/* ends one */
+			if (newlen > (sopno)g->mlen) {		/* ends one */
 				start = newstart;
 				g->mlen = newlen;
 				if (offset > -1)
