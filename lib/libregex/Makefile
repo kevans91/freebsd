@@ -5,7 +5,7 @@
 PACKAGE=lib${LIB}
 LIB=	regex
 
-CFLAGS+=	-DLIBREGEX_BUILD
+CFLAGS+=	-DLIBREGEX
 LIBC_SRCTOP=	${.CURDIR:H}/libc
 SYMBOL_MAPS=	${SYM_MAPS}
 
@@ -13,6 +13,6 @@ SYMBOL_MAPS=	${SYM_MAPS}
 SUBDIR+=	tests
 .endif
 
-.include "${.CURDIR:H}/Makefile.inc"
+.include "../Makefile.inc"
 .include "${LIBC_SRCTOP}/regex/Makefile.inc"
 .include <bsd.lib.mk>
