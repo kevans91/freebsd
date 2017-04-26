@@ -54,7 +54,7 @@ __FBSDID("$FreeBSD$");
 #include <wchar.h>
 #include <wctype.h>
 
-#ifndef LIBREGEX_BUILD
+#ifndef LIBREGEX
 #include "collate.h"
 #endif
 
@@ -242,7 +242,7 @@ regcomp(regex_t * __restrict preg,
 
 	/* set things up */
 	p->g = g;
-	p->next = pattern;
+	p->next = pattern;	/* convenience; we do not modify it */
 	p->end = p->next + len;
 	p->error = 0;
 	p->ncsalloc = 0;
@@ -763,7 +763,7 @@ p_bracket(struct parse *p)
 static int
 p_range_cmp(wchar_t c1, wchar_t c2)
 {
-#ifndef LIBREGEX_BUILD
+#ifndef LIBREGEX
 	return __wcollate_range_cmp(c1, c2);
 #else
 	/* Copied from libc/collate __wcollate_range_cmp */
@@ -787,7 +787,7 @@ p_b_term(struct parse *p, cset *cs)
 	char c;
 	wint_t start, finish;
 	wint_t i;
-#ifndef LIBREGEX_BUILD
+#ifndef LIBREGEX
 	struct xlocale_collate *table =
 		(struct xlocale_collate*)__get_locale()->components[XLC_COLLATE];
 #endif
@@ -837,7 +837,7 @@ p_b_term(struct parse *p, cset *cs)
 		if (start == finish)
 			CHadd(p, cs, start);
 		else {
-#ifndef LIBREGEX_BUILD
+#ifndef LIBREGEX
 			if (table->__collate_load_error || MB_CUR_MAX > 1) {
 #else
 			if (MB_CUR_MAX > 1) {
