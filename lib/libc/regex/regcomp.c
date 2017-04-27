@@ -716,13 +716,15 @@ p_re(struct parse *p,
 			wasdollar = parse_expr(p, &bc);
 			++bc.nsimple;
 		}
-		(void) REQUIRE(bc.use_gnu || HERE() != bc.start, REG_EMPTY);
 		if (bc.bre && wasdollar) {	/* oops, that was a trailing anchor */
 			DROP(1);
 			EMIT(OEOL, 0);
 			p->g->iflags |= USEEOL;
 			p->g->neol++;
 		}
+		(void) REQUIRE(bc.use_gnu || HERE() != bc.start, REG_EMPTY);
+		if (!bc.use_gnu && bc.bre)
+			break;
 		/*
 		 * p_branch_do's return value indicates whether we should continue parsing
 		 * or not. This is both for correctness and optimization, because it will
