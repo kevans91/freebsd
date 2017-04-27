@@ -336,13 +336,18 @@ p_ere_exp(struct parse *p, struct branchc *bc)
 	sopno pos;
 	int count;
 	int count2;
+#ifdef LIBREGEX
 	int i;
+	int handled;
+#endif
 	sopno subno;
 	int wascaret = 0;
-	int handled = 0;
 	assert(MORE());		/* caller should have ensured this */
 	c = GETNEXT();
 
+#ifdef LIBREGEX
+	handled = 0;
+#endif
 	pos = HERE();
 	switch (c) {
 	case '(':
@@ -610,7 +615,7 @@ p_branch_empty(struct parse *p, struct branchc *bc)
 {
 #ifdef LIBREGEX
 	if (bc->outer)
-		p->b->iflags |= EMPTBR;
+		p->g->iflags |= EMPTBR;
 #else
 	SETERROR(REG_EMPTY);
 #endif
