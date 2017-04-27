@@ -156,7 +156,7 @@ static char nuls[10];		/* place to point scanner in event of error */
 #define	MORE2()	(p->next+1 < p->end)
 #define	SEE(c)	(MORE() && PEEK() == (c))
 #define	SEETWO(a, b)	(MORE() && MORE2() && PEEK() == (a) && PEEK2() == (b))
-#define SEESPEC(a) ((p->g->cflags&REG_EXTENDED) ? SEE(a) : SEETWO('\\', a))
+#define	SEESPEC(a)	(p->bre ? SEETWO('\\', a) : SEE(a))
 #define	EAT(c)	((SEE(c)) ? (NEXT(), 1) : 0)
 #define	EATTWO(a, b)	((SEETWO(a, b)) ? (NEXT2(), 1) : 0)
 #define	NEXT()	(p->next++)
