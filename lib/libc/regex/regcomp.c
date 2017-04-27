@@ -104,6 +104,7 @@ static void p_str(struct parse *p);
 static int p_branch_eat_delim(struct parse *p, struct branchc *bc);
 static void p_branch_ins_offset(struct parse *p, struct branchc *bc);
 static void p_branch_fix_tail(struct parse *p, struct branchc *bc);
+static void p_branch_empty(struct parse *p, struct branchc *bc);
 static int p_branch_do(struct parse *p, struct branchc *bc);
 static void p_re(struct parse *p, int end1, int end2);
 static int p_simp_re(struct parse *p, struct branchc *bc);
@@ -400,6 +401,7 @@ p_ere_exp(struct parse *p, struct branchc *bc)
 	case '\\':
 		(void)REQUIRE(MORE(), REG_EESCAPE);
 		wc = WGETNEXT();
+#ifdef LIBREGEX
 		if (bc->use_gnu) {
 			handled = 1;
 			switch (wc) {
@@ -451,6 +453,7 @@ p_ere_exp(struct parse *p, struct branchc *bc)
 			if (handled)
 				break;
 		}
+#endif
 		switch (wc) {
 		case '<':
 			EMIT(OBOW, 0);
@@ -598,6 +601,22 @@ p_branch_fix_tail(struct parse *p, struct branchc *bc)
 }
 
 /*
+ * Signal to the parser that an empty branch has been encountered
+ * by either setting EMPTBR or throwing REG_EMPTY, depending on whether
+ * we're libregex or not.
+ */
+static void
+p_branch_empty(struct parse *p, struct branchc *bc)
+{
+#ifdef LIBREGEX
+	if (bc->outer)
+		p->b->iflags |= EMPTBR;
+#else
+	SETERROR(REG_EMPTY);
+#endif
+}
+
+/*
  * Take care of any branching requirements. This includes inserting the
  * appropriate branching instructions as well as eating all of the branch
  * delimiters until we either run out of pattern or need to parse more pattern.
@@ -609,8 +628,7 @@ p_branch_do(struct parse *p, struct branchc *bc)
 
 	/* Empty expression; set the flag if necessary*/
 	if (HERE() == bc->start) {
-		if (bc->outer)
-			p->g->iflags |= EMPTBR;
+		p_branch_empty(p, bc);
 		return (0);
 	} else {
 		ate = p_branch_eat_delim(p, bc);
@@ -618,8 +636,7 @@ p_branch_do(struct parse *p, struct branchc *bc)
 		    (ate == 1 && MORE()), REG_EMPTY);
 		/* If we hit another branch immediately, skip it and set flag */
 		if (ate > 1 || (ate == 1 && !MORE())) {
-			if (bc->outer)
-				p->g->iflags |= EMPTBR;
+			p_branch_empty(p, bc);
 			return (0);
 		}
 		if (ate == 0 || !MORE())
@@ -650,7 +667,11 @@ p_re(struct parse *p,
 	int (*parse_expr)(struct parse *, struct branchc *);
 	int do_branch = 1;
 
+#ifdef LIBREGEX
 	bc.use_gnu = 1;
+#else
+	bc.use_gnu = 0;
+#endif
 	bc.bre = 0;
 	if (p->g->cflags&REG_EXTENDED) {
 		parse_expr = p_ere_exp;
@@ -659,8 +680,10 @@ p_re(struct parse *p,
 		parse_expr = p_simp_re;
 		bc.bre = 1;
 	}
+#ifdef LIBREGEX
 	if (p->g->cflags&REG_POSIX)
 		bc.use_gnu = 0;
+#endif
 	/* Disable branching for BREs when we're in POSIX mode */
 	if (!bc.use_gnu && bc.bre)
 		do_branch = 0;
@@ -739,7 +762,7 @@ p_simp_re(struct parse *p,
 		(void)REQUIRE(MORE(), REG_EESCAPE);
 		cc = GETNEXT();
 		c = BACKSL | cc;
-
+#ifdef LIBREGEX
 		if (bc->use_gnu) {
 			handled = 1;
 			switch (c) {
@@ -765,6 +788,7 @@ p_simp_re(struct parse *p,
 				handled = 0;
 			}
 		}
+#endif
 	}
 	if (!handled) {
 		switch (c) {
@@ -845,12 +869,14 @@ p_simp_re(struct parse *p,
 		ASTERN(O_PLUS, pos);
 		INSERT(OQUEST_, pos);
 		ASTERN(O_QUEST, pos);
-	} else if (EATTWO('\\', '?')) {
+#ifdef LIBREGEX
+	} else if (bc->use_gnu && EATTWO('\\', '?')) {
 		INSERT(OQUEST_, pos);
 		ASTERN(O_QUEST, pos);
-	} else if (EATTWO('\\', '+')) {
+	} else if (bc->use_gnu && EATTWO('\\', '+')) {
 		INSERT(OPLUS_, pos);
 		ASTERN(O_PLUS, pos);
+#endif
 	} else if (EATTWO('\\', '{')) {
 		count = p_count(p);
 		if (EAT(',')) {
