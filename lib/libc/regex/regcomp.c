@@ -78,6 +78,7 @@ struct branchc {
 struct parse {
 	const char *next;	/* next character in RE */
 	const char *end;	/* end of string (-> NUL normally) */
+	int allowbranch;	/* can this expression branch? */
 	int bre;		/* convenience; is this a BRE? */
 	int error;		/* has an error been seen? */
 	sop *strip;		/* malloced strip */
@@ -264,6 +265,14 @@ regcomp(regex_t * __restrict preg,
 		p->pbegin[i] = 0;
 		p->pend[i] = 0;
 	}
+	p->allowbranch = 0;
+	p->bre = 1;
+	if (cflags&REG_EXTENDED) {
+		p->allowbranch = 1;
+		p->bre = 0;
+		p->parse_expr = p_ere_exp;
+	} else
+		p->parse_expr = p_simp_re;
 	g->sets = NULL;
 	g->ncsets = 0;
 	g->cflags = cflags;
@@ -277,12 +286,6 @@ regcomp(regex_t * __restrict preg,
 	g->mlen = 0;
 	g->nsub = 0;
 	g->backrefs = 0;
-	p->bre = 1;
-	if (p->g->cflags&REG_EXTENDED) {
-		p->bre = 0;
-		p->parse_expr = p_ere_exp;
-	} else
-		p->parse_expr = p_simp_re;
 
 	/* do it */
 	EMIT(OEND, 0);
@@ -593,11 +596,6 @@ p_re(struct parse *p,
 {
 	int wasdollar = 0;
 	struct branchc bc;
-	int do_branch = 1;
-
-	/* Disable branching for BREs when we're in POSIX mode */
-	if (p->bre)
-		do_branch = 0;
 
 	bc.nbranch = 0;
 	bc.outer = 0;
@@ -630,7 +628,7 @@ p_re(struct parse *p,
 		}
 		(void) REQUIRE(HERE() != bc.start, REG_EMPTY);
 		/* Expressions that don't support branching can stop here */
-		if (!do_branch)
+		if (!p->allowbranch)
 			break;
 		/*
 		 * p_branch_do's return value indicates whether we should continue parsing
@@ -642,7 +640,7 @@ p_re(struct parse *p,
 			break;
 	}
 #undef SEE_END
-	if (do_branch)
+	if (p->allowbranch)
 		p_branch_fix_tail(p, &bc);
 	assert(!MORE() || SEE(end1));
 }
