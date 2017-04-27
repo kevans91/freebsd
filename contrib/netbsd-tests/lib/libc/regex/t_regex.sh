@@ -70,5 +70,4 @@ atf_init_test_cases()
 	create_tc zero "Checks NULs"
 	create_tc word_bound "Checks word boundaries"
 	create_tc regress "Checks various past problems and suspected problems"
-	create_tc gnuext "Checks GNU extension functionality"
 }
