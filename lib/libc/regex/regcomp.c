@@ -591,8 +591,8 @@ p_branch_do(struct parse *p, struct branchc *bc)
  */
 static void
 p_re(struct parse *p,
-	int end1,		/* first terminating character */
-	int end2)		/* second terminating character; ignored for EREs */
+	int end1,	/* first terminating character */
+	int end2)	/* second terminating character; ignored for EREs */
 {
 	int wasdollar = 0;
 	struct branchc bc;
@@ -601,15 +601,14 @@ p_re(struct parse *p,
 	bc.outer = 0;
 	if (end1 == OUT && end2 == OUT)
 		bc.outer = 1;
-#define SEEEND()	(!p->bre ? SEE(end1) : SEETWO(end1, end2))
+#define	SEEEND()	(!p->bre ? SEE(end1) : SEETWO(end1, end2))
 	for (;;) {
 		bc.start = HERE();
 		bc.nchain = 0;
 		/*
-		 * Moving BOL/EOL bits into p_simp_re is more complicated than it needs to
-		 * be, because of the complications in looking for the end of the current
-		 * expression. They are better left here than trying to work out the
-		 * equivalent magic in p_simp_bre, mostly for the sake of readability.
+		 * Does not move cleanly into expression parser because of
+		 * ordinary interpration of * at the beginning position of
+		 * an expression.
 		 */
 		if (p->bre && EAT('^')) {
 			EMIT(OBOL, 0);
@@ -620,21 +619,22 @@ p_re(struct parse *p,
 			wasdollar = p->parse_expr(p, &bc);
 			++bc.nchain;
 		}
-		if (p->bre && wasdollar) {	/* oops, that was a trailing anchor */
+		/* oops, that was a trailing anchor */
+		if (p->bre && wasdollar) {
 			DROP(1);
 			EMIT(OEOL, 0);
 			p->g->iflags |= USEEOL;
 			p->g->neol++;
 		}
 		(void) REQUIRE(HERE() != bc.start, REG_EMPTY);
-		/* Expressions that don't support branching can stop here */
 		if (!p->allowbranch)
 			break;
 		/*
-		 * p_branch_do's return value indicates whether we should continue parsing
-		 * or not. This is both for correctness and optimization, because it will
-		 * signal that we need not continue if it encountered an empty branch or
-		 * the end of the string immediately following a branch delimiter.
+		 * p_branch_do's return value indicates whether we should
+		 * continue parsing or not. This is both for correctness and
+		 * a slight optimization, because it will check if we've
+		 * encountered an empty branch or the end of the string
+		 * immediately following a branch delimiter.
 		 */
 		if (p_branch_do(p, &bc) != 0)
 			break;
