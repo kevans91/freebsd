@@ -723,7 +723,7 @@ backref(struct match *m,
 		ssp = m->offp + m->pmatch[i].rm_so;
 		if (memcmp(sp, ssp, len) != 0)
 			return(NULL);
-		while (m->g->strip[ss] != SOP(O_BACK, i))
+		while (m->g->strip[ss] != (sop)SOP(O_BACK, i))
 			ss++;
 		return(backref(m, sp+len, stop, ss+1, stopst, lev, rec));
 	case OQUEST_:		/* to null or not */
@@ -899,7 +899,7 @@ fast(	struct match *m,
 		sflags = 0;
 
 		/* are we done? */
-		if (ISSET(st, stopst) || p == stop || clen > stop - p)
+		if (ISSET(st, stopst) || p == stop || clen > (size_t)(stop - p))
 			break;		/* NOTE BREAK OUT */
 
 		/* no, we must deal with this character */
@@ -1019,7 +1019,7 @@ slow(	struct match *m,
 		/* are we done? */
 		if (ISSET(st, stopst))
 			matchp = p;
-		if (EQ(st, empty) || p == stop || clen > stop - p)
+		if (EQ(st, empty) || p == stop || clen > (size_t)(stop - p))
 			break;		/* NOTE BREAK OUT */
 
 		/* no, we must deal with this character */

@@ -160,6 +160,7 @@ _libcplusplus=	libc++
 .endif
 
 SUBDIR.${MK_EFI}+=	libefivar
+SUBDIR.${MK_LIBREGEX}+=	libregex
 SUBDIR.${MK_LIBTHR}+=	libthr
 SUBDIR.${MK_LLVM_LIBUNWIND}+=	libgcc_eh
 SUBDIR.${MK_LLVM_LIBUNWIND}+=	libgcc_s
