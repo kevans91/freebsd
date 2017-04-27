@@ -66,8 +66,8 @@ __FBSDID("$FreeBSD$");
  * other clumsinesses
  */
 struct parse {
-	char *next;		/* next character in RE */
-	char *end;		/* end of string (-> NUL normally) */
+	const char *next;	/* next character in RE */
+	const char *end;	/* end of string (-> NUL normally) */
 	int error;		/* has an error been seen? */
 	sop *strip;		/* malloced strip */
 	sopno ssize;		/* malloced strip size (allocated) */
@@ -225,7 +225,7 @@ regcomp(regex_t * __restrict preg,
 			return(REG_INVARG);
 		len = preg->re_endp - pattern;
 	} else
-		len = strlen((char *)pattern);
+		len = strlen(pattern);
 
 	/* do the mallocs early so failure handling is easy */
 	g = (struct re_guts *)malloc(sizeof(struct re_guts));
@@ -257,7 +257,7 @@ regcomp(regex_t * __restrict preg,
 
 	/* set things up */
 	p->g = g;
-	p->next = (char *)pattern;	/* convenience; we do not modify it */
+	p->next = pattern;	/* convenience; we do not modify it */
 	p->end = p->next + len;
 	p->error = 0;
 	p->ncsalloc = 0;
@@ -1060,7 +1060,7 @@ p_b_pseudoclass(struct parse *p, char c) {
 static void
 p_b_cclass(struct parse *p, cset *cs)
 {
-	char *sp = p->next;
+	const char *sp = p->next;
 	size_t len;
 	char clname[16];
 
@@ -1133,12 +1133,11 @@ static wint_t			/* value of collating element */
 p_b_coll_elem(struct parse *p,
 	wint_t endc)		/* name ended by endc,']' */
 {
-	char *sp = p->next;
+	const char *sp = p->next;
 	struct cname *cp;
-	int len;
 	mbstate_t mbs;
 	wchar_t wc;
-	size_t clen;
+	size_t clen, len;
 
 	while (MORE() && !SEETWO(endc, ']'))
 		NEXT();
@@ -1185,8 +1184,8 @@ othercase(wint_t ch)
 static void
 bothcases(struct parse *p, wint_t ch)
 {
-	char *oldnext = p->next;
-	char *oldend = p->end;
+	const char *oldnext = p->next;
+	const char *oldend = p->end;
 	char bracket[3 + MB_LEN_MAX];
 	size_t n;
 	mbstate_t mbs;
@@ -1239,8 +1238,8 @@ ordinary(struct parse *p, wint_t ch)
 static void
 nonnewline(struct parse *p)
 {
-	char *oldnext = p->next;
-	char *oldend = p->end;
+	const char *oldnext = p->next;
+	const char *oldend = p->end;
 	char bracket[4];
 
 	p->next = bracket;
