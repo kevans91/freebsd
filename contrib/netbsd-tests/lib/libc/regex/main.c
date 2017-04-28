@@ -37,6 +37,10 @@
 
 #include "test_regex.h"
 
+#ifndef REG_POSIX
+#define REG_POSIX	0	/* no-op */
+#endif
+
 char *progname;
 int debug = 0;
 int line = 0;
