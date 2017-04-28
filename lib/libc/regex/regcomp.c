@@ -271,15 +271,16 @@ regcomp(regex_t * __restrict preg,
 		p->pbegin[i] = 0;
 		p->pend[i] = 0;
 	}
-	p->allowbranch = 0;
-	p->bre = 1;
 #ifdef LIBREGEX
 	p->gnuext = 1;
+	p->allowbranch = 1;
 	if (cflags&REG_POSIX)
 		p->gnuext = 0;
 #else
+	p->allowbranch = 0;
 	p->gnuext = 0;
 #endif
+	p->bre = 1;
 	if (cflags&REG_EXTENDED) {
 		p->allowbranch = 1;
 		p->bre = 0;
@@ -711,7 +712,11 @@ p_re(struct parse *p,
 			p->g->iflags |= USEEOL;
 			p->g->neol++;
 		}
-		(void) REQUIRE(HERE() != bc.start, REG_EMPTY);
+		(void) REQUIRE(p->gnuext || HERE() != bc.start, REG_EMPTY);
+#ifdef LIBREGEX
+		if (HERE() == bc.start)
+			p_branch_empty(p, &bc);
+#endif
 		if (!p->allowbranch)
 			break;
 		/*
