@@ -51,8 +51,8 @@ ext2_print_inode(struct inode *in)
 
 	printf("Inode: %5ju", (uintmax_t)in->i_number);
 	printf(	/* "Inode: %5d" */
-	    " Type: %10s Mode: 0x%o Flags: 0x%x  Version: %d\n",
-	    "n/a", in->i_mode, in->i_flags, in->i_gen);
+	    " Type: %10s Mode: 0x%o Flags: 0x%x  Version: %d acl: 0x%llx\n",
+	    "n/a", in->i_mode, in->i_flags, in->i_gen, in->i_facl);
 	printf("User: %5u Group: %5u  Size: %ju\n",
 	    in->i_uid, in->i_gid, (uintmax_t)in->i_size);
 	printf("Links: %3d Blockcount: %ju\n",
@@ -124,7 +124,9 @@ ext2_ei2i(struct ext2fs_dinode *ei, struct inode *ip)
 	ip->i_gen = ei->e2di_gen;
 	ip->i_uid = ei->e2di_uid;
 	ip->i_gid = ei->e2di_gid;
-	/* XXX use memcpy */
+	ip->i_uid |= (uint32_t)ei->e2di_uid_high << 16;
+	ip->i_gid |= (uint32_t)ei->e2di_gid_high << 16;
+
 	for (i = 0; i < EXT2_NDADDR; i++)
 		ip->i_db[i] = ei->e2di_blocks[i];
 	for (i = 0; i < EXT2_NIADDR; i++)
@@ -167,10 +169,14 @@ ext2_i2ei(struct inode *ip, struct ext2fs_dinode *ei)
 	ei->e2di_flags |= (ip->i_flag & IN_E4EXTENTS) ? EXT4_EXTENTS : 0;
 	ei->e2di_nblock = ip->i_blocks & 0xffffffff;
 	ei->e2di_nblock_high = ip->i_blocks >> 32 & 0xffff;
+	ei->e2di_facl = ip->i_facl & 0xffffffff;
+	ei->e2di_facl_high = ip->i_facl >> 32 & 0xffff;
 	ei->e2di_gen = ip->i_gen;
-	ei->e2di_uid = ip->i_uid;
-	ei->e2di_gid = ip->i_gid;
-	/* XXX use memcpy */
+	ei->e2di_uid = ip->i_uid & 0xffff;
+	ei->e2di_uid_high = ip->i_uid >> 16 & 0xffff;
+	ei->e2di_gid = ip->i_gid & 0xffff;
+	ei->e2di_gid_high = ip->i_gid >> 16 & 0xffff;
+
 	for (i = 0; i < EXT2_NDADDR; i++)
 		ei->e2di_blocks[i] = ip->i_db[i];
 	for (i = 0; i < EXT2_NIADDR; i++)

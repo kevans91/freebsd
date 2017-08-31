@@ -615,6 +615,16 @@ t4_tweak_chip_settings(struct adapter *sc)
 		else
 			v = V_TSCALE(tscale - 2);
 		t4_set_reg_field(sc, A_SGE_ITP_CONTROL, m, v);
+
+		if (sc->debug_flags & DF_DISABLE_TCB_CACHE) {
+			m = V_RDTHRESHOLD(M_RDTHRESHOLD) | F_WRTHRTHRESHEN |
+			    V_WRTHRTHRESH(M_WRTHRTHRESH);
+			t4_tp_pio_read(sc, &v, 1, A_TP_CMM_CONFIG, 1);
+			v &= ~m;
+			v |= V_RDTHRESHOLD(1) | F_WRTHRTHRESHEN |
+			    V_WRTHRTHRESH(16);
+			t4_tp_pio_write(sc, &v, 1, A_TP_CMM_CONFIG, 1);
+		}
 	}
 
 	/* 4K, 16K, 64K, 256K DDP "page sizes" for TDDP */
@@ -827,7 +837,7 @@ t4_read_chip_settings(struct adapter *sc)
 		rc = EINVAL;
 	}
 
-	t4_init_tp_params(sc);
+	t4_init_tp_params(sc, 1);
 
 	t4_read_mtu_tbl(sc, sc->params.mtus, NULL);
 	t4_load_mtus(sc, sc->params.mtus, sc->params.a_wnd, sc->params.b_wnd);
@@ -969,6 +979,11 @@ vi_intr_iq(struct vi_info *vi, int idx)
 		return (&sc->sge.fwq);
 
 	nintr = vi->nintr;
+#ifdef DEV_NETMAP
+	/* Do not consider any netmap-only interrupts */
+	if (vi->flags & INTR_RXQ && vi->nnmrxq > vi->nrxq)
+		nintr -= vi->nnmrxq - vi->nrxq;
+#endif
 	KASSERT(nintr != 0,
 	    ("%s: vi %p has no exclusive interrupts, total interrupts = %d",
 	    __func__, vi, sc->intr_count));
@@ -2452,6 +2467,13 @@ cannot_use_txpkts(struct mbuf *m)
 	return (needs_tso(m));
 }
 
+static inline int
+discard_tx(struct sge_eq *eq)
+{
+
+	return ((eq->flags & (EQ_ENABLED | EQ_QFLUSH)) != EQ_ENABLED);
+}
+
 /*
  * r->items[cidx] to r->items[pidx], with a wraparound at r->size, are ready to
  * be consumed.  Return the actual number consumed.  0 indicates a stall.
@@ -2477,7 +2499,7 @@ eth_tx(struct mp_ring *r, u_int cidx, u_int pidx)
 	total = 0;
 
 	TXQ_LOCK(txq);
-	if (__predict_false((eq->flags & EQ_ENABLED) == 0)) {
+	if (__predict_false(discard_tx(eq))) {
 		while (cidx != pidx) {
 			m0 = r->items[cidx];
 			m_freem(m0);
@@ -3252,6 +3274,7 @@ alloc_nm_rxq(struct vi_info *vi, struct sge_nm_rxq *nm_rxq, int intr_idx,
 	nm_rxq->fl_pidx = nm_rxq->fl_cidx = 0;
 	nm_rxq->fl_sidx = na->num_rx_desc;
 	nm_rxq->intr_idx = intr_idx;
+	nm_rxq->iq_cntxt_id = INVALID_NM_RXQ_CNTXT_ID;
 
 	ctx = &vi->ctx;
 	children = SYSCTL_CHILDREN(oid);
@@ -3293,6 +3316,11 @@ free_nm_rxq(struct vi_info *vi, struct sge_nm_rxq *nm_rxq)
 {
 	struct adapter *sc = vi->pi->adapter;
 
+	if (vi->flags & VI_INIT_DONE)
+		MPASS(nm_rxq->iq_cntxt_id == INVALID_NM_RXQ_CNTXT_ID);
+	else
+		MPASS(nm_rxq->iq_cntxt_id == 0);
+
 	free_ring(sc, nm_rxq->iq_desc_tag, nm_rxq->iq_desc_map, nm_rxq->iq_ba,
 	    nm_rxq->iq_desc);
 	free_ring(sc, nm_rxq->fl_desc_tag, nm_rxq->fl_desc_map, nm_rxq->fl_ba,
@@ -3327,6 +3355,7 @@ alloc_nm_txq(struct vi_info *vi, struct sge_nm_txq *nm_txq, int iqidx, int idx,
 	    V_TXPKT_INTF(pi->tx_chan) | V_TXPKT_PF(G_FW_VIID_PFN(vi->viid)) |
 	    V_TXPKT_VF(G_FW_VIID_VIN(vi->viid)) |
 	    V_TXPKT_VF_VLD(G_FW_VIID_VIVLD(vi->viid)));
+	nm_txq->cntxt_id = INVALID_NM_TXQ_CNTXT_ID;
 
 	snprintf(name, sizeof(name), "%d", idx);
 	oid = SYSCTL_ADD_NODE(&vi->ctx, children, OID_AUTO, name, CTLFLAG_RD,
@@ -3349,6 +3378,11 @@ static int
 free_nm_txq(struct vi_info *vi, struct sge_nm_txq *nm_txq)
 {
 	struct adapter *sc = vi->pi->adapter;
+
+	if (vi->flags & VI_INIT_DONE)
+		MPASS(nm_txq->cntxt_id == INVALID_NM_TXQ_CNTXT_ID);
+	else
+		MPASS(nm_txq->cntxt_id == 0);
 
 	free_ring(sc, nm_txq->desc_tag, nm_txq->desc_map, nm_txq->ba,
 	    nm_txq->desc);
@@ -4569,12 +4603,8 @@ write_txpkts_wr(struct sge_txq *txq, struct fw_eth_tx_pkts_wr *wr,
 			if (checkwrap &&
 			    (uintptr_t)cpl == (uintptr_t)&eq->desc[eq->sidx])
 				cpl = (void *)&eq->desc[0];
-			txq->txpkts0_pkts += txp->npkt;
-			txq->txpkts0_wrs++;
 		} else {
 			cpl = flitp;
-			txq->txpkts1_pkts += txp->npkt;
-			txq->txpkts1_wrs++;
 		}
 
 		/* Checksum offload */
@@ -4607,6 +4637,14 @@ write_txpkts_wr(struct sge_txq *txq, struct fw_eth_tx_pkts_wr *wr,
 
 		write_gl_to_txd(txq, m, (caddr_t *)(&flitp), checkwrap);
 
+	}
+
+	if (txp->wr_type == 0) {
+		txq->txpkts0_pkts += txp->npkt;
+		txq->txpkts0_wrs++;
+	} else {
+		txq->txpkts1_pkts += txp->npkt;
+		txq->txpkts1_wrs++;
 	}
 
 	txsd = &txq->sdesc[eq->pidx];
@@ -5243,7 +5281,7 @@ sysctl_tc(SYSCTL_HANDLER_ARGS)
 	struct port_info *pi;
 	struct adapter *sc;
 	struct sge_txq *txq;
-	struct tx_sched_class *tc;
+	struct tx_cl_rl_params *tc;
 	int qidx = arg2, rc, tc_idx;
 	uint32_t fw_queue, fw_class;
 
@@ -5257,14 +5295,14 @@ sysctl_tc(SYSCTL_HANDLER_ARGS)
 	if (rc != 0 || req->newptr == NULL)
 		return (rc);
 
+	if (sc->flags & IS_VF)
+		return (EPERM);
+
 	/* Note that -1 is legitimate input (it means unbind). */
 	if (tc_idx < -1 || tc_idx >= sc->chip_params->nsched_cls)
 		return (EINVAL);
 
-	rc = begin_synchronized_op(sc, vi, SLEEP_OK | INTR_OK, "t4stc");
-	if (rc)
-		return (rc);
-
+	mtx_lock(&sc->tc_lock);
 	if (tc_idx == txq->tc_idx) {
 		rc = 0;		/* No change, nothing to do. */
 		goto done;
@@ -5278,35 +5316,45 @@ sysctl_tc(SYSCTL_HANDLER_ARGS)
 		fw_class = 0xffffffff;	/* Unbind. */
 	else {
 		/*
-		 * Bind to a different class.  Ethernet txq's are only allowed
-		 * to bind to cl-rl mode-class for now.  XXX: too restrictive.
+		 * Bind to a different class.
 		 */
-		tc = &pi->tc[tc_idx];
-		if (tc->flags & TX_SC_OK &&
-		    tc->params.level == SCHED_CLASS_LEVEL_CL_RL &&
-		    tc->params.mode == SCHED_CLASS_MODE_CLASS) {
-			/* Ok to proceed. */
-			fw_class = tc_idx;
-		} else {
-			rc = tc->flags & TX_SC_OK ? EBUSY : ENXIO;
+		tc = &pi->sched_params->cl_rl[tc_idx];
+		if (tc->flags & TX_CLRL_ERROR) {
+			/* Previous attempt to set the cl-rl params failed. */
+			rc = EIO;
 			goto done;
+		} else {
+			/*
+			 * Ok to proceed.  Place a reference on the new class
+			 * while still holding on to the reference on the
+			 * previous class, if any.
+			 */
+			fw_class = tc_idx;
+			tc->refcount++;
 		}
 	}
+	mtx_unlock(&sc->tc_lock);
 
+	rc = begin_synchronized_op(sc, vi, SLEEP_OK | INTR_OK, "t4stc");
+	if (rc)
+		return (rc);
 	rc = -t4_set_params(sc, sc->mbox, sc->pf, 0, 1, &fw_queue, &fw_class);
+	end_synchronized_op(sc, 0);
+
+	mtx_lock(&sc->tc_lock);
 	if (rc == 0) {
 		if (txq->tc_idx != -1) {
-			tc = &pi->tc[txq->tc_idx];
+			tc = &pi->sched_params->cl_rl[txq->tc_idx];
 			MPASS(tc->refcount > 0);
 			tc->refcount--;
 		}
-		if (tc_idx != -1) {
-			tc = &pi->tc[tc_idx];
-			tc->refcount++;
-		}
 		txq->tc_idx = tc_idx;
+	} else if (tc_idx != -1) {
+		tc = &pi->sched_params->cl_rl[tc_idx];
+		MPASS(tc->refcount > 0);
+		tc->refcount--;
 	}
 done:
-	end_synchronized_op(sc, 0);
+	mtx_unlock(&sc->tc_lock);
 	return (rc);
 }

@@ -375,7 +375,7 @@ egrep_empty_invalid_head()
 }
 egrep_empty_invalid_body()
 {
-	atf_check -s exit:1 egrep '{' /dev/null
+	atf_check -e ignore -s not-exit:0 egrep '{' /dev/null
 }
 
 atf_test_case zerolen
@@ -390,23 +390,6 @@ zerolen_body()
 	atf_check -o inline:"\n" grep -e "^$" test1
 
 	atf_check -o inline:"Eggs\nCheese\n" grep -v -e "^$" test1
-}
-
-atf_test_case wv_combo_break
-wv_combo_break_head()
-{
-	atf_set "descr" "Check for incorrectly matching lines with both -w and -v flags (PR 218467)"
-}
-wv_combo_break_body()
-{
-	printf "x xx\n" > test1
-	printf "xx x\n" > test2
-
-	atf_check -o file:test1 grep -w "x" test1
-	atf_check -o file:test2 grep -w "x" test2
-
-	atf_check -s exit:1 grep -v -w "x" test1
-	atf_check -s exit:1 grep -v -w "x" test2
 }
 
 atf_test_case wflag_emptypat
@@ -433,6 +416,26 @@ wflag_emptypat_body()
 	atf_check -s exit:1 -o empty grep -w -e "" test3
 
 	atf_check -o file:test4 grep -w -e "" test4
+}
+
+atf_test_case excessive_matches
+excessive_matches_head()
+{
+	atf_set "descr" "Check for proper handling of lines with excessive matches (PR 218811)"
+}
+excessive_matches_body()
+{
+	grep_type
+	if [ $? -eq $GREP_TYPE_GNU_FREEBSD ]; then
+		atf_expect_fail "this test does not pass with GNU grep in base"
+	fi
+
+	for i in $(jot 4096); do
+		printf "x" >> test.in
+	done
+
+	atf_check -s exit:0 -x '[ $(grep -o x test.in | wc -l) -eq 4096 ]'
+	atf_check -s exit:1 -x 'grep -on x test.in | grep -v "1:x"'
 }
 
 atf_test_case fgrep_sanity
@@ -494,6 +497,254 @@ grep_sanity_body()
 
 	atf_check -o inline:"M\n" grep -o -e "M\{1\}" test2
 }
+
+atf_test_case wv_combo_break
+wv_combo_break_head()
+{
+	atf_set "descr" "Check for incorrectly matching lines with both -w and -v flags (PR 218467)"
+}
+wv_combo_break_body()
+{
+	printf "x xx\n" > test1
+	printf "xx x\n" > test2
+
+	atf_check -o file:test1 grep -w "x" test1
+	atf_check -o file:test2 grep -w "x" test2
+
+	atf_check -s exit:1 grep -v -w "x" test1
+	atf_check -s exit:1 grep -v -w "x" test2
+}
+
+atf_test_case ocolor_metadata
+ocolor_metadata_head()
+{
+	atf_set "descr" "Check for -n/-b producing per-line metadata output"
+}
+ocolor_metadata_body()
+{
+	grep_type
+	if [ $? -eq $GREP_TYPE_GNU_FREEBSD ]; then
+		atf_expect_fail "this test does not pass with GNU grep in base"
+	fi
+
+	printf "xxx\nyyyy\nzzz\nfoobarbaz\n" > test1
+	check_expr="^[^:]*[0-9][^:]*:[^:]+$"
+
+	atf_check -o inline:"1:1:xx\n" grep -bon "xx$" test1
+
+	atf_check -o inline:"2:4:yyyy\n" grep -bn "yy" test1
+
+	atf_check -o inline:"2:6:yy\n" grep -bon "yy$" test1
+
+	# These checks ensure that grep isn't producing bogus line numbering
+	# in the middle of a line.
+	atf_check -s exit:1 -x \
+	    "grep -Eon 'x|y|z|f' test1 | grep -Ev '${check_expr}'"
+
+	atf_check -s exit:1 -x \
+	    "grep -En 'x|y|z|f' --color=always test1 | grep -Ev '${check_expr}'"
+
+	atf_check -s exit:1 -x \
+	    "grep -Eon 'x|y|z|f' --color=always test1 | grep -Ev '${check_expr}'"
+}
+
+atf_test_case grep_nomatch_flags
+grep_nomatch_flags_head()
+{
+	atf_set "descr" "Check for no match (-c, -l, -L, -q) flags not producing line matches or context (PR 219077)"
+}
+
+grep_nomatch_flags_body()
+{
+	printf "A\nB\nC\n" > test1
+
+	atf_check -o inline:"1\n" grep -c -C 1 -e "B" test1
+	atf_check -o inline:"1\n" grep -c -B 1 -e "B" test1
+	atf_check -o inline:"1\n" grep -c -A 1 -e "B" test1
+	atf_check -o inline:"1\n" grep -c -C 1 -e "B" test1
+
+	atf_check -o inline:"test1\n" grep -l -e "B" test1
+	atf_check -o inline:"test1\n" grep -l -B 1 -e "B" test1
+	atf_check -o inline:"test1\n" grep -l -A 1 -e "B" test1
+	atf_check -o inline:"test1\n" grep -l -C 1 -e "B" test1
+
+	atf_check -s exit:1 -o inline:"test1\n" grep -L -e "D" test1
+
+	atf_check -o empty grep -q -e "B" test1
+	atf_check -o empty grep -q -B 1 -e "B" test1
+	atf_check -o empty grep -q -A 1 -e "B" test1
+	atf_check -o empty grep -q -C 1 -e "B" test1
+}
+
+atf_test_case badcontext
+badcontext_head()
+{
+	atf_set "descr" "Check for handling of invalid context arguments"
+}
+badcontext_body()
+{
+	printf "A\nB\nC\n" > test1
+
+	atf_check -s not-exit:0 -e ignore grep -A "-1" "B" test1
+
+	atf_check -s not-exit:0 -e ignore grep -B "-1" "B" test1
+
+	atf_check -s not-exit:0 -e ignore grep -C "-1" "B" test1
+
+	atf_check -s not-exit:0 -e ignore grep -A "B" "B" test1
+
+	atf_check -s not-exit:0 -e ignore grep -B "B" "B" test1
+
+	atf_check -s not-exit:0 -e ignore grep -C "B" "B" test1
+}
+
+atf_test_case binary_flags
+binary_flags_head()
+{
+	atf_set "descr" "Check output for binary flags (-a, -I, -U, --binary-files)"
+}
+binary_flags_body()
+{
+	printf "A\000B\000C" > test1
+	printf "A\n\000B\n\000C" > test2
+	binmatchtext="Binary file test1 matches\n"
+
+	# Binaries not treated as text (default, -U)
+	atf_check -o inline:"${binmatchtext}" grep 'B' test1
+	atf_check -o inline:"${binmatchtext}" grep 'B' -C 1 test1
+
+	atf_check -o inline:"${binmatchtext}" grep -U 'B' test1
+	atf_check -o inline:"${binmatchtext}" grep -U 'B' -C 1 test1
+
+	# Binary, -a, no newlines
+	atf_check -o inline:"A\000B\000C\n" grep -a 'B' test1
+	atf_check -o inline:"A\000B\000C\n" grep -a 'B' -C 1 test1
+
+	# Binary, -a, newlines
+	atf_check -o inline:"\000B\n" grep -a 'B' test2
+	atf_check -o inline:"A\n\000B\n\000C\n" grep -a 'B' -C 1 test2
+
+	# Binary files ignored
+	atf_check -s exit:1 grep -I 'B' test2
+
+	# --binary-files equivalence
+	atf_check -o inline:"${binmatchtext}" grep --binary-files=binary 'B' test1
+	atf_check -o inline:"A\000B\000C\n" grep --binary-files=text 'B' test1
+	atf_check -s exit:1 grep --binary-files=without-match 'B' test2
+}
+
+atf_test_case mmap
+mmap_head()
+{
+	atf_set "descr" "Check basic matching with --mmap flag"
+}
+mmap_body()
+{
+	grep_type
+	if [ $? -eq $GREP_TYPE_GNU ]; then
+		atf_expect_fail "gnu grep from ports has no --mmap option"
+	fi
+
+	printf "A\nB\nC\n" > test1
+
+	atf_check -s exit:0 -o inline:"B\n" grep --mmap -oe "B" test1
+	atf_check -s exit:1 grep --mmap -e "Z" test1
+}
+
+atf_test_case mmap_eof_not_eol
+mmap_eof_not_eol_head()
+{
+	atf_set "descr" "Check --mmap flag handling of encountering EOF without EOL (PR 165471, 219402)"
+}
+mmap_eof_not_eol_body()
+{
+	grep_type
+	if [ $? -eq $GREP_TYPE_GNU ]; then
+		atf_expect_fail "gnu grep from ports has no --mmap option"
+	fi
+
+	atf_expect_fail "relies on jemalloc feature no longer available; needs to be rewritten - bug 220309"
+
+	printf "ABC" > test1
+	jot -b " "  -s "" 4096 >> test2
+
+	atf_check -s exit:0 -o inline:"B\n" grep --mmap -oe "B" test1
+	# Dependency on jemalloc(3) to detect buffer overflow, otherwise this
+	# unreliably produces a SIGSEGV or SIGBUS
+	atf_check -s exit:0 -o not-empty \
+	    env MALLOC_CONF="redzone:true" grep --mmap -e " " test2
+}
+
+atf_test_case matchall
+matchall_head()
+{
+	atf_set "descr" "Check proper behavior of matching all with an empty string"
+}
+matchall_body()
+{
+	printf "" > test1
+	printf "A" > test2
+	printf "A\nB" > test3
+
+	atf_check -o inline:"test2:A\ntest3:A\ntest3:B\n" grep "" test1 test2 test3
+	atf_check -o inline:"test3:A\ntest3:B\ntest2:A\n" grep "" test3 test1 test2
+	atf_check -o inline:"test2:A\ntest3:A\ntest3:B\n" grep "" test2 test3 test1
+
+	atf_check -s exit:1 grep "" test1
+}
+
+atf_test_case fgrep_multipattern
+fgrep_multipattern_head()
+{
+	atf_set "descr" "Check proper behavior with multiple patterns supplied to fgrep"
+}
+fgrep_multipattern_body()
+{
+	printf "Foo\nBar\nBaz" > test1
+
+	atf_check -o inline:"Foo\nBaz\n" grep -F -e "Foo" -e "Baz" test1
+	atf_check -o inline:"Foo\nBaz\n" grep -F -e "Baz" -e "Foo" test1
+	atf_check -o inline:"Bar\nBaz\n" grep -F -e "Bar" -e "Baz" test1
+}
+
+atf_test_case fgrep_icase
+fgrep_icase_head()
+{
+	atf_set "descr" "Check proper handling of -i supplied to fgrep"
+}
+fgrep_icase_body()
+{
+	printf "Foo\nBar\nBaz" > test1
+
+	atf_check -o inline:"Foo\nBaz\n" grep -Fi -e "foo" -e "baz" test1
+	atf_check -o inline:"Foo\nBaz\n" grep -Fi -e "baz" -e "foo" test1
+	atf_check -o inline:"Bar\nBaz\n" grep -Fi -e "bar" -e "baz" test1
+	atf_check -o inline:"Bar\nBaz\n" grep -Fi -e "BAR" -e "bAz" test1
+}
+
+atf_test_case fgrep_oflag
+fgrep_oflag_head()
+{
+	atf_set "descr" "Check proper handling of -o supplied to fgrep"
+}
+fgrep_oflag_body()
+{
+	printf "abcdefghi\n" > test1
+
+	atf_check -o inline:"a\n" grep -Fo "a" test1
+	atf_check -o inline:"i\n" grep -Fo "i" test1
+	atf_check -o inline:"abc\n" grep -Fo "abc" test1
+	atf_check -o inline:"fgh\n" grep -Fo "fgh" test1
+	atf_check -o inline:"cde\n" grep -Fo "cde" test1
+	atf_check -o inline:"bcd\n" grep -Fo -e "bcd" -e "cde" test1
+	atf_check -o inline:"bcd\nefg\n" grep -Fo -e "bcd" -e "efg" test1
+
+	atf_check -s exit:1 grep -Fo "xabc" test1
+	atf_check -s exit:1 grep -Fo "abcx" test1
+	atf_check -s exit:1 grep -Fo "xghi" test1
+	atf_check -s exit:1 grep -Fo "ghix" test1
+	atf_check -s exit:1 grep -Fo "abcdefghiklmnopqrstuvwxyz" test1
+}
 # End FreeBSD
 
 atf_init_test_cases()
@@ -522,10 +773,21 @@ atf_init_test_cases()
 	atf_add_test_case escmap
 	atf_add_test_case egrep_empty_invalid
 	atf_add_test_case zerolen
-	atf_add_test_case wv_combo_break
 	atf_add_test_case wflag_emptypat
+	atf_add_test_case excessive_matches
+	atf_add_test_case wv_combo_break
 	atf_add_test_case fgrep_sanity
 	atf_add_test_case egrep_sanity
 	atf_add_test_case grep_sanity
+	atf_add_test_case ocolor_metadata
+	atf_add_test_case grep_nomatch_flags
+	atf_add_test_case binary_flags
+	atf_add_test_case badcontext
+	atf_add_test_case mmap
+	atf_add_test_case mmap_eof_not_eol
+	atf_add_test_case matchall
+	atf_add_test_case fgrep_multipattern
+	atf_add_test_case fgrep_icase
+	atf_add_test_case fgrep_oflag
 # End FreeBSD
 }

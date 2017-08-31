@@ -150,6 +150,10 @@ static int	signal_alloc_fail = 0;
 SYSCTL_INT(_kern_sigqueue, OID_AUTO, alloc_fail, CTLFLAG_RD,
     &signal_alloc_fail, 0, "signals failed to be allocated");
 
+static int	kern_lognosys = 0;
+SYSCTL_INT(_kern, OID_AUTO, lognosys, CTLFLAG_RWTUN, &kern_lognosys, 0,
+    "Log invalid syscalls");
+
 SYSINIT(signal, SI_SUB_P1003_1B, SI_ORDER_FIRST+3, sigqueue_start, NULL);
 
 /*
@@ -929,7 +933,7 @@ osigreturn(struct thread *td, struct osigreturn_args *uap)
 void
 siginit(struct proc *p)
 {
-	register int i;
+	int i;
 	struct sigacts *ps;
 
 	PROC_LOCK(p);
@@ -1844,33 +1848,43 @@ struct sigqueue_args {
 int
 sys_sigqueue(struct thread *td, struct sigqueue_args *uap)
 {
+	union sigval sv;
+
+	sv.sival_ptr = uap->value;
+
+	return (kern_sigqueue(td, uap->pid, uap->signum, &sv));
+}
+
+int
+kern_sigqueue(struct thread *td, pid_t pid, int signum, union sigval *value)
+{
 	ksiginfo_t ksi;
 	struct proc *p;
 	int error;
 
-	if ((u_int)uap->signum > _SIG_MAXSIG)
+	if ((u_int)signum > _SIG_MAXSIG)
 		return (EINVAL);
 
 	/*
 	 * Specification says sigqueue can only send signal to
 	 * single process.
 	 */
-	if (uap->pid <= 0)
+	if (pid <= 0)
 		return (EINVAL);
 
-	if ((p = pfind(uap->pid)) == NULL) {
-		if ((p = zpfind(uap->pid)) == NULL)
+	if ((p = pfind(pid)) == NULL) {
+		if ((p = zpfind(pid)) == NULL)
 			return (ESRCH);
 	}
-	error = p_cansignal(td, p, uap->signum);
-	if (error == 0 && uap->signum != 0) {
+	error = p_cansignal(td, p, signum);
+	if (error == 0 && signum != 0) {
 		ksiginfo_init(&ksi);
 		ksi.ksi_flags = KSI_SIGQ;
-		ksi.ksi_signo = uap->signum;
+		ksi.ksi_signo = signum;
 		ksi.ksi_code = SI_QUEUE;
 		ksi.ksi_pid = td->td_proc->p_pid;
 		ksi.ksi_uid = td->td_ucred->cr_ruid;
-		ksi.ksi_value.sival_ptr = uap->value;
+		ksi.ksi_value = *value;
 		error = pksignal(p, ksi.ksi_signo, &ksi);
 	}
 	PROC_UNLOCK(p);
@@ -2382,7 +2396,7 @@ static void
 tdsigwakeup(struct thread *td, int sig, sig_t action, int intrval)
 {
 	struct proc *p = td->td_proc;
-	register int prop;
+	int prop;
 	int wakeup_swapper;
 
 	wakeup_swapper = 0;
@@ -2467,6 +2481,7 @@ sig_suspend_threads(struct thread *td, struct proc *p, int sending)
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	PROC_SLOCK_ASSERT(p, MA_OWNED);
+	MPASS(sending || td == curthread);
 
 	wakeup_swapper = 0;
 	FOREACH_THREAD_IN_PROC(p, td2) {
@@ -2483,10 +2498,9 @@ sig_suspend_threads(struct thread *td, struct proc *p, int sending)
 				 */
 				KASSERT(!TD_IS_SUSPENDED(td2),
 				    ("thread with deferred stops suspended"));
-				if (TD_SBDRY_INTR(td2) && sending) {
+				if (TD_SBDRY_INTR(td2))
 					wakeup_swapper |= sleepq_abort(td2,
 					    TD_SBDRY_ERRNO(td2));
-				}
 			} else if (!TD_IS_SUSPENDED(td2)) {
 				thread_suspend_one(td2);
 			}
@@ -2636,7 +2650,9 @@ reschedule_signals(struct proc *p, sigset_t block, int flags)
 		signotify(td);
 		if (!(flags & SIGPROCMASK_PS_LOCKED))
 			mtx_lock(&ps->ps_mtx);
-		if (p->p_flag & P_TRACED || SIGISMEMBER(ps->ps_sigcatch, sig))
+		if (p->p_flag & P_TRACED ||
+		    (SIGISMEMBER(ps->ps_sigcatch, sig) &&
+		    !SIGISMEMBER(td->td_sigmask, sig)))
 			tdsigwakeup(td, sig, SIG_CATCH,
 			    (SIGISMEMBER(ps->ps_sigintr, sig) ? EINTR :
 			     ERESTART));
@@ -2967,7 +2983,7 @@ thread_stopped(struct proc *p)
  */
 int
 postsig(sig)
-	register int sig;
+	int sig;
 {
 	struct thread *td = curthread;
 	struct proc *p = td->td_proc;
@@ -3556,11 +3572,21 @@ struct nosys_args {
 int
 nosys(struct thread *td, struct nosys_args *args)
 {
-	struct proc *p = td->td_proc;
+	struct proc *p;
+
+	p = td->td_proc;
 
 	PROC_LOCK(p);
 	tdsignal(td, SIGSYS);
 	PROC_UNLOCK(p);
+	if (kern_lognosys == 1 || kern_lognosys == 3) {
+		uprintf("pid %d comm %s: nosys %d\n", p->p_pid, p->p_comm,
+		    td->td_sa.code);
+	}
+	if (kern_lognosys == 2 || kern_lognosys == 3) {
+		printf("pid %d comm %s: nosys %d\n", p->p_pid, p->p_comm,
+		    td->td_sa.code);
+	}
 	return (ENOSYS);
 }
 
