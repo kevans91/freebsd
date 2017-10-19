@@ -874,7 +874,6 @@ p_simp_re(struct parse *p, struct branchc *bc)
 			(void)REQUIRE(EATTWO('\\', ')'), REG_EPAREN);
 			break;
 		case BACKSL|')':	/* should not get here -- must be user */
-		case BACKSL|'}':
 			SETERROR(REG_EPAREN);
 			break;
 		case BACKSL|'1':
