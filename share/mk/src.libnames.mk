@@ -146,6 +146,7 @@ _LIBRARIES=	\
 		pthread \
 		radius \
 		readline \
+		regex \
 		roken \
 		rpcsec_gss \
 		rpcsvc \

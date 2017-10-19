@@ -762,7 +762,6 @@ p_re(struct parse *p,
 #ifdef LIBREGEX
 		if (HERE() == bc.start && !p_branch_empty(p, &bc))
 			break;
-			p_branch_empty(p, &bc);
 #endif
 		if (!p->allowbranch)
 			break;
