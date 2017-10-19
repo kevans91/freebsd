@@ -11,9 +11,9 @@ ATF_TESTS_SH+=	libregex_test
 
 ${PACKAGE}DATA_FILES+=	gnuext.in
 
-CFLAGS.h_regex+=-lregex
+LIBADD.h_regex+=regex
 .for t in ${NETBSD_ATF_TESTS_C}
-CFLAGS.$t+=	-lregex
+LIBADD.$t+=	regex
 .endfor
 
 .include <netbsd-tests.test.mk>
