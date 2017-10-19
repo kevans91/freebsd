@@ -28,12 +28,12 @@ a\|b\|c	b	abc	a
 \`.\+\'	b	abNc	abNc
 (\`a)	-	Na
 (a\')	-	aN
-# Empty subexpressions
-abc\|	b	abc	""
-foo\|	b	abc	""
-\|abc	b	abc	""
-\|foo	b	abc	""
-abc|	-	abc	""
-foo|	-	abc	""
-|abc	-	abc	""
-|foo	-	abc	""
+# Empty subexpressions (not yet- permissive)
+#abc\|	b	abc	""
+#foo\|	b	abc	""
+#\|abc	b	abc	""
+#\|foo	b	abc	""
+#abc|	-	abc	""
+#foo|	-	abc	""
+#|abc	-	abc	""
+#|foo	-	abc	""

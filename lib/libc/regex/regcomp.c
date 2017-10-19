@@ -658,12 +658,12 @@ static bool
 p_branch_empty(struct parse *p, struct branchc *bc)
 {
 
-#ifdef LIBREGEX
-	/* XXX Double-check this: this seems to be a permissive setting for grep */
+#if defined(LIBREGEX) && defined(NOTYET)
 	if (bc->outer)
 		p->g->iflags |= EMPTBR;
 	return (true);
 #else
+	(void)bc;
 	SETERROR(REG_EMPTY);
 	return (false);
 #endif
