@@ -2,13 +2,21 @@
 
 MAN=
 
-.include <src.opts.mk>
+.include "../Makefile.inc"
 
 MK_SSP=		no
+MK_FORTH=	no
 
 PROG=		boot1.sym
 INTERNALPROG=
 WARNS?=		6
+
+# We implement a slightly non-standard %S in that it always takes a
+# CHAR16 that's common in UEFI-land instead of a wchar_t. This only
+# seems to matter on arm64 where wchar_t defaults to an int instead
+# of a short. There's no good cast to use here so just ignore the
+# warnings for now.
+CWARNFLAGS.boot1.c+=	-Wno-format
 
 # Disable warnings that are currently incompatible with the zfs boot code
 CWARNFLAGS.zfs_module.c += -Wno-array-bounds
@@ -83,8 +91,8 @@ LIBEFI=		${.OBJDIR}/../libefi/libefi.a
 # __aeabi_* (arm) or __divdi3 (i386).
 # as well as required string and memory functions for all platforms.
 #
-DPADD+=		${LIBEFI} ${LIBSTAND}
-LDADD+=		${LIBEFI} -lstand
+DPADD+=		${LIBEFI} ${LIBSA}
+LDADD+=		${LIBEFI} ${LIBSA}
 
 DPADD+=		${LDSCRIPT}
 
@@ -113,13 +121,12 @@ boot1.efi: ${PROG}
 		-j .rela.dyn -j .reloc -j .eh_frame \
 		--output-target=${EFI_TARGET} ${.ALLSRC} ${.TARGET}
 
-boot1.o: ${.CURDIR}/../../common/ufsread.c
+boot1.o: ${SASRC}/ufsread.c
 
 # The following inserts our objects into a template FAT file system
 # created by generate-fat.sh
 
 .include "${.CURDIR}/Makefile.fat"
-BOOT1_MAXSIZE?=	131072
 
 boot1.efifat: boot1.efi
 	@set -- `ls -l ${.ALLSRC}`; \
@@ -129,9 +136,7 @@ boot1.efifat: boot1.efi
 	    exit 1; \
 	fi
 	echo ${.OBJDIR}
-	uudecode ${.CURDIR}/fat-${MACHINE}.tmpl.bz2.uu
-	mv fat-${MACHINE}.tmpl.bz2 ${.TARGET}.bz2
-	bzip2 -f -d ${.TARGET}.bz2
+	xz -d -c ${.CURDIR}/fat-${MACHINE}.tmpl.xz > ${.TARGET}
 	${DD} if=${.ALLSRC} of=${.TARGET} seek=${BOOT1_OFFSET} conv=notrunc
 
 CLEANFILES= boot1.efi boot1.efifat

@@ -64,6 +64,9 @@ is used to override settings in
 .Pa /etc/rc.conf
 for historical reasons.
 .Pp
+The sysrc(8) command provides a scripting interface to modify system
+config files.
+.Pp
 In addition to
 .Pa /etc/rc.conf.local
 you can also place smaller configuration files for each
@@ -4453,7 +4456,6 @@ configuration file.
 .It Pa /etc/rc.conf.local
 .El
 .Sh SEE ALSO
-.Xr catman 1 ,
 .Xr chmod 1 ,
 .Xr gdb 1 ,
 .Xr info 1 ,
@@ -4538,6 +4540,7 @@ configuration file.
 .Xr swapon 8 ,
 .Xr sysctl 8 ,
 .Xr syslogd 8 ,
+.Xr sysrc 8 ,
 .Xr timed 8 ,
 .Xr unbound 8 ,
 .Xr usbconfig 8 ,

@@ -80,6 +80,7 @@ struct ntb_plx_softc {
 	u_int			 ntx;		/* NTx number within chip. */
 	u_int			 link;		/* Link v/s Virtual side. */
 	u_int			 port;		/* Port number within chip. */
+	u_int			 alut;		/* A-LUT is enabled for NTx */
 
 	int			 int_rid;
 	struct resource		*int_res;
@@ -106,30 +107,35 @@ struct ntb_plx_softc {
 #define	PLX_NTX_LINK_OFFSET	0x01000
 
 /* Bases of NTx our/peer interface registers */
-#define	PLX_NTX_OUR(sc)				\
+#define	PLX_NTX_OUR_BASE(sc)				\
     (PLX_NTX_BASE(sc) + ((sc)->link ? PLX_NTX_LINK_OFFSET : 0))
-#define	PLX_NTX_PEER(sc)			\
+#define	PLX_NTX_PEER_BASE(sc)				\
     (PLX_NTX_BASE(sc) + ((sc)->link ? 0 : PLX_NTX_LINK_OFFSET))
 
 /* Read/write NTx our interface registers */
-#define NTX_READ(sc, reg)				\
-    bus_read_4((sc)->conf_res, PLX_NTX_OUR(sc) + (reg))
-#define NTX_WRITE(sc, reg, val)			\
-    bus_write_4((sc)->conf_res, PLX_NTX_OUR(sc) + (reg), (val))
+#define	NTX_READ(sc, reg)				\
+    bus_read_4((sc)->conf_res, PLX_NTX_OUR_BASE(sc) + (reg))
+#define	NTX_WRITE(sc, reg, val)				\
+    bus_write_4((sc)->conf_res, PLX_NTX_OUR_BASE(sc) + (reg), (val))
 
 /* Read/write NTx peer interface registers */
-#define PNTX_READ(sc, reg)				\
-    bus_read_4((sc)->conf_res, PLX_NTX_PEER(sc) + (reg))
-#define PNTX_WRITE(sc, reg, val)			\
-    bus_write_4((sc)->conf_res, PLX_NTX_PEER(sc) + (reg), (val))
+#define	PNTX_READ(sc, reg)				\
+    bus_read_4((sc)->conf_res, PLX_NTX_PEER_BASE(sc) + (reg))
+#define	PNTX_WRITE(sc, reg, val)			\
+    bus_write_4((sc)->conf_res, PLX_NTX_PEER_BASE(sc) + (reg), (val))
 
 /* Read/write B2B NTx registers */
-#define BNTX_READ(sc, reg)				\
+#define	BNTX_READ(sc, reg)				\
     bus_read_4((sc)->mw_info[(sc)->b2b_mw].mw_res,	\
     PLX_NTX_BASE(sc) + (reg))
-#define BNTX_WRITE(sc, reg, val)			\
+#define	BNTX_WRITE(sc, reg, val)			\
     bus_write_4((sc)->mw_info[(sc)->b2b_mw].mw_res,	\
     PLX_NTX_BASE(sc) + (reg), (val))
+
+#define	PLX_PORT_BASE(p)		((p) << 12)
+#define	PLX_STATION_PORT_BASE(sc)	PLX_PORT_BASE((sc)->port & ~7)
+
+#define	PLX_PORT_CONTROL(sc)		(PLX_STATION_PORT_BASE(sc) + 0x208)
 
 static int ntb_plx_init(device_t dev);
 static int ntb_plx_detach(device_t dev);
@@ -192,8 +198,12 @@ ntb_plx_init(device_t dev)
 			}
 		}
 
-		/* Enable Link Interface LUT entry 0 for 0:0.0. */
-		PNTX_WRITE(sc, 0xdb4, 1);
+		/* Make sure Virtual to Link A-LUT is disabled. */
+		if (sc->alut)
+			PNTX_WRITE(sc, 0xc94, 0);
+
+		/* Enable Link Interface LUT entries 0/1 for peer 0/1. */
+		PNTX_WRITE(sc, 0xdb4, 0x00090001);
 	}
 
 	/*
@@ -225,6 +235,9 @@ ntb_plx_isr(void *arg)
 	uint32_t val;
 
 	ntb_db_event((device_t)arg, 0);
+
+	if (sc->link)	/* Link Interface has no Link Error registers. */
+		return;
 
 	val = NTX_READ(sc, 0xfe0);
 	if (val == 0)
@@ -270,8 +283,11 @@ ntb_plx_setup_intr(device_t dev)
 		device_printf(dev, "bus_setup_intr failed: %d\n", error);
 		return (error);
 	}
-	NTX_WRITE(sc, 0xfe0, 0xf);	/* Clear link interrupts. */
-	NTX_WRITE(sc, 0xfe4, 0x0);	/* Unmask link interrupts. */
+
+	if (!sc->link) { /* Link Interface has no Link Error registers. */
+		NTX_WRITE(sc, 0xfe0, 0xf);	/* Clear link interrupts. */
+		NTX_WRITE(sc, 0xfe4, 0x0);	/* Unmask link interrupts. */
+	}
 	return (0);
 }
 
@@ -280,7 +296,9 @@ ntb_plx_teardown_intr(device_t dev)
 {
 	struct ntb_plx_softc *sc = device_get_softc(dev);
 
-	NTX_WRITE(sc, 0xfe4, 0xf);	/* Mask link interrupts. */
+	if (!sc->link)	/* Link Interface has no Link Error registers. */
+		NTX_WRITE(sc, 0xfe4, 0xf);	/* Mask link interrupts. */
+
 	if (sc->int_res) {
 		bus_teardown_intr(dev, sc->int_res, sc->int_tag);
 		bus_release_resource(dev, SYS_RES_IRQ, sc->int_rid,
@@ -311,12 +329,16 @@ ntb_plx_attach(device_t dev)
 		device_printf(dev, "Can't allocate configuration BAR.\n");
 		return (ENXIO);
 	}
-	pmap_change_attr((vm_offset_t)rman_get_start(sc->conf_res),
-	    rman_get_size(sc->conf_res), VM_MEMATTR_UNCACHEABLE);
 
 	/* Identify chip port we are connected to. */
 	val = bus_read_4(sc->conf_res, 0x360);
 	sc->port = (val >> ((sc->ntx == 0) ? 8 : 16)) & 0x1f;
+
+	/* Detect A-LUT enable and size. */
+	val >>= 30;
+	sc->alut = (val == 0x3) ? 1 : ((val & (1 << sc->ntx)) ? 2 : 0);
+	if (sc->alut)
+		device_printf(dev, "%u A-LUT entries\n", 128 * sc->alut);
 
 	/* Find configured memory windows at BAR2-5. */
 	sc->mw_count = 0;
@@ -332,8 +354,6 @@ ntb_plx_attach(device_t dev)
 		mw->mw_size = rman_get_size(mw->mw_res);
 		mw->mw_vbase = rman_get_virtual(mw->mw_res);
 		mw->mw_map_mode = VM_MEMATTR_UNCACHEABLE;
-		pmap_change_attr((vm_offset_t)mw->mw_vbase, mw->mw_size,
-		    mw->mw_map_mode);
 		sc->mw_count++;
 
 		/* Skip over adjacent BAR for 64-bit BARs. */
@@ -379,21 +399,16 @@ ntb_plx_attach(device_t dev)
 	 * Make sure they are present and enabled by writing to them.
 	 * XXX: Its a hack, but standard 8 registers are not enough.
 	 */
+	sc->spad_offp1 = sc->spad_off1 = PLX_NTX_OUR_BASE(sc) + 0xc6c;
+	sc->spad_offp2 = sc->spad_off2 = PLX_PORT_BASE(sc->ntx * 8) + 0x20c;
 	if (sc->b2b_mw >= 0) {
+		/* In NTB-to-NTB mode each side has own scratchpads. */
 		sc->spad_count1 = PLX_NUM_SPAD;
-		sc->spad_off1 = PLX_NTX_OUR(sc) + 0xc6c;
-		sc->spad_off2 = (sc->ntx == 0) ? 0x0020c : 0x0820c;
-		sc->spad_offp1 = sc->spad_off1;
-		sc->spad_offp2 = sc->spad_off2;
 		bus_write_4(sc->conf_res, sc->spad_off2, 0x12345678);
 		if (bus_read_4(sc->conf_res, sc->spad_off2) == 0x12345678)
 			sc->spad_count2 = PLX_NUM_SPAD_PATT;
 	} else {
-		sc->spad_count1 = PLX_NUM_SPAD / 2;
-		sc->spad_off1 = PLX_NTX_OUR(sc) + 0xc6c;
-		sc->spad_off2 = (sc->ntx == 0) ? 0x0020c : 0x0820c;
-		sc->spad_offp1 = sc->spad_off1;
-		sc->spad_offp2 = sc->spad_off2;
+		/* Otherwise we have share scratchpads with the peer. */
 		if (sc->link) {
 			sc->spad_off1 += PLX_NUM_SPAD / 2 * 4;
 			sc->spad_off2 += PLX_NUM_SPAD_PATT / 2 * 4;
@@ -401,6 +416,7 @@ ntb_plx_attach(device_t dev)
 			sc->spad_offp1 += PLX_NUM_SPAD / 2 * 4;
 			sc->spad_offp2 += PLX_NUM_SPAD_PATT / 2 * 4;
 		}
+		sc->spad_count1 = PLX_NUM_SPAD / 2;
 		bus_write_4(sc->conf_res, sc->spad_off2, 0x12345678);
 		if (bus_read_4(sc->conf_res, sc->spad_off2) == 0x12345678)
 			sc->spad_count2 = PLX_NUM_SPAD_PATT / 2;
@@ -473,7 +489,7 @@ ntb_plx_link_enable(device_t dev, enum ntb_speed speed __unused,
 		return (0);
 	}
 
-	reg = (sc->port < 8) ? 0x00208 : 0x08208;
+	reg = PLX_PORT_CONTROL(sc);
 	val = bus_read_4(sc->conf_res, reg);
 	if ((val & (1 << (sc->port & 7))) == 0) {
 		/* If already enabled, generate fake link event and exit. */
@@ -495,7 +511,7 @@ ntb_plx_link_disable(device_t dev)
 	if (sc->link)
 		return (0);
 
-	reg = (sc->port < 8) ? 0x00208 : 0x08208;
+	reg = PLX_PORT_CONTROL(sc);
 	val = bus_read_4(sc->conf_res, reg);
 	val |= (1 << (sc->port & 7));
 	bus_write_4(sc->conf_res, reg, val);
@@ -512,7 +528,7 @@ ntb_plx_link_enabled(device_t dev)
 	if (sc->link)
 		return (TRUE);
 
-	reg = (sc->port < 8) ? 0x00208 : 0x08208;
+	reg = PLX_PORT_CONTROL(sc);
 	val = bus_read_4(sc->conf_res, reg);
 	return ((val & (1 << (sc->port & 7))) == 0);
 }
@@ -556,22 +572,31 @@ ntb_plx_mw_get_range(device_t dev, unsigned mw_idx, vm_paddr_t *base,
 
 	/*
 	 * Remote to local memory window translation address alignment.
-	 * XXX: In B2B mode we can change window size (and so alignmet)
-	 * live, but there is no way to report it, so report safe value.
+	 * Translation address has to be aligned to the BAR size, but A-LUT
+	 * entries re-map addresses can be aligned to 1/128 or 1/256 of it.
+	 * XXX: In B2B mode we can change BAR size (and so alignmet) live,
+	 * but there is no way to report it here, so report safe value.
 	 */
-	if (align != NULL)
-		*align = mw->mw_size - off;
+	if (align != NULL) {
+		if (sc->alut && mw->mw_bar == 2)
+			*align = (mw->mw_size - off) / 128 / sc->alut;
+		else
+			*align = mw->mw_size - off;
+	}
 
 	/*
 	 * Remote to local memory window size alignment.
-	 * XXX: The chip has no limit registers.  In B2B case size must be
-	 * power of 2 (since we can reprogram BAR size), but there is no way
-	 * to report it, so report 1MB -- minimal BAR size.  In non-B2B case
-	 * there is no control at all, so report the precofigured BAR size.
+	 * The chip has no limit registers, but A-LUT, when available, allows
+	 * access control with granularity of 1/128 or 1/256 of the BAR size.
+	 * XXX: In B2B case we can change BAR size live, but there is no way
+	 * to report it, so report half of the BAR size, that should be safe.
+	 * In non-B2B case there is no control at all, so report the BAR size.
 	 */
 	if (align_size != NULL) {
-		if (sc->b2b_mw >= 0)
-			*align_size = 1024 * 1024;
+		if (sc->alut && mw->mw_bar == 2)
+			*align_size = (mw->mw_size - off) / 128 / sc->alut;
+		else if (sc->b2b_mw >= 0)
+			*align_size = (mw->mw_size - off) / 2;
 		else
 			*align_size = mw->mw_size - off;
 	}
@@ -588,8 +613,9 @@ ntb_plx_mw_set_trans_internal(device_t dev, unsigned mw_idx)
 {
 	struct ntb_plx_softc *sc = device_get_softc(dev);
 	struct ntb_plx_mw_info *mw;
-	uint64_t addr, off, size, val64;
+	uint64_t addr, eaddr, off, size, bsize, esize, val64;
 	uint32_t val;
+	int i;
 
 	mw = &sc->mw_info[mw_idx];
 	addr = mw->mw_xlat_addr;
@@ -610,29 +636,35 @@ ntb_plx_mw_set_trans_internal(device_t dev, unsigned mw_idx)
 
 	if (size > 0) {
 		/* Round BAR size to next power of 2 or at least 1MB. */
-		if (!powerof2(size))
-			size = 1LL << flsll(size);
-		if (size < 1024 * 1024)
-			size = 1024 * 1024;
+		bsize = size;
+		if (!powerof2(bsize))
+			bsize = 1LL << flsll(bsize);
+		if (bsize < 1024 * 1024)
+			bsize = 1024 * 1024;
 
-		/* Hardware requires addr aligned to BAR size. */
-		if ((addr & (size - 1)) != 0)
+		/* A-LUT has 128 or 256 times better granularity. */
+		esize = bsize;
+		if (sc->alut && mw->mw_bar == 2)
+			esize /= 128 * sc->alut;
+
+		/* addr should be aligned to BAR or A-LUT element size. */
+		if ((addr & (esize - 1)) != 0)
 			return (EINVAL);
-	}
+	} else
+		esize = bsize = 0;
 
 	if (mw->mw_64bit) {
 		if (sc->b2b_mw >= 0) {
 			/* Set Link Interface BAR size and enable/disable it. */
 			val64 = 0;
-			if (size > 0)
-				val64 = (~(size - 1) & ~0xfffff);
-			val64 |= 0x4;
+			if (bsize > 0)
+				val64 = (~(bsize - 1) & ~0xfffff);
+			val64 |= 0xc;
 			PNTX_WRITE(sc, 0xe8 + (mw->mw_bar - 2) * 4, val64);
 			PNTX_WRITE(sc, 0xe8 + (mw->mw_bar - 2) * 4 + 4, val64 >> 32);
 
 			/* Set Link Interface BAR address. */
 			val64 = 0x2000000000000000 * mw->mw_bar + off;
-			val64 |= 0x4;
 			PNTX_WRITE(sc, PCIR_BAR(mw->mw_bar), val64);
 			PNTX_WRITE(sc, PCIR_BAR(mw->mw_bar) + 4, val64 >> 32);
 		}
@@ -644,14 +676,14 @@ ntb_plx_mw_set_trans_internal(device_t dev, unsigned mw_idx)
 		/* Make sure we fit into 32-bit address space. */
 		if ((addr & UINT32_MAX) != addr)
 			return (ERANGE);
-		if (((addr + size) & UINT32_MAX) != (addr + size))
+		if (((addr + bsize) & UINT32_MAX) != (addr + bsize))
 			return (ERANGE);
 
 		if (sc->b2b_mw >= 0) {
 			/* Set Link Interface BAR size and enable/disable it. */
 			val = 0;
-			if (size > 0)
-				val = (~(size - 1) & ~0xfffff);
+			if (bsize > 0)
+				val = (~(bsize - 1) & ~0xfffff);
 			PNTX_WRITE(sc, 0xe8 + (mw->mw_bar - 2) * 4, val);
 
 			/* Set Link Interface BAR address. */
@@ -662,6 +694,27 @@ ntb_plx_mw_set_trans_internal(device_t dev, unsigned mw_idx)
 		/* Set Virtual Interface BARs address translation */
 		PNTX_WRITE(sc, 0xc3c + (mw->mw_bar - 2) * 4, addr);
 	}
+
+	/* Configure and enable Link to Virtual A-LUT if we need it. */
+	if (sc->alut && mw->mw_bar == 2 &&
+	    ((addr & (bsize - 1)) != 0 || size != bsize)) {
+		eaddr = addr;
+		for (i = 0; i < 128 * sc->alut; i++) {
+			val = sc->link ? 0 : 1;
+			if (sc->alut == 1)
+				val += 2 * sc->ntx;
+			val *= 0x1000 * sc->alut;
+			val += 0x38000 + i * 4 + (i >= 128 ? 0x0e00 : 0);
+			bus_write_4(sc->conf_res, val, eaddr);
+			bus_write_4(sc->conf_res, val + 0x400, eaddr >> 32);
+			bus_write_4(sc->conf_res, val + 0x800,
+			    (eaddr < addr + size) ? 0x3 : 0);
+			eaddr += esize;
+		}
+		NTX_WRITE(sc, 0xc94, 0x10000000);
+	} else if (sc->alut && mw->mw_bar == 2)
+		NTX_WRITE(sc, 0xc94, 0);
+
 	return (0);
 }
 
@@ -909,6 +962,9 @@ static device_method_t ntb_plx_methods[] = {
 	DEVMETHOD(device_probe,		ntb_plx_probe),
 	DEVMETHOD(device_attach,	ntb_plx_attach),
 	DEVMETHOD(device_detach,	ntb_plx_detach),
+	/* Bus interface */
+	DEVMETHOD(bus_child_location_str, ntb_child_location_str),
+	DEVMETHOD(bus_print_child,	ntb_print_child),
 	/* NTB interface */
 	DEVMETHOD(ntb_link_is_up,	ntb_plx_link_is_up),
 	DEVMETHOD(ntb_link_enable,	ntb_plx_link_enable),

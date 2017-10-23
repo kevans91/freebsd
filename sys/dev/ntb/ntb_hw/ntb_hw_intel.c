@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2016 Alexander Motin <mav@FreeBSD.org>
+ * Copyright (c) 2016-2017 Alexander Motin <mav@FreeBSD.org>
  * Copyright (C) 2013 Intel Corporation
  * Copyright (C) 2015 EMC Corporation
  * All rights reserved.
@@ -495,8 +495,6 @@ static struct ntb_hw_info pci_ids[] = {
 	{ 0x6F0D8086, "BDX Xeon E5 V4 Non-Transparent Bridge B2B", NTB_XEON,
 		NTB_SDOORBELL_LOCKUP | NTB_B2BDOORBELL_BIT14 |
 		    NTB_SB01BASE_LOCKUP },
-
-	{ 0x00000000, NULL, NTB_ATOM, 0 }
 };
 
 static const struct ntb_reg atom_reg = {
@@ -1390,12 +1388,11 @@ intel_ntb_get_msix_info(struct ntb_softc *ntb)
 static struct ntb_hw_info *
 intel_ntb_get_device_info(uint32_t device_id)
 {
-	struct ntb_hw_info *ep = pci_ids;
+	struct ntb_hw_info *ep;
 
-	while (ep->device_id) {
+	for (ep = pci_ids; ep < &pci_ids[nitems(pci_ids)]; ep++) {
 		if (ep->device_id == device_id)
 			return (ep);
-		++ep;
 	}
 	return (NULL);
 }
@@ -2689,7 +2686,7 @@ reschedule:
 	ntb->lnk_sta = pci_read_config(ntb->device, ntb->reg->lnk_sta, 2);
 	if (_xeon_link_is_up(ntb)) {
 		callout_reset(&ntb->peer_msix_work,
-		    hz * (ntb->peer_msix_good ? 2 : 1) / 100,
+		    hz * (ntb->peer_msix_good ? 2 : 1) / 10,
 		    intel_ntb_exchange_msix, ntb);
 	} else
 		intel_ntb_spad_clear(ntb->device);
@@ -3085,6 +3082,9 @@ static device_method_t ntb_intel_methods[] = {
 	DEVMETHOD(device_probe,		intel_ntb_probe),
 	DEVMETHOD(device_attach,	intel_ntb_attach),
 	DEVMETHOD(device_detach,	intel_ntb_detach),
+	/* Bus interface */
+	DEVMETHOD(bus_child_location_str, ntb_child_location_str),
+	DEVMETHOD(bus_print_child,	ntb_print_child),
 	/* NTB interface */
 	DEVMETHOD(ntb_link_is_up,	intel_ntb_link_is_up),
 	DEVMETHOD(ntb_link_enable,	intel_ntb_link_enable),
@@ -3119,3 +3119,5 @@ static DEFINE_CLASS_0(ntb_hw, ntb_intel_driver, ntb_intel_methods,
 DRIVER_MODULE(ntb_hw_intel, pci, ntb_intel_driver, ntb_hw_devclass, NULL, NULL);
 MODULE_DEPEND(ntb_hw_intel, ntb, 1, 1, 1);
 MODULE_VERSION(ntb_hw_intel, 1);
+MODULE_PNP_INFO("W32:vendor/device;D:human", pci, ntb_hw_intel, pci_ids,
+    sizeof(pci_ids[0]), nitems(pci_ids));

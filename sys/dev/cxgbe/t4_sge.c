@@ -1138,7 +1138,7 @@ t4_setup_vi_queues(struct vi_info *vi)
 	}
 	for_each_ofld_rxq(vi, i, ofld_rxq) {
 
-		init_iq(&ofld_rxq->iq, sc, vi->tmr_idx, vi->pktc_idx,
+		init_iq(&ofld_rxq->iq, sc, vi->ofld_tmr_idx, vi->ofld_pktc_idx,
 		    vi->qsize_rxq);
 
 		snprintf(name, sizeof(name), "%s ofld_rxq%d-fl",
@@ -1670,10 +1670,10 @@ cl_metadata(struct adapter *sc, struct sge_fl *fl, struct cluster_layout *cll,
 }
 
 static void
-rxb_free(struct mbuf *m, void *arg1, void *arg2)
+rxb_free(struct mbuf *m)
 {
-	uma_zone_t zone = arg1;
-	caddr_t cl = arg2;
+	uma_zone_t zone = m->m_ext.ext_arg1;
+	void *cl = m->m_ext.ext_arg2;
 
 	uma_zfree(zone, cl);
 	counter_u64_add(extfree_rels, 1);
@@ -2354,7 +2354,7 @@ start_wrq_wr(struct sge_wrq *wrq, int len16, struct wrq_cookie *cookie)
 
 	EQ_LOCK(eq);
 
-	if (!STAILQ_EMPTY(&wrq->wr_list))
+	if (TAILQ_EMPTY(&wrq->incomplete_wrs) && !STAILQ_EMPTY(&wrq->wr_list))
 		drain_wrq_wr_list(sc, wrq);
 
 	if (!STAILQ_EMPTY(&wrq->wr_list)) {
@@ -2408,9 +2408,6 @@ commit_wrq_wr(struct sge_wrq *wrq, void *w, struct wrq_cookie *cookie)
 		return;
 	}
 
-	ndesc = cookie->ndesc;	/* Can be more than SGE_MAX_WR_NDESC here. */
-	pidx = cookie->pidx;
-	MPASS(pidx >= 0 && pidx < eq->sidx);
 	if (__predict_false(w == &wrq->ss[0])) {
 		int n = (eq->sidx - wrq->ss_pidx) * EQ_ESIZE;
 
@@ -2422,6 +2419,9 @@ commit_wrq_wr(struct sge_wrq *wrq, void *w, struct wrq_cookie *cookie)
 		wrq->tx_wrs_direct++;
 
 	EQ_LOCK(eq);
+	ndesc = cookie->ndesc;	/* Can be more than SGE_MAX_WR_NDESC here. */
+	pidx = cookie->pidx;
+	MPASS(pidx >= 0 && pidx < eq->sidx);
 	prev = TAILQ_PREV(cookie, wrq_incomplete_wrs, link);
 	next = TAILQ_NEXT(cookie, link);
 	if (prev == NULL) {
