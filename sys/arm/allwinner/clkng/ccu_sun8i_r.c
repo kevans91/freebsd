@@ -122,7 +122,7 @@ ccu_sun8i_r_register_clocks(struct aw_ccung_softc *sc)
 	sc->gates = ccu_sun8i_r_gates;
 	sc->ngates = nitems(ccu_sun8i_r_gates);
 
-	/* The ar100 on the a83t has different parents than the others */
+	/* a83t names the parents differently than the others */
 	if (sc->type == A83T_R_CCU)
 		aw_clk_prediv_mux_register(sc->clkdom, &a83t_ar100_clk);
 	else
