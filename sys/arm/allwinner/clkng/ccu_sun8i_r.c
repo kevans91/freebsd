@@ -127,7 +127,7 @@ ccu_sun8i_r_register_clocks(struct aw_ccung_softc *sc)
 		aw_clk_prediv_mux_register(sc->clkdom, &a83t_ar100_clk);
 	else
 		aw_clk_prediv_mux_register(sc->clkdom, &ar100_clk);
-		
+
 	for (i = 0; i < nitems(div_clks); i++)
 		clknode_div_register(sc->clkdom, div_clks[i]);
 	for (i = 0; i < nitems(fixed_factor_clks); i++)
