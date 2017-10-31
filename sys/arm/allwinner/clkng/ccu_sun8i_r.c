@@ -70,8 +70,16 @@ static struct aw_ccung_gate ccu_sun8i_r_gates[] = {
 };
 
 static const char *ar100_parents[] = {"osc32k", "osc24M", "pll_periph0", "iosc"};
+static const char *a83t_ar100_parents[] = {"osc16M-d512", "osc24M", "pll_periph", "osc16M"};
 PREDIV_CLK(ar100_clk, CLK_AR100,				/* id */
     "ar100", ar100_parents,					/* name, parents */
+    0x00,							/* offset */
+    16, 2,							/* mux */
+    4, 2, 0, AW_CLK_FACTOR_POWER_OF_TWO,			/* div */
+    8, 5, 0, AW_CLK_FACTOR_HAS_COND,				/* prediv */
+    16, 2, 2);							/* prediv condition */
+PREDIV_CLK(a83t_ar100_clk, CLK_AR100,				/* id */
+    "ar100", a83t_ar100_parents,				/* name, parents */
     0x00,							/* offset */
     16, 2,							/* mux */
     4, 2, 0, AW_CLK_FACTOR_POWER_OF_TWO,			/* div */
@@ -96,10 +104,6 @@ DIV_CLK(apb0_clk,
     0, 2,			/* shift, width */
     0, NULL);			/* flags, div table */
 
-static struct aw_clk_prediv_mux_def *prediv_mux_clks[] = {
-	&ar100_clk,
-};
-
 static struct clk_div_def *div_clks[] = {
 	&apb0_clk,
 };
@@ -118,8 +122,12 @@ ccu_sun8i_r_register_clocks(struct aw_ccung_softc *sc)
 	sc->gates = ccu_sun8i_r_gates;
 	sc->ngates = nitems(ccu_sun8i_r_gates);
 
-	for (i = 0; i < nitems(prediv_mux_clks); i++)
-		aw_clk_prediv_mux_register(sc->clkdom, prediv_mux_clks[i]);
+	/* The ar100 on the a83t has different parents than the others */
+	if (sc->type == A83T_R_CCU)
+		aw_clk_prediv_mux_register(sc->clkdom, &a83t_ar100_clk);
+	else
+		aw_clk_prediv_mux_register(sc->clkdom, &ar100_clk);
+		
 	for (i = 0; i < nitems(div_clks); i++)
 		clknode_div_register(sc->clkdom, div_clks[i]);
 	for (i = 0; i < nitems(fixed_factor_clks); i++)

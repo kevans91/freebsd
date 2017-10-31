@@ -168,25 +168,13 @@ aw_clk_nkmp_find_best(struct aw_clk_nkmp_sc *sc, uint64_t fparent, uint64_t *fou
 					}
 					if (best == *fout)
 						return (best);
-					if ((sc->p.flags & AW_CLK_FACTOR_POWER_OF_TWO) != 0)
-						p <<= 1;
-					else
-						p++;
+					p = aw_clk_factor_get_incremented(p, &sc->p);
 				}
-				if ((sc->m.flags & AW_CLK_FACTOR_POWER_OF_TWO) != 0)
-					m <<= 1;
-				else
-					m++;
+				m = aw_clk_factor_get_incremented(m, &sc->m);
 			}
-			if ((sc->k.flags & AW_CLK_FACTOR_POWER_OF_TWO) != 0)
-				k <<= 1;
-			else
-				k++;
+			k = aw_clk_factor_get_incremented(k, &sc->k);
 		}
-		if ((sc->n.flags & AW_CLK_FACTOR_POWER_OF_TWO) != 0)
-			n <<= 1;
-		else
-			n++;
+		n = aw_clk_factor_get_incremented(n, &sc->n);
 	}
 
 	return best;

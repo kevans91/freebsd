@@ -26,15 +26,17 @@
  * $FreeBSD$
  */
 
+#include <dt-bindings/pinctrl/sun4i-a10.h>
+
 / {
 	cpus {
 		cpu@0 {
-			clocks = <&c0_cpux_clk>;
+			clocks = <&ccu CLK_C0CPUX>;
 			clock-latency = <2000000>;
 		};
 
 		cpu@100 {
-			clocks = <&c1_cpux_clk>;
+			clocks = <&ccu CLK_C1CPUX>;
 			clock-latency = <2000000>;
 		};
 	};
@@ -47,89 +49,6 @@
 			     <GIC_SPI 133 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SPI 134 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SPI 135 IRQ_TYPE_LEVEL_HIGH>;
-	};
-
-	clocks {
-		pll_c0cpux: clk@01c20000 {
-			#clock-cells = <0>;
-			compatible = "allwinner,sun8i-a83t-pllcpux-clk";
-			reg = <0x01c20000 0x4>;
-			clocks = <&osc24M>;
-			clock-output-names = "pll_c0cpux";
-		};
-
-		pll_c1cpux: clk@01c20004 {
-			#clock-cells = <0>;
-			compatible = "allwinner,sun8i-a83t-pllcpux-clk";
-			reg = <0x01c20004 0x4>;
-			clocks = <&osc24M>;
-			clock-output-names = "pll_c1cpux";
-		};
-
-		c0_cpux_clk: c0clk@01c20050 {
-			#clock-cells = <0>;
-			compatible = "allwinner,sun8i-a83t-c0cpu-clk";
-			reg = <0x01c20050 0x4>;
-			clocks = <&osc24M>, <&pll_c0cpux>;
-			clock-output-names = "c0_cpux";
-		};
-
-		c1_cpux_clk: c1clk@01c20050 {
-			#clock-cells = <0>;
-			compatible = "allwinner,sun8i-a83t-c1cpu-clk";
-			reg = <0x01c20050 0x4>;
-			clocks = <&osc24M>, <&pll_c1cpux>;
-			clock-output-names = "c1_cpux";
-		};
-
-		/* cpus_clk compatible in gnu dt is incorrect */
-		cpus_clk: clk@01f01400 {
-                        compatible = "allwinner,sun8i-a83t-cpus-clk";
-		};
-
-		pll_hsic: clk@01c20044 {
-			#clock-cells = <0>;
-			compatible = "allwinner,sun9i-a80-pll4-clk";
-			reg = <0x01c20044 0x4>;
-			clocks = <&osc24M>;
-			clock-output-names = "pll_hsic";
-		};
-
-		usb_clk: clk@01c200cc {
-			#clock-cells = <1>;
-			#reset-cells = <1>;
-			compatible = "allwinner,sun8i-a83t-usb-clk";
-			reg = <0x01c200cc 0x4>;
-			clocks = <&osc24M>, <&pll_hsic>;
-			clock-indices = <8>, <9>,
-					<10>, <11>,
-					<16>;
-			clock-output-names = "usb_phy0", "usb_phy1",
-					     "usb_hsic_pll", "usb_hsic_12m",
-					     "usb_ohci0";
-		};
-
-		mii_phy_tx_clk: clk@1 {
-			#clock-cells = <0>;
-			compatible = "fixed-clock";
-			clock-frequency = <25000000>;
-			clock-output-names = "mii_phy_tx";
-		};
-
-		emac_int_tx_clk: clk@2 {
-			#clock-cells = <0>;
-			compatible = "fixed-clock";
-			clock-frequency = <125000000>;
-			clock-output-names = "emac_int_tx";
-		};
-
-		emac_tx_clk: clk@01c00030 {
-			#clock-cells = <0>;
-			compatible = "allwinner,sun8i-a83t-emac-clk";
-			reg = <0x01c00030 0x4>;
-			clocks = <&mii_phy_tx_clk>, <&emac_int_tx_clk>;
-			clock-output-names = "emac_tx";
-		};
 	};
 
 	soc {
@@ -145,8 +64,8 @@
 			compatible = "allwinner,sun8i-a83t-i2c";
 			reg = <0x01c2ac00 0x400>;
 			interrupts = <GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&bus_gates 96>;
-			resets = <&apb2_reset 0>;
+			clocks = <&ccu CLK_BUS_I2C0>;
+			resets = <&ccu RST_BUS_I2C0>;
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -156,8 +75,8 @@
 			compatible = "allwinner,sun8i-a83t-i2c";
 			reg = <0x01c2b000 0x400>;
 			interrupts = <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&bus_gates 97>;
-			resets = <&apb2_reset 1>;
+			clocks = <&ccu CLK_BUS_I2C1>;
+			resets = <&ccu RST_BUS_I2C1>;
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -167,66 +86,22 @@
 			compatible = "allwinner,sun8i-a83t-i2c";
 			reg = <0x01c2b400 0x400>;
 			interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&bus_gates 98>;
-			resets = <&apb2_reset 2>;
+			clocks = <&ccu CLK_BUS_I2C2>;
+			resets = <&ccu RST_BUS_I2C2>;
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
 		};
 
-		usbphy: phy@01c19400 {
-			compatible = "allwinner,sun8i-a83t-usb-phy";
-			reg = <0x01c19400 0x2c>,
-			      <0x01c1a800 0x4>,
-			      <0x01c1b800 0x4>;
-			clocks = <&usb_clk 8>,
-				 <&usb_clk 9>,
-				 <&usb_clk 10>,
-				 <&usb_clk 11>;
-			clock-names = "usb0_phy",
-				      "usb1_phy",
-				      "hsic_pll",
-				      "hsic_12m";
-			resets = <&usb_clk 0>,
-				 <&usb_clk 1>,
-				 <&usb_clk 2>;
-			reset-names = "usb0_reset",
-				      "usb1_reset",
-				      "usb2_reset";
-			status = "disabled";
-			#phy-cells = <1>;
-		};
-
-		ehci0: usb@01c1a000 {
-			compatible = "allwinner,sun8i-a83t-ehci", "generic-ehci";
-			reg = <0x01c1a000 0x100>;
-			interrupts = <GIC_SPI 72 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&bus_gates 26>;
-			resets = <&ahb_reset 26>;
-			phys = <&usbphy 1>;
-			phy-names = "usb";
-			status = "disabled";
-		};
-
-		ehci1: usb@01c1b000 {
-			compatible = "allwinner,sun8i-a83t-ehci", "generic-ehci";
-			reg = <0x01c1b000 0x100>;
-			interrupts = <GIC_SPI 74 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&bus_gates 27>;
-			resets = <&ahb_reset 27>;
-			phys = <&usbphy 2>;
-			phy-names = "usb";
-			status = "disabled";
-		};
-
 		emac: ethernet@01c30000 {
 			compatible = "allwinner,sun8i-a83t-emac";
-			reg = <0x01c30000 0x100>;
+			reg = <0x01c30000 0x104>, <0x01c00030 0x4>;
+			reg-names = "emac", "syscon";
 			interrupts = <GIC_SPI 82 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "macirq";
-			clocks = <&bus_gates 17>, <&emac_tx_clk>;
-			clock-names = "ahb", "tx";
-			resets = <&ahb_reset 17>;
+			clocks = <&ccu CLK_BUS_EMAC>;
+			clock-names = "ahb";
+			resets = <&ccu RST_BUS_EMAC>;
 			reset-names = "ahb";
 			status = "disabled";
 			#address-cells = <1>;
@@ -248,16 +123,6 @@
 };
 
 &pio {
-	mmc2_8bit_pins: mmc2_8bit {
-		allwinner,pins = "PC5", "PC6", "PC8",
-				 "PC9", "PC10", "PC11",
-				 "PC12", "PC13", "PC14",
-				 "PC15", "PC16";
-		allwinner,function = "mmc2";
-		allwinner,drive = <SUN4I_PINCTRL_30_MA>;
-		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
-	};
-
 	emac_pins_rgmii_a: emac_rgmii@0 {
 		allwinner,pins = "PD2", "PD3", "PD4", "PD5", "PD6", "PD7",
 				 "PD11", "PD12", "PD13", "PD14",

@@ -3,6 +3,7 @@
 DTS=	\
 	nanopi-neo.dts \
 	orangepi-plus-2e.dts \
+	sinovoip-bpi-m3.dts \
 	sun4i-a10-cubieboard.dts \
 	sun4i-a10-olinuxino-lime.dts \
 	sun6i-a31s-sinovoip-bpi-m2.dts \

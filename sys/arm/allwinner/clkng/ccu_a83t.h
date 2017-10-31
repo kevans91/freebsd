@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2017 Emmanuel Vadot <manu@freebsd.org>
+ * Copyright (c) 2017 Kyle Evans <kevans@FreeBSD.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,57 +26,9 @@
  * $FreeBSD$
  */
 
-#ifndef __CCU_NG_H__
-#define __CCU_NG_H__
+#ifndef __CCU_A83T_H__
+#define __CCU_A83T_H__
 
-#ifdef __aarch64__
-#include "opt_soc.h"
-#endif
+void ccu_a83t_register_clocks(struct aw_ccung_softc *sc);
 
-#if defined(SOC_ALLWINNER_H3) || defined(SOC_ALLWINNER_H5)
-#define H3_CCU          1
-#define H3_R_CCU        2
-#endif
-
-#if defined(SOC_ALLWINNER_A31)
-#define A31_CCU         3
-#endif
-
-#if defined(SOC_ALLWINNER_A64)
-#define A64_CCU         4
-#define A64_R_CCU       5
-#endif
-
-#if defined(SOC_ALLWINNER_A83T)
-#define A83T_CCU        6
-#define A83T_R_CCU      7
-#endif
-
-struct aw_ccung_softc {
-	device_t		dev;
-	struct resource		*res;
-	struct clkdom		*clkdom;
-	struct mtx		mtx;
-	int			type;
-	struct aw_ccung_reset	*resets;
-	int			nresets;
-	struct aw_ccung_gate	*gates;
-	int			ngates;
-	struct aw_clk_init	*clk_init;
-	int			n_clk_init;
-};
-
-struct aw_ccung_reset {
-	uint32_t	offset;
-	uint32_t	shift;
-};
-
-struct aw_ccung_gate {
-	const char	*name;
-	const char	*parent_name;
-	uint32_t	id;
-	uint32_t	offset;
-	uint32_t	shift;
-};
-
-#endif /* __CCU_NG_H__ */
+#endif /* __CCU_A83T_H__ */

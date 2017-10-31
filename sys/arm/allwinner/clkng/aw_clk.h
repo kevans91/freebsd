@@ -48,6 +48,7 @@ Periph clocks:
 
 Clock Source/Divider N/Divider M
 Clock Source/Divider N/Divider M/2
+Clock Source * N/Divider M + 1/Divider P + 1
 
  */
 
@@ -70,6 +71,8 @@ struct aw_clk_init {
 #define	AW_CLK_FACTOR_ZERO_BASED	0x0002
 #define	AW_CLK_FACTOR_HAS_COND		0x0004
 #define	AW_CLK_FACTOR_FIXED		0x0008
+#define	AW_CLK_FACTOR_POWER_OF_FOUR	0x0010
+#define	AW_CLK_FACTOR_HAS_BIT_COND	0x0020
 
 struct aw_clk_factor {
 	uint32_t	shift;		/* Shift bits for the factor */
@@ -98,9 +101,14 @@ aw_clk_get_factor(uint32_t val, struct aw_clk_factor *factor)
 	uint32_t factor_val;
 	uint32_t cond;
 
-	if (factor->flags & AW_CLK_FACTOR_HAS_COND) {
+	if ((factor->flags & AW_CLK_FACTOR_HAS_COND) ||
+	    (factor->flags & AW_CLK_FACTOR_HAS_BIT_COND)) {
 		cond = (val & factor->cond_mask) >> factor->cond_shift;
-		if (cond != factor->cond_value)
+		if (!(factor->flags & AW_CLK_FACTOR_HAS_BIT_COND) &&
+		   cond != factor->cond_value)
+			return (1);
+		if ((factor->flags & AW_CLK_FACTOR_HAS_BIT_COND) &&
+		   (cond & factor->cond_value) == 0)
 			return (1);
 	}
 
@@ -112,8 +120,22 @@ aw_clk_get_factor(uint32_t val, struct aw_clk_factor *factor)
 		factor_val += 1;
 	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_TWO)
 		factor_val = 1 << factor_val;
+	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_FOUR)
+		factor_val = 1 << (2 * factor_val);
 
 	return (factor_val);
+}
+
+static inline uint32_t
+aw_clk_factor_get_incremented(uint32_t val, struct aw_clk_factor *factor)
+{
+
+	if (factor->flags & AW_CLK_FACTOR_POWER_OF_TWO)
+		return (val << 1);
+	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_FOUR)
+		return (val << 2);
+	else
+		return (val + 1);
 }
 
 static inline uint32_t
@@ -125,6 +147,8 @@ aw_clk_factor_get_max(struct aw_clk_factor *factor)
 		max = factor->value;
 	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_TWO)
 		max = 1 << ((1 << factor->width) - 1);
+	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_FOUR)
+		max = 1 << (2 * ((1 << factor->width) - 1));
 	else {
 		max = (1 << factor->width);
 	}
@@ -160,6 +184,9 @@ aw_clk_factor_get_value(struct aw_clk_factor *factor, uint32_t raw)
 	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_TWO) {
 		for (val = 0; raw != 1; val++)
 			raw >>= 1;
+	} else if (factor->flags & AW_CLK_FACTOR_POWER_OF_FOUR) {
+		for (val = 0; raw != 1; val++)
+			raw >>= 2;
 	} else
 		val = raw - 1;
 
