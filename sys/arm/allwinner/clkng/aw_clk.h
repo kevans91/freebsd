@@ -48,7 +48,7 @@ Periph clocks:
 
 Clock Source/Divider N/Divider M
 Clock Source/Divider N/Divider M/2
-Clock Source * N/Divider M + 1/Divider P + 1
+Clock Source*N/(Divider M+1)/(Divider P+1)
 
  */
 
