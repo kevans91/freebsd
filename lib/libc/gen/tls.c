@@ -34,6 +34,7 @@
 
 #include <sys/cdefs.h>
 #include <sys/param.h>
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <elf.h>
@@ -85,6 +86,7 @@ void __libc_free_tls(void *tls, size_t tcbsize, size_t tcbalign);
 
 static size_t tls_static_space;
 static size_t tls_init_size;
+static size_t tls_init_align;
 static void *tls_init;
 #endif
 
@@ -113,6 +115,37 @@ __libc_tls_get_addr(void *ti __unused)
 
 #define	TLS_TCB_SIZE	(2 * sizeof(void *))
 
+static void *
+malloc_aligned(size_t size, size_t align)
+{
+	uintptr_t memshift;
+	void *mem, *res;
+
+	if (align < sizeof(void *))
+		align = sizeof(void *);
+
+	mem = __je_bootstrap_malloc(size + sizeof(void *) + align - 1);
+	memshift = roundup2((uintptr_t)mem + sizeof(void *), align) - (uintptr_t)mem;
+	res = (void *)((uintptr_t)mem + memshift);
+	*(void **)((uintptr_t)res - sizeof(void *)) = mem;
+	return (res);
+}
+
+static void
+free_aligned(void *ptr)
+{
+	void *mem;
+	uintptr_t x;
+
+	if (ptr == NULL)
+		return;
+
+	x = (uintptr_t)ptr;
+	x -= sizeof(void *);
+	mem = *(void **)x;
+	__je_bootstrap_free(mem);
+}
+
 /*
  * Free Static TLS using the Variant I method.
  */
@@ -122,47 +155,50 @@ __libc_free_tls(void *tcb, size_t tcbsize, size_t tcbalign __unused)
 	Elf_Addr *dtv;
 	Elf_Addr **tls;
 
-	tls = (Elf_Addr **)((Elf_Addr)tcb + tcbsize - TLS_TCB_SIZE);
+	tls = (Elf_Addr **)tcb;
 	dtv = tls[0];
 	__je_bootstrap_free(dtv);
-	__je_bootstrap_free(tcb);
+	free_aligned(tls);
 }
 
 /*
  * Allocate Static TLS using the Variant I method.
  */
 void *
-__libc_allocate_tls(void *oldtcb, size_t tcbsize, size_t tcbalign __unused)
+__libc_allocate_tls(void *oldtcb, size_t tcbsize, size_t tcbalign)
 {
 	Elf_Addr *dtv;
 	Elf_Addr **tls;
-	char *tcb;
 
 	if (oldtcb != NULL && tcbsize == TLS_TCB_SIZE)
 		return (oldtcb);
 
-	tcb = __je_bootstrap_calloc(1, tls_static_space + tcbsize - TLS_TCB_SIZE);
-	tls = (Elf_Addr **)(tcb + tcbsize - TLS_TCB_SIZE);
+	assert(tcbalign >= TLS_TCB_ALIGN);
+	assert(tcbsize == TLS_TCB_SIZE);
+
+	tcbsize = roundup2(tcbsize, tcbalign);
+	tls = malloc_aligned(tcbsize + tls_static_space, tcbalign);
+	memset(tls, 0, tcbsize + tls_static_space);
 
 	if (oldtcb != NULL) {
-		memcpy(tls, oldtcb, tls_static_space);
+		memcpy(tls, oldtcb, tcbsize + tls_static_space);
 		__je_bootstrap_free(oldtcb);
 
 		/* Adjust the DTV. */
 		dtv = tls[0];
-		dtv[2] = (Elf_Addr)tls + TLS_TCB_SIZE;
+		dtv[2] = (Elf_Addr)tls + tcbsize;
 	} else {
 		dtv = __je_bootstrap_malloc(3 * sizeof(Elf_Addr));
 		tls[0] = dtv;
-		dtv[0] = 1;
-		dtv[1] = 1;
-		dtv[2] = (Elf_Addr)tls + TLS_TCB_SIZE;
+		dtv[0] = 1;		/* Generation. */
+		dtv[1] = 1;		/* Segments count. */
+		dtv[2] = (Elf_Addr)tls + tcbsize;
 
 		if (tls_init_size > 0)
 			memcpy((void*)dtv[2], tls_init, tls_init_size);
 	}
 
-	return(tcb); 
+	return(tls);
 }
 
 #endif
@@ -305,18 +341,14 @@ _init_tls(void)
 			tls_static_space = roundup2(phdr[i].p_memsz,
 			    phdr[i].p_align);
 			tls_init_size = phdr[i].p_filesz;
+			tls_init_align = phdr[i].p_align;
 			tls_init = (void*) phdr[i].p_vaddr;
+			break;
 		}
 	}
 
-#ifdef TLS_VARIANT_I
-	/*
-	 * tls_static_space should include space for TLS structure
-	 */
-	tls_static_space += TLS_TCB_SIZE;
-#endif
-
-	tls = _rtld_allocate_tls(NULL, TLS_TCB_SIZE, TLS_TCB_ALIGN);
+	tls = _rtld_allocate_tls(NULL, TLS_TCB_SIZE,
+	    MAX(TLS_TCB_ALIGN, tls_init_align));
 
 	_set_tp(tls);
 #endif

@@ -813,6 +813,8 @@ awg_rxintr(struct awg_softc *sc)
 		len = (status & RX_FRM_LEN) >> RX_FRM_LEN_SHIFT;
 		if (len != 0) {
 			m = sc->rx.buf_map[index].mbuf;
+			if (sc->res[_RES_SYSCON] != NULL)
+				m->m_flags |= M_HASFCS;
 			m->m_pkthdr.rcvif = ifp;
 			m->m_pkthdr.len = len;
 			m->m_len = len;
