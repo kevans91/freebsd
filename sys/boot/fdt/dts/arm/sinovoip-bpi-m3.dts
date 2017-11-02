@@ -101,16 +101,13 @@
 	phy = <&phy1>;
 	phy-mode = "rgmii";
 	status = "okay";
+	/* EMAC transmit/receive clock delay chain values for BPI-M3 */
+	tx-delay = <0x7>;
+	rx-delay = <0x7>;
 
 	phy1: ethernet-phy@1 {
 		reg = <1>;
 	};
-};
-
-&emac_tx_clk {
-	/* EMAC transmit/receive clock delay chain values for BPI-M3 */
-	tx-delay = <0x7>;
-	rx-delay = <0x7>;
 };
 
 &i2c0 {
