@@ -1,7 +1,8 @@
 # $FreeBSD$
 #
 
-.include	"../ficl.mk"
+.include <bsd.init.mk>
+.include "${BOOTSRC}/ficl.mk"
 
 BASE_SRCS=	dict.c ficl.c fileaccess.c float.c loader.c math64.c \
 		prefix.c search.c stack.c tools.c vm.c words.c
@@ -12,7 +13,7 @@ CLEANFILES=	softcore.c testmain testmain.o
     (${MACHINE_CPUARCH} == "amd64" && defined(FICL32))
 CFLAGS+=	-march=i386
 .endif
-.if HAVE_PNP
+.if defined(HAVE_PNP)
 CFLAGS+=	-DHAVE_PNP
 .endif
 .include <bsd.stand.mk>
@@ -31,8 +32,6 @@ INTERNALLIB=
 .PATH: ${FICLSRC}/softwords
 SOFTWORDS=	softcore.fr jhlocal.fr marker.fr freebsd.fr ficllocal.fr \
 		ifbrack.fr
-# Optional OO extension softwords
-#SOFTWORDS+=	oo.fr classes.fr
 
 softcore.c: ${SOFTWORDS} softcore.awk
 	(cd ${FICLSRC}/softwords; cat ${SOFTWORDS} \
