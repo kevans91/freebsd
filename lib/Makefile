@@ -35,6 +35,7 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	libcalendar \
 	libcam \
 	libcapsicum \
+	libcasper \
 	libcompat \
 	libcrypt \
 	libdevctl \
@@ -64,6 +65,7 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	libopenbsd \
 	libopie \
 	libpam \
+	libpathconv \
 	libpcap \
 	libpjdlog \
 	${_libproc} \
@@ -127,7 +129,6 @@ SUBDIR.${MK_ATM}+=	libngatm
 SUBDIR.${MK_BLACKLIST}+=libblacklist
 SUBDIR.${MK_BLUETOOTH}+=libbluetooth libsdp
 SUBDIR.${MK_BSNMP}+=	libbsnmp
-SUBDIR.${MK_CASPER}+=	libcasper
 
 .if !defined(COMPAT_32BIT) && !defined(COMPAT_SOFTFP)
 SUBDIR.${MK_CLANG}+=	clang
@@ -187,7 +188,7 @@ _libdl=		libdl
 .endif
 
 SUBDIR.${MK_OPENSSL}+=	libmp
-SUBDIR.${MK_PMC}+=	libpmc
+SUBDIR.${MK_PMC}+=	libpmc libpmcstat
 SUBDIR.${MK_RADIUS_SUPPORT}+=	libradius
 SUBDIR.${MK_SENDMAIL}+=	libmilter libsm libsmdb libsmutil
 SUBDIR.${MK_TELNET}+=	libtelnet
