@@ -124,11 +124,6 @@ This is a synonym for 0,
 provided as a counterpart to
 .Dv REG_EXTENDED
 to improve readability.
-.It Dv REG_POSIX
-Compile with more strict
-.St -p1003.2
-conformance. The default behavior is to compile with GNU extensions
-enabled.
 .It Dv REG_NOSPEC
 Compile with recognition of all special characters turned off.
 All characters are thus considered ordinary,
@@ -183,6 +178,17 @@ member is of type
 .Ft "const char *" .
 This flag permits inclusion of NULs in the RE;
 they are considered ordinary characters.
+This is an extension,
+compatible with but not specified by
+.St -p1003.2 ,
+and should be used with
+caution in software intended to be portable to other systems.
+.It Dv REG_POSIX
+Compile only
+.St -p1003.2
+compliant expressions.
+This flag has no effect unless linking against
+.Nm libregex .
 This is an extension,
 compatible with but not specified by
 .St -p1003.2 ,
