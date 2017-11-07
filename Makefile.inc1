@@ -301,7 +301,7 @@ CLEANDIR=	cleandir
 
 .if defined(WORLDFAST)
 NO_CLEAN=	t
-NO_OBJ=		t
+NO_OBJWALK=	t
 .endif
 
 .if ${MK_META_MODE} == "yes"
@@ -312,11 +312,11 @@ NO_OBJ=		t
 NO_CLEAN=	t
 .endif
 .endif
-.if defined(NO_OBJ) || ${MK_AUTO_OBJ} == "yes"
-NO_OBJ=		t
+.if defined(NO_OBJWALK) || ${MK_AUTO_OBJ} == "yes"
+NO_OBJWALK=	t
 NO_KERNELOBJ=	t
 .endif
-.if !defined(NO_OBJ)
+.if !defined(NO_OBJWALK)
 _obj=		obj
 .endif
 
@@ -521,6 +521,9 @@ BMAKEENV=	INSTALL="sh ${.CURDIR}/tools/install.sh" \
 		MAKEFLAGS="-m ${.CURDIR}/tools/build/mk ${.MAKEFLAGS}"
 # need to keep this in sync with targets/pseudo/bootstrap-tools/Makefile
 BSARGS= 	DESTDIR= \
+		OBJTOP='${WORLDTMP}/obj-tools' \
+		OBJROOT='$${OBJTOP}/' \
+		MAKEOBJDIRPREFIX= \
 		BOOTSTRAPPING=${OSRELDATE} \
 		BWPHASE=${.TARGET:C,^_,,} \
 		SSP_CFLAGS= \
@@ -531,7 +534,7 @@ BSARGS= 	DESTDIR= \
 		MK_LLDB=no MK_TESTS=no \
 		MK_INCLUDES=yes
 
-BMAKE=		MAKEOBJDIRPREFIX=${WORLDTMP} \
+BMAKE=		\
 		${BMAKEENV} ${MAKE} ${WORLD_FLAGS} -f Makefile.inc1 \
 		${BSARGS}
 
@@ -558,9 +561,12 @@ XMAKE=		${BMAKE} \
 KTMAKEENV=	INSTALL="sh ${.CURDIR}/tools/install.sh" \
 		PATH=${BPATH}:${PATH} \
 		WORLDTMP=${WORLDTMP}
-KTMAKE=		TOOLS_PREFIX=${WORLDTMP} MAKEOBJDIRPREFIX=${WORLDTMP} \
+KTMAKE=		TOOLS_PREFIX=${WORLDTMP} \
 		${KTMAKEENV} ${MAKE} ${WORLD_FLAGS} -f Makefile.inc1 \
 		DESTDIR= \
+		OBJTOP='${WORLDTMP}/obj-kernel-tools' \
+		OBJROOT='$${OBJTOP}/' \
+		MAKEOBJDIRPREFIX= \
 		BOOTSTRAPPING=${OSRELDATE} \
 		SSP_CFLAGS= \
 		MK_HTML=no -DNO_LINT MK_MAN=no \
@@ -827,6 +833,8 @@ _worldtmp: .PHONY
 .endfor
 .endif	# ${USING_SYSTEM_COMPILER} == "yes"
 .endif	# !defined(NO_CLEAN)
+	@mkdir -p ${WORLDTMP}
+	@touch ${WORLDTMP}/${.TARGET}
 
 .for _dir in \
     lib lib/casper usr legacy/bin legacy/usr
@@ -936,7 +944,7 @@ WMAKE_TGTS+=	_sanity_check _worldtmp _legacy
 WMAKE_TGTS+=	_bootstrap-tools
 .endif
 WMAKE_TGTS+=	_cleanobj
-.if !defined(NO_OBJ)
+.if !defined(NO_OBJWALK)
 WMAKE_TGTS+=	_obj
 .endif
 WMAKE_TGTS+=	_build-tools _cross-tools
@@ -980,6 +988,14 @@ buildenvvars: .PHONY
 .endif
 .endif
 BUILDENV_DIR?=	${.CURDIR}
+#
+# Note: make will report any errors the shell reports. This can
+# be odd if the last command in an interactive shell generates an
+# error or is terminated by SIGINT. These reported errors look bad,
+# but are harmless. Allowing them also allows BUIDLENV_SHELL to
+# be a complex command whose status will be returned to the caller.
+# Some scripts in tools rely on this behavior to report build errors.
+#
 buildenv: .PHONY
 	@echo Entering world for ${TARGET_ARCH}:${TARGET}
 .if ${BUILDENV_SHELL:M*zsh*}
@@ -1798,7 +1814,7 @@ legacy: .PHONY
 .for _tool in tools/build ${_elftoolchain_libs}
 	${_+_}@${ECHODIR} "===> ${_tool} (obj,includes,all,install)"; \
 	    cd ${.CURDIR}/${_tool}; \
-	    if [ -z "${NO_OBJ}" ]; then ${MAKE} DIRPRFX=${_tool}/ obj; fi; \
+	    if [ -z "${NO_OBJWALK}" ]; then ${MAKE} DIRPRFX=${_tool}/ obj; fi; \
 	    ${MAKE} DIRPRFX=${_tool}/ DESTDIR=${WORLDTMP}/legacy includes; \
 	    ${MAKE} DIRPRFX=${_tool}/ MK_INCLUDES=no all; \
 	    ${MAKE} DIRPRFX=${_tool}/ MK_INCLUDES=no \
@@ -1944,7 +1960,7 @@ bootstrap-tools: .PHONY
 ${_bt}-${_tool}: .PHONY .MAKE
 	${_+_}@${ECHODIR} "===> ${_tool} (obj,all,install)"; \
 		cd ${.CURDIR}/${_tool}; \
-		if [ -z "${NO_OBJ}" ]; then ${MAKE} DIRPRFX=${_tool}/ obj; fi; \
+		if [ -z "${NO_OBJWALK}" ]; then ${MAKE} DIRPRFX=${_tool}/ obj; fi; \
 		${MAKE} DIRPRFX=${_tool}/ all; \
 		${MAKE} DIRPRFX=${_tool}/ DESTDIR=${WORLDTMP}/legacy install
 
@@ -1995,7 +2011,7 @@ build-tools_${_tool}: .PHONY
 	${_+_}@${ECHODIR} "===> ${_tool} (${_bt_clean:D${_bt_clean},}obj,build-tools)"; \
 		cd ${.CURDIR}/${_tool}; \
 		if [ -n "${_bt_clean}" ]; then ${MAKE} DIRPRFX=${_tool}/ ${_bt_clean}; fi; \
-		if [ -z "${NO_OBJ}" ]; then ${MAKE} DIRPRFX=${_tool}/ obj; fi; \
+		if [ -z "${NO_OBJWALK}" ]; then ${MAKE} DIRPRFX=${_tool}/ obj; fi; \
 		${MAKE} DIRPRFX=${_tool}/ build-tools
 build-tools: build-tools_${_tool}
 .endfor
@@ -2080,7 +2096,7 @@ cross-tools: .MAKE .PHONY
     ${_usb_tools}
 	${_+_}@${ECHODIR} "===> ${_tool} (obj,all,install)"; \
 		cd ${.CURDIR}/${_tool}; \
-		if [ -z "${NO_OBJ}" ]; then ${MAKE} DIRPRFX=${_tool}/ obj; fi; \
+		if [ -z "${NO_OBJWALK}" ]; then ${MAKE} DIRPRFX=${_tool}/ obj; fi; \
 		${MAKE} DIRPRFX=${_tool}/ all; \
 		${MAKE} DIRPRFX=${_tool}/ DESTDIR=${WORLDTMP} install
 .endfor
@@ -2221,7 +2237,7 @@ native-xtools: .PHONY
 	# needed build tools are built.
 	${_+_}cd ${.CURDIR}; ${NXBTMAKE} _includes MK_CLANG=no MK_GCC=no
 	${_+_}cd ${.CURDIR}; ${NXBTMAKE} _libraries MK_CLANG=no MK_GCC=no
-.if !defined(NO_OBJ)
+.if !defined(NO_OBJWALK)
 	${_+_}cd ${.CURDIR}; ${NXBMAKE} SUBDIR_OVERRIDE="${NXBDIRS:M*}" _obj
 .endif
 	${_+_}cd ${.CURDIR}; ${NXBMAKE} SUBDIR_OVERRIDE="${NXBDIRS:M*}" \
@@ -2498,7 +2514,7 @@ ${_lib}__PL: .PHONY .MAKE
 .if exists(${.CURDIR}/${_lib})
 	${_+_}@${ECHODIR} "===> ${_lib} (obj,all,install)"; \
 		cd ${.CURDIR}/${_lib}; \
-		if [ -z "${NO_OBJ}" ]; then ${MAKE} MK_TESTS=no DIRPRFX=${_lib}/ obj; fi; \
+		if [ -z "${NO_OBJWALK}" ]; then ${MAKE} MK_TESTS=no DIRPRFX=${_lib}/ obj; fi; \
 		${MAKE} MK_TESTS=no MK_PROFILE=no -DNO_PIC \
 		    DIRPRFX=${_lib}/ all; \
 		${MAKE} MK_TESTS=no MK_PROFILE=no -DNO_PIC \
@@ -2511,7 +2527,7 @@ ${_lib}__L: .PHONY .MAKE
 .if exists(${.CURDIR}/${_lib})
 	${_+_}@${ECHODIR} "===> ${_lib} (obj,all,install)"; \
 		cd ${.CURDIR}/${_lib}; \
-		if [ -z "${NO_OBJ}" ]; then ${MAKE} MK_TESTS=no DIRPRFX=${_lib}/ obj; fi; \
+		if [ -z "${NO_OBJWALK}" ]; then ${MAKE} MK_TESTS=no DIRPRFX=${_lib}/ obj; fi; \
 		${MAKE} MK_TESTS=no DIRPRFX=${_lib}/ all; \
 		${MAKE} MK_TESTS=no DIRPRFX=${_lib}/ install
 .endif
@@ -2849,7 +2865,7 @@ _xb-bootstrap-tools: .PHONY
     ${_yacc}
 	${_+_}@${ECHODIR} "===> ${_tool} (obj,all,install)"; \
 	cd ${.CURDIR}/${_tool}; \
-	if [ -z "${NO_OBJ}" ]; then ${CDMAKE} DIRPRFX=${_tool}/ obj; fi; \
+	if [ -z "${NO_OBJWALK}" ]; then ${CDMAKE} DIRPRFX=${_tool}/ obj; fi; \
 	${CDMAKE} DIRPRFX=${_tool}/ all; \
 	${CDMAKE} DIRPRFX=${_tool}/ DESTDIR=${CDTMP} install
 .endfor
@@ -2871,7 +2887,7 @@ _xb-cross-tools: .PHONY
 .for _tool in ${XDEVDIRS}
 	${_+_}@${ECHODIR} "===> xdev ${_tool} (obj,all)"; \
 	cd ${.CURDIR}/${_tool}; \
-	if [ -z "${NO_OBJ}" ]; then ${CDMAKE} DIRPRFX=${_tool}/ obj; fi; \
+	if [ -z "${NO_OBJWALK}" ]; then ${CDMAKE} DIRPRFX=${_tool}/ obj; fi; \
 	${CDMAKE} DIRPRFX=${_tool}/ all
 .endfor
 
@@ -2906,7 +2922,7 @@ _xi-cross-tools: .PHONY
 .endfor
 
 _xi-includes: .PHONY
-.if !defined(NO_OBJ)
+.if !defined(NO_OBJWALK)
 	${_+_}cd ${.CURDIR}; ${CD2MAKE} -f Makefile.inc1 _obj \
 		DESTDIR=${XDDESTDIR}
 .endif

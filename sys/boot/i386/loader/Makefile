@@ -18,6 +18,8 @@ LOADER_CD9660_SUPPORT?=	no
 LOADER_EXT2FS_SUPPORT?=	no
 LOADER_MSDOS_SUPPORT?=	no
 LOADER_UFS_SUPPORT?=	yes
+LOADER_GZIP_SUPPORT?=	yes
+LOADER_BZIP2_SUPPORT?=	yes
 
 # architecture-specific loader code
 SRCS=		main.c conf.c vers.c chain.c
@@ -25,7 +27,7 @@ SRCS=		main.c conf.c vers.c chain.c
 # Put LOADER_FIREWIRE_SUPPORT=yes in /etc/make.conf for FireWire/dcons support
 .if defined(LOADER_FIREWIRE_SUPPORT)
 CFLAGS+=	-DLOADER_FIREWIRE_SUPPORT
-LIBFIREWIRE=	${BOOTSRC}/i386/libfirewire/libfirewire.a
+LIBFIREWIRE=	${BOOTOBJ}/i386/libfirewire/libfirewire.a
 .endif
 
 # Set by zfsloader Makefile
@@ -99,22 +101,11 @@ FILES+=	loader.rc menu.rc
 # XXX crt0.o needs to be first for pxeboot(8) to work
 OBJS=	${BTXCRT}
 
-# XXX not happy with this construct, revisit
-.if ${MACHINE_CPUARCH} == "amd64"
-FICL=	${LIBFICL32}
-.else
-FICL=	${LIBFICL}
-.endif
+DPADD=	${LIBFICL32} ${LIBFIREWIRE} ${LIBZFSBOOT} ${LIBI386} ${LIBGELIBOOT} ${LIBSA32}
+LDADD=	${LIBFICL32} ${LIBFIREWIRE} ${LIBZFSBOOT} ${LIBI386} ${LIBGELIBOOT} ${LIBSA32}
 
-DPADD=	${FICL} ${LIBFIREWIRE} ${LIBZFSBOOT} ${LIBI386} ${LIBGELIBOOT} ${LIBSA32}
-LDADD=	${FICL} ${LIBFIREWIRE} ${LIBZFSBOOT} ${LIBI386} ${LIBGELIBOOT} ${LIBSA32}
+.if ${MACHINE_CPUARCH} == "amd64"
+CFLAGS+=	-DLOADER_PREFER_AMD64
+.endif
 
 .include <bsd.prog.mk>
-
-.if ${MACHINE_CPUARCH} == "amd64"
-beforedepend ${OBJS}: machine
-CLEANFILES+=	machine
-CFLAGS+=	-DLOADER_PREFER_AMD64
-machine: .NOMETA
-	ln -sf ${SYSDIR}/i386/include machine
-.endif
