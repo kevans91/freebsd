@@ -160,9 +160,15 @@ aw_clk_nm_find_best(struct aw_clk_nm_sc *sc, uint64_t fparent, uint64_t *fout,
 				*factor_m = m;
 			}
 
-			n = aw_clk_factor_get_incremented(n, &sc->n);
+			if ((sc->n.flags & AW_CLK_FACTOR_POWER_OF_TWO) != 0)
+				n <<= 1;
+			else
+				n++;
 		}
-		m = aw_clk_factor_get_incremented(m, &sc->m);
+		if ((sc->m.flags & AW_CLK_FACTOR_POWER_OF_TWO) != 0)
+			m <<= 1;
+		else
+			m++;
 	}
 
 	return (best);
