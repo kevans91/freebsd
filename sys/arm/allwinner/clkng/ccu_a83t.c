@@ -209,27 +209,23 @@ FIXED_CLK(osc12m_clk,
 
 static const char *pll_c0cpux_parents[] = {"osc24M"};
 static const char *pll_c1cpux_parents[] = {"osc24M"};
-NKMP_CLK(pll_c0cpux_clk,
+NM_CLK(pll_c0cpux_clk,
     CLK_PLL_C0CPUX,				/* id */
     "pll_c0cpux", pll_c0cpux_parents,		/* name, parents */
     0x00,					/* offset */
-    8, 8, 0, 0,					/* n factor */
-    0, 0, 1, AW_CLK_FACTOR_FIXED,		/* k factor (fake) */
-    0, 2, 0, 0,					/* m factor */
-    16, 1, 0, AW_CLK_FACTOR_POWER_OF_FOUR,	/* p factor */
+    8, 8, 0, AW_CLK_FACTOR_ZERO_BASED,		/* n factor */
+    0, 0, 1, AW_CLK_FACTOR_FIXED,		/* m factor (fake) */
+    0, 0,					/* mux */
     31,						/* gate */
-    0, 0,					/* lock */
     AW_CLK_HAS_GATE | AW_CLK_SCALE_CHANGE);	/* flags */
-NKMP_CLK(pll_c1cpux_clk,
+NM_CLK(pll_c1cpux_clk,
     CLK_PLL_C1CPUX,				/* id */
     "pll_c1cpux", pll_c1cpux_parents,		/* name, parents */
     0x04,					/* offset */
     8, 8, 0, AW_CLK_FACTOR_ZERO_BASED,		/* n factor */
-    0, 0, 1, AW_CLK_FACTOR_FIXED,		/* k factor (fake) */
-    0, 2, 0, 0,					/* m factor */
-    16, 1, 0, AW_CLK_FACTOR_POWER_OF_FOUR,	/* p factor */
+    0, 0, 1, AW_CLK_FACTOR_FIXED,		/* m factor (fake) */
+    0, 0,					/* mux */
     31,						/* gate */
-    0, 0,					/* lock */
     AW_CLK_HAS_GATE | AW_CLK_SCALE_CHANGE);	/* flags */
 
 static const char *pll_audio_parents[] = {"osc24M"};
@@ -378,14 +374,14 @@ DIV_CLK(axi1_clk,
     0, NULL);					/* flags, div table */
 
 static const char *ahb1_parents[] = {"osc16M-d512", "osc24M", "pll_periph", "pll_periph"};
-PREDIV_CLK(ahb1_clk,
+PREDIV_CLK_WITH_MASK(ahb1_clk,
     CLK_AHB1,					/* id */
     "ahb1", ahb1_parents,			/* name, parents */
     0x54,					/* offset */
     12, 2,					/* mux */
-    4, 2, 0, AW_CLK_FACTOR_POWER_OF_TWO,		/* div */
-    6, 2, 0, AW_CLK_FACTOR_HAS_BIT_COND,		/* prediv */
-    12, 2, 2);					/* prediv bit condition */
+    4, 2, 0, AW_CLK_FACTOR_POWER_OF_TWO,	/* div */
+    6, 2, 0, AW_CLK_FACTOR_HAS_COND,		/* prediv */
+    (2 << 12), (2 << 12));			/* prediv condition */
 
 static const char *apb1_parents[] = {"ahb1"};
 DIV_CLK(apb1_clk,
@@ -686,8 +682,6 @@ NM_CLK(gpu_hyd_clk,
 
 
 static struct aw_clk_nkmp_def *nkmp_clks[] = {
-	&pll_c0cpux_clk,
-	&pll_c1cpux_clk,
 	&pll_audio_clk,
 	&pll_video0_clk,
 	&pll_ve_clk,
@@ -700,6 +694,8 @@ static struct aw_clk_nkmp_def *nkmp_clks[] = {
 };
 
 static struct aw_clk_nm_def *nm_clks[] = {
+	&pll_c0cpux_clk,
+	&pll_c1cpux_clk,
 	&apb2_clk,
 	&nand_clk,
 	&mmc0_clk,
