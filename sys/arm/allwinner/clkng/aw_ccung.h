@@ -34,22 +34,26 @@
 #endif
 
 #if defined(SOC_ALLWINNER_H3) || defined(SOC_ALLWINNER_H5)
-#define H3_CCU          1
-#define H3_R_CCU        2
+#define	H3_CCU		1
+#define	H3_R_CCU	2
 #endif
 
 #if defined(SOC_ALLWINNER_A31)
-#define A31_CCU         3
+#define	A31_CCU		3
 #endif
 
 #if defined(SOC_ALLWINNER_A64)
-#define A64_CCU         4
-#define A64_R_CCU       5
+#define	A64_CCU		4
+#define	A64_R_CCU	5
+#endif
+
+#if defined(SOC_ALLWINNER_A13)
+#define	A13_CCU		6
 #endif
 
 #if defined(SOC_ALLWINNER_A83T)
-#define A83T_CCU        6
-#define A83T_R_CCU      7
+#define	A83T_CCU	7
+#define	A83T_R_CCU	8
 #endif
 
 struct aw_ccung_softc {
