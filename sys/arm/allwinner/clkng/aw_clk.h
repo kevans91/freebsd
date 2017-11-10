@@ -71,8 +71,6 @@ struct aw_clk_init {
 #define	AW_CLK_FACTOR_ZERO_BASED	0x0002
 #define	AW_CLK_FACTOR_HAS_COND		0x0004
 #define	AW_CLK_FACTOR_FIXED		0x0008
-#define	AW_CLK_FACTOR_POWER_OF_FOUR	0x0010
-#define	AW_CLK_FACTOR_HAS_BIT_COND	0x0020
 
 struct aw_clk_factor {
 	uint32_t	shift;		/* Shift bits for the factor */
@@ -101,14 +99,9 @@ aw_clk_get_factor(uint32_t val, struct aw_clk_factor *factor)
 	uint32_t factor_val;
 	uint32_t cond;
 
-	if ((factor->flags & AW_CLK_FACTOR_HAS_COND) ||
-	    (factor->flags & AW_CLK_FACTOR_HAS_BIT_COND)) {
+	if (factor->flags & AW_CLK_FACTOR_HAS_COND) {
 		cond = (val & factor->cond_mask) >> factor->cond_shift;
-		if (!(factor->flags & AW_CLK_FACTOR_HAS_BIT_COND) &&
-		   cond != factor->cond_value)
-			return (1);
-		if ((factor->flags & AW_CLK_FACTOR_HAS_BIT_COND) &&
-		   (cond & factor->cond_value) == 0)
+		if (cond != factor->cond_value)
 			return (1);
 	}
 
@@ -120,22 +113,8 @@ aw_clk_get_factor(uint32_t val, struct aw_clk_factor *factor)
 		factor_val += 1;
 	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_TWO)
 		factor_val = 1 << factor_val;
-	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_FOUR)
-		factor_val = 1 << (2 * factor_val);
 
 	return (factor_val);
-}
-
-static inline uint32_t
-aw_clk_factor_get_incremented(uint32_t val, struct aw_clk_factor *factor)
-{
-
-	if (factor->flags & AW_CLK_FACTOR_POWER_OF_TWO)
-		return (val << 1);
-	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_FOUR)
-		return (val << 2);
-	else
-		return (val + 1);
 }
 
 static inline uint32_t
@@ -147,8 +126,6 @@ aw_clk_factor_get_max(struct aw_clk_factor *factor)
 		max = factor->value;
 	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_TWO)
 		max = 1 << ((1 << factor->width) - 1);
-	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_FOUR)
-		max = 1 << (2 * ((1 << factor->width) - 1));
 	else {
 		max = (1 << factor->width);
 	}
@@ -184,9 +161,6 @@ aw_clk_factor_get_value(struct aw_clk_factor *factor, uint32_t raw)
 	else if (factor->flags & AW_CLK_FACTOR_POWER_OF_TWO) {
 		for (val = 0; raw != 1; val++)
 			raw >>= 1;
-	} else if (factor->flags & AW_CLK_FACTOR_POWER_OF_FOUR) {
-		for (val = 0; raw != 1; val++)
-			raw >>= 2;
 	} else
 		val = raw - 1;
 
@@ -416,6 +390,36 @@ aw_clk_factor_get_value(struct aw_clk_factor *factor, uint32_t raw)
 		.prediv.flags = _prediv_flags,			\
 		.prediv.cond_shift = _prediv_cond_shift,	\
 		.prediv.cond_width = _prediv_cond_width,	\
+		.prediv.cond_value = _prediv_cond_value,	\
+	}
+
+#define PREDIV_CLK_WITH_MASK(_clkname, _id, _name, _pnames,	\
+  _offset,							\
+  _mux_shift, _mux_width,					\
+  _div_shift, _div_width, _div_value, _div_flags,		\
+  _prediv_shift, _prediv_width, _prediv_value, _prediv_flags,	\
+  _prediv_cond_mask, _prediv_cond_value)			\
+	static struct aw_clk_prediv_mux_def _clkname = {	\
+		.clkdef = {					\
+			.id = _id,				\
+			.name = _name,				\
+			.parent_names = _pnames,		\
+			.parent_cnt = nitems(_pnames),		\
+		},						\
+		.offset = _offset,				\
+		.mux_shift = _mux_shift,			\
+		.mux_width = _mux_width,			\
+		.div.shift = _div_shift,			\
+		.div.width = _div_width,			\
+		.div.value = _div_value,			\
+		.div.flags = _div_flags,			\
+		.prediv.shift = _prediv_shift,			\
+		.prediv.width = _prediv_width,			\
+		.prediv.value = _prediv_value,			\
+		.prediv.flags = _prediv_flags,			\
+		.prediv.cond_shift = 0,				\
+		.prediv.cond_width = 0,				\
+		.prediv.cond_mask = _prediv_cond_mask,		\
 		.prediv.cond_value = _prediv_cond_value,	\
 	}
 
