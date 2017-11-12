@@ -29,6 +29,10 @@
 #ifndef __DWC_HDMI_H__
 #define	__DWC_HDMI_H__
 
+#include <dev/videomode/videomode.h>
+#include <dev/videomode/edidvar.h>
+#include <dev/iicbus/iic.h>
+
 struct dwc_hdmi_softc {
 	device_t		sc_dev;
 	struct resource		*sc_mem_res;
@@ -59,6 +63,10 @@ WR1(struct dwc_hdmi_softc *sc, bus_size_t off, uint8_t val)
 
 int	dwc_hdmi_get_edid(device_t, uint8_t **, uint32_t *);
 int	dwc_hdmi_set_videomode(device_t, const struct videomode *);
+
+int	dwc_hdmi_i2cm_reset(device_t, u_char, u_char, u_char *);
+int	dwc_hdmi_i2cm_transfer(device_t, struct iic_msg *msgs, uint32_t);
+
 int	dwc_hdmi_init(device_t);
 
 #endif	/* __DWC_HDMI_H__ */

@@ -659,4 +659,4 @@ static driver_t a10fb_driver = {
 
 static devclass_t a10fb_devclass;
 
-DRIVER_MODULE(fb, simplebus, a10fb_driver, a10fb_devclass, 0, 0);
+DRIVER_MODULE(a10fb, simplebus, a10fb_driver, a10fb_devclass, 0, 0);

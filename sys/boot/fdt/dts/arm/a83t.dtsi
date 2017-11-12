@@ -119,6 +119,45 @@
 			interrupts = <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
 			#thermal-sensor-cells = <0>;
 		};
+
+		fb: fb@01000000 {
+			compatible = "allwinner,sun8i-a83t-fb";
+			reg = <0x01000000 0x400000>,	/* DE */
+			      <0x01c0c000 0x400>,	/* TCON0 */
+			      <0x01c0d000 0x400>;	/* TCON1 */
+			clocks = <&ccu CLK_BUS_DE>, <&ccu CLK_PLL_DE>,
+				 <&ccu CLK_BUS_TCON0>, <&ccu CLK_BUS_TCON1>,
+				 <&ccu CLK_TCON0>, <&ccu CLK_TCON1>;
+			clock-names = "gate_de", "clock_de",
+				      "gate_tcon0", "gate_tcon1",
+				      "clock_tcon0", "clock_tcon1";
+			resets = <&ccu RST_BUS_DE>,
+				 <&ccu RST_BUS_TCON0>, <&ccu RST_BUS_TCON1>;
+			reset-names = "de",
+				      "tcon0", "tcon1";
+		};
+
+		hdmi: hdmi@01ee0000 {
+			compatible = "allwinner,sun8i-a83t-hdmi";
+			reg = <0x01ee0000 0x20000>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&hdmi_pins_a>;
+			clocks = <&ccu CLK_BUS_HDMI>, <&ccu CLK_HDMI>, <&ccu CLK_HDMI_SLOW>;
+			clock-names = "bus", "clock", "ddc-clock";
+			resets = <&ccu RST_BUS_HDMI0>, <&ccu RST_BUS_HDMI1>;
+			reset-names = "hdmi0", "hdmi1";
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+/*
+			port@0 {
+				reg = <0>;
+				hdmi_lcd0: endpoint {
+					remote-endpoint = <&lcd0_hdmi>;
+				};
+			};
+*/
+		};
 	};
 };
 
@@ -149,6 +188,13 @@
 	i2c2_pins_a: i2c2@0 {
 		allwinner,pins = "PH4", "PH5";
 		allwinner,function = "i2c2";
+		allwinner,drive = <SUN4I_PINCTRL_10_MA>;
+		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
+	};
+
+	hdmi_pins_a: hdmiddc@0 {
+		allwinner,pins = "PH6", "PH7", "PH8";
+		allwinner,function = "hdmiddc";
 		allwinner,drive = <SUN4I_PINCTRL_10_MA>;
 		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
 	};

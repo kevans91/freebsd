@@ -35,6 +35,9 @@ arm/allwinner/aw_cir.c			optional	aw_cir evdev
 arm/allwinner/a10_fb.c			optional	vt
 arm/allwinner/a10_hdmi.c		optional	hdmi
 arm/allwinner/a10_hdmiaudio.c		optional	hdmi sound
+arm/allwinner/a83t_hdmi.c		optional	hdmi
+arm/allwinner/de2_fb.c			optional	vt
+dev/hdmi/dwc_hdmi.c			optional	hdmi
 dev/hdmi/hdmi_if.m			optional	hdmi
 
 arm/allwinner/aw_reset.c		standard
