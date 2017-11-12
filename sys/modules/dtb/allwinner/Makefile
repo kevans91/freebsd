@@ -17,7 +17,9 @@ DTS=	\
 	sun8i-h3-nanopi-m1.dts \
 	sun8i-h3-orangepi-one.dts
 
+# XXX Temporarily add link from old name to new name
 LINKS= \
+	${DTBDIR}/sinovoip-bpi-m3.dtb ${DTBDIR}/sun8i-a83t-sinovoip-bpi-m3.dtb \
 	${DTBDIR}/sun4i-a10-cubieboard.dtb ${DTBDIR}/cubieboard.dtb \
 	${DTBDIR}/sun4i-a10-olinuxino-lime.dtb ${DTBDIR}/olinuxino-lime.dtb \
 	${DTBDIR}/sun6i-a31s-sinovoip-bpi-m2.dtb ${DTBDIR}/bananapim2.dtb \

@@ -26,7 +26,7 @@
  * $FreeBSD$
  */
 
-#include "sun8i-a83t-sinovoip-bpi-m3.dts"
+#include "sun8i-a83t-bananapi-m3.dts"
 #include "a83t.dtsi"
 
 / {
@@ -55,10 +55,6 @@
 	};
 };
 
-&ehci0 {
-	status = "okay";
-};
-
 &ehci1 {
 	status = "okay";
 };
@@ -72,27 +68,8 @@
 	allwinner,pins = "PD25";
 };
 
-&reg_usb1_vbus {
-	gpio = <&pio 3 24 GPIO_ACTIVE_HIGH>;	/* PD24 */
-	status = "okay";
-};
-
 &usb1_vbus_pin_a {
 	allwinner,pins = "PD24";
-};
-
-&usbphy {
-	usb1_vbus-supply = <&reg_usb1_vbus>;
-	status = "okay";
-};
-
-&mmc2 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&mmc2_8bit_pins>;
-	vmmc-supply = <&reg_vcc3v3>;
-	bus-width = <8>;
-	non-removable;
-	status = "okay";
 };
 
 &emac {
@@ -108,6 +85,10 @@
 	phy1: ethernet-phy@1 {
 		reg = <1>;
 	};
+};
+
+&hdmi {
+	status = "okay";
 };
 
 &i2c0 {
@@ -128,25 +109,25 @@
 	status = "okay";
 };
 
-&r_rsb {
-	status = "okay";
+&axp81x {
+	gpio-controller;
+	#gpio-cells = <1>;
 
-	axp81x: pmic@3a3 {
-		compatible = "x-powers,axp813";
-		reg = <0x3a3>;
-		interrupt-parent = <&nmi_intc>;
-		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
-		gpio-controller;
-		#gpio-cells = <1>;
+	regulators {
+		reg_dcdc2: dcdc2 {
+			regulator-name = "dcdc2";
+		};
 
-		regulators {
-			reg_dcdc2: dcdc2 {
-				regulator-name = "dcdc2";
-			};
+		reg_dcdc3: dcdc3 {
+			regulator-name = "dcdc3";
+		};
 
-			reg_dcdc3: dcdc3 {
-				regulator-name = "dcdc3";
-			};
+		reg_aldo1: aldo1 {
+			regulator-name = "aldo1";
+			regulator-boot-on;
+			regulator-always-on;
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
 		};
 	};
 };
