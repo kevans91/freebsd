@@ -116,7 +116,7 @@ static const struct aw_usbphy_conf a83t_usbphy_conf = {
 	.num_phys = 3,
 	.phy_type = AWUSBPHY_TYPE_A83T,
 	.pmu_unk1 = false,
-	.phy0_route = true,
+	.phy0_route = false,
 };
 
 static struct ofw_compat_data compat_data[] = {
