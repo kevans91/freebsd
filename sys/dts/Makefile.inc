@@ -1,6 +1,6 @@
 # $FreeBSD$
 
-SYSDIR?=${.CURDIR}/../../../..
+SYSDIR?=${.CURDIR}/../../
 
 test-dts:
 .for dts in ${DTS}
