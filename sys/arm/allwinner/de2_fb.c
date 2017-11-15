@@ -729,6 +729,10 @@ de2fb_hdmi_event(void *arg, device_t hdmi_dev)
 	hdmi_mode.hskew = mode->hsync_end - mode->hsync_start;
 	hdmi_mode.flags |= VID_HSKEW;
 	HDMI_SET_VIDEOMODE(hdmi_dev, &hdmi_mode);
+	
+	/* XXX: ???? */
+	DELAY(HDMI_ENABLE_DELAY);
+	HDMI_ENABLE(hdmi_dev, 1);
 }
 
 static int
