@@ -59,19 +59,6 @@
 	status = "okay";
 };
 
-&reg_ahci_5v {
-	gpio = <&pio 3 25 GPIO_ACTIVE_HIGH>;	/* PD25 */
-	status = "okay";
-};
-
-&ahci_pwr_pin_a {
-	allwinner,pins = "PD25";
-};
-
-&usb1_vbus_pin_a {
-	allwinner,pins = "PD24";
-};
-
 &emac {
 	pinctrl-names = "default";
 	pinctrl-0 = <&emac_pins_rgmii_a>;
@@ -112,24 +99,6 @@
 &axp81x {
 	gpio-controller;
 	#gpio-cells = <1>;
-
-	regulators {
-		reg_dcdc2: dcdc2 {
-			regulator-name = "dcdc2";
-		};
-
-		reg_dcdc3: dcdc3 {
-			regulator-name = "dcdc3";
-		};
-
-		reg_aldo1: aldo1 {
-			regulator-name = "aldo1";
-			regulator-boot-on;
-			regulator-always-on;
-			regulator-min-microvolt = <1800000>;
-			regulator-max-microvolt = <1800000>;
-		};
-	};
 };
 
 / {
