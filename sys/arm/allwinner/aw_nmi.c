@@ -81,7 +81,6 @@ struct aw_nmi_reg_cfg {
 	uint8_t			ctrl_reg;
 	uint8_t			pending_reg;
 	uint8_t			enable_reg;
-	uint8_t			id;
 };
 
 struct aw_nmi_softc {
@@ -341,7 +340,6 @@ aw_nmi_probe(device_t dev)
 
 	if (ofw_bus_search_compatible(dev, compat_data)->ocd_data == 0)
 		return (ENXIO);
-
 	device_set_desc(dev, "Allwinner NMI Controller");
 	return (BUS_PROBE_DEFAULT);
 }
@@ -361,7 +359,6 @@ aw_nmi_attach(device_t dev)
 		device_printf(dev, "can't allocate device resources\n");
 		return (ENXIO);
 	}
-
 	if ((bus_setup_intr(dev, sc->res[1], INTR_TYPE_MISC,
 	    aw_nmi_intr, NULL, sc, &sc->intrcookie))) {
 		device_printf(dev, "unable to register interrupt handler\n");
