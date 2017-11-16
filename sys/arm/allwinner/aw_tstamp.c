@@ -79,9 +79,14 @@ static int aw_tstamp_sysctl(SYSCTL_HANDLER_ARGS);
 static uint64_t
 aw_tstamp_read(struct aw_tstamp_softc *sc)
 {
+	uint32_t hi, lo;
 
-	return (((uint64_t)READ(sc, TSTAMP_CTRL_HIGH) << 32) |
-	    (uint64_t)READ(sc, TSTAMP_CTRL_LOW));
+	do {
+		hi = READ(sc, TSTAMP_CTRL_HIGH);
+		lo = READ(sc, TSTAMP_CTRL_LOW);
+	} while (hi != READ(sc, TSTAMP_CTRL_HIGH));
+
+	return ((uint64_t)hi << 32) | low;
 }
 
 static int
