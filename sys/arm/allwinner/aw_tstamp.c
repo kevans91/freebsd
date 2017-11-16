@@ -86,7 +86,7 @@ aw_tstamp_read(struct aw_tstamp_softc *sc)
 		lo = READ(sc, TSTAMP_CTRL_LOW);
 	} while (hi != READ(sc, TSTAMP_CTRL_HIGH));
 
-	return ((uint64_t)hi << 32) | low;
+	return ((uint64_t)hi << 32) | lo;
 }
 
 static int
