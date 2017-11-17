@@ -98,17 +98,6 @@ __FBSDID("$FreeBSD$");
 #define	HALF_OF_SEC_NS			500000000
 #define	RTC_RES_US			1000000
 
-
-static struct ofw_compat_data ac100_compat_data[] = {
-	{ "x-powers,ac100", 1 },
-	{ NULL, 0 }
-};
-
-static struct ofw_compat_data ac100_rtc_compat_data[] = {
-	{ "x-powers,ac100-rtc", 1 },
-	{ NULL, 0 }
-};
-
 struct ac100_softc {
 	device_t		dev;
 	struct resource	*res;
@@ -126,24 +115,6 @@ static int ac100_write(device_t, uint8_t, uint8_t *, uint8_t);
 
 static int ac100_read_word(device_t, uint8_t, uint16_t *);
 static int ac100_write_word(device_t, uint8_t, uint16_t);
-static const struct ofw_compat_data * ofw_bus_node_search_compatible(phandle_t,
-    const struct ofw_compat_data *);
-
-static const struct ofw_compat_data *
-ofw_bus_node_search_compatible(phandle_t node,
-    const struct ofw_compat_data *compat)
-{
-
-	if (compat == NULL)
-		return NULL;
-
-	for (; compat->ocd_str != NULL; ++compat) {
-		if (ofw_bus_node_is_compatible(node, compat->ocd_str))
-			break;
-	}
-
-	return (compat);
-}
 
 static int
 ac100_probe(device_t dev)
@@ -152,7 +123,7 @@ ac100_probe(device_t dev)
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
-	if (ofw_bus_search_compatible(dev, ac100_compat_data)->ocd_data == 0)
+	if (ofw_bus_is_compatible(dev, "x-powers,ac100") == 0)
 		return (ENXIO);
 
 	device_set_desc(dev, "X-Powers AC100");
@@ -164,16 +135,10 @@ ac100_rtc_attach(device_t dev)
 {
 	struct ac100_softc *sc;
 	phandle_t rtc;
-	int data;
 
 	sc = device_get_softc(dev);
-	rtc = ofw_bus_find_child(ofw_bus_get_node(dev), "rtc");
+	rtc = ofw_bus_find_compatible(ofw_bus_get_node(dev), "x-powers,ac100-rtc");
 	if (rtc == 0)
-		return (1);
-
-	/* Check for compatibility */
-	data = ofw_bus_node_search_compatible(rtc, ac100_rtc_compat_data)->ocd_data;
-	if (data == 0)
 		return (1);
 
 	sc->rtc = rtc;
@@ -182,7 +147,6 @@ ac100_rtc_attach(device_t dev)
 	clock_register(dev, RTC_RES_US);
 	return (0);
 }
-
 
 static int
 ac100_attach(device_t dev)
