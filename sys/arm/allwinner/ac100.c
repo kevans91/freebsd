@@ -96,7 +96,7 @@ __FBSDID("$FreeBSD$");
 #define	AC100_RTC_UPD_TRIG_WRITE	(1 << 15)
 
 #define	HALF_OF_SEC_NS			500000000
-#define	RTC_RES_US				1000000
+#define	RTC_RES_US			1000000
 
 
 static struct ofw_compat_data ac100_compat_data[] = {
@@ -178,8 +178,8 @@ ac100_rtc_attach(device_t dev)
 
 	sc->rtc = rtc;
 
-    ac100_write_word(dev, AC100_RTC_CTRL_REG, AC100_RTC_CTRL_12H_24H_MODE);
-    clock_register(dev, RTC_RES_US);
+	ac100_write_word(dev, AC100_RTC_CTRL_REG, AC100_RTC_CTRL_12H_24H_MODE);
+	clock_register(dev, RTC_RES_US);
 	return (0);
 }
 
