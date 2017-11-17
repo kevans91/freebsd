@@ -180,8 +180,6 @@ ac100_rtc_attach(device_t dev)
 
     ac100_write_word(dev, AC100_RTC_CTRL_REG, AC100_RTC_CTRL_12H_24H_MODE);
     clock_register(dev, RTC_RES_US);
-	if (bootverbose)
-		device_printf(dev, "RTC module initialized");
 	return (0);
 }
 
@@ -197,7 +195,9 @@ ac100_attach(device_t dev)
 	sc->rtc = 0;
 
 	if (ac100_rtc_attach(dev) > 0 && bootverbose)
-		device_printf(dev, "No RTC module");
+		device_printf(dev, "No RTC module\n");
+	else if (bootverbose)
+		device_printf(dev, "RTC initialized\n");
 
 	return (0);
 }
@@ -212,8 +212,7 @@ ac100_detach(device_t dev)
 	if (sc->rtc > 0)
 			return (EBUSY);
 
-	/* XXX TODO: Detach */
-	return (EBUSY);
+	return (bus_generic_detach(dev));
 }
 
 static int
