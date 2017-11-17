@@ -100,7 +100,7 @@
 			#size-cells = <0>;
 		};
 
-		tstamp: tstamp@60005010 {
+		tstamp: tstamp@1720000 {
 			compatible = "allwinner,sun8i-a83t-timestamp";
 			reg = <0x01720000 0x24>;
 		};
