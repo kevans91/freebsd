@@ -126,10 +126,10 @@ static int ac100_write(device_t, uint8_t, uint8_t *, uint8_t);
 
 static int ac100_read_word(device_t, uint8_t, uint16_t *);
 static int ac100_write_word(device_t, uint8_t, uint16_t);
-const struct ofw_compat_data * ofw_bus_node_search_compatible(phandle_t,
+static const struct ofw_compat_data * ofw_bus_node_search_compatible(phandle_t,
     const struct ofw_compat_data *);
 
-const struct ofw_compat_data *
+static const struct ofw_compat_data *
 ofw_bus_node_search_compatible(phandle_t node,
     const struct ofw_compat_data *compat)
 {
