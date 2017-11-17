@@ -98,7 +98,7 @@ aw_tstamp_sysctl(SYSCTL_HANDLER_ARGS)
 
 	sc = device_get_softc(dev);
 	timestamp = aw_tstamp_read(sc);
-	return (sysctl_handle_64(oidp, &timestamp, 0, req));		
+	return (sysctl_handle_64(oidp, &timestamp, 0, req));
 }
 
 static int
