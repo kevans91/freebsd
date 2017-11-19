@@ -94,24 +94,25 @@ struct aw_nmi_softc {
 static struct aw_nmi_reg_cfg a20_nmi_cfg = {
 	.ctrl_reg =	NMI_IRQ_CTRL_REG,
 	.pending_reg =	NMI_IRQ_PENDING_REG,
-	.enable_reg = 	A20_NMI_IRQ_ENABLE_REG,
+	.enable_reg =	A20_NMI_IRQ_ENABLE_REG,
 };
 
 static struct aw_nmi_reg_cfg a31_nmi_cfg = {
 	.ctrl_reg =	NMI_IRQ_CTRL_REG,
 	.pending_reg =	NMI_IRQ_PENDING_REG,
-	.enable_reg = 	A31_NMI_IRQ_ENABLE_REG,
+	.enable_reg =	A31_NMI_IRQ_ENABLE_REG,
 };
 
 static struct aw_nmi_reg_cfg a83t_r_nmi_cfg = {
 	.ctrl_reg =	R_NMI_IRQ_CTRL_REG,
 	.pending_reg =	R_NMI_IRQ_PENDING_REG,
-	.enable_reg = 	R_NMI_IRQ_ENABLE_REG,
+	.enable_reg =	R_NMI_IRQ_ENABLE_REG,
 };
 
 static struct ofw_compat_data compat_data[] = {
 	{"allwinner,sun7i-a20-sc-nmi", (uintptr_t)&a20_nmi_cfg},
 	{"allwinner,sun6i-a31-sc-nmi", (uintptr_t)&a31_nmi_cfg},
+	{"allwinner,sun6i-a31-r-intc", (uintptr_t)&a83t_r_nmi_cfg},
 	{"allwinner,sun8i-a83t-r-intc", (uintptr_t)&a83t_r_nmi_cfg},
 	{NULL, 0},
 };
