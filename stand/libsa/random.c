@@ -34,12 +34,12 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/types.h>
 
-static u_long randseed = 1;
+static long randseed = 1;
 
 void
-srandom(seed)
-	u_long seed;
+srandom(unsigned int seed)
 {
+
 	randseed = seed;
 }
 
