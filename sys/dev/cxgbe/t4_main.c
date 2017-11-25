@@ -447,7 +447,7 @@ TUNABLE_INT("hw.cxgbe.iscsicaps_allowed", &t4_iscsicaps_allowed);
 static int t4_fcoecaps_allowed = 0;
 TUNABLE_INT("hw.cxgbe.fcoecaps_allowed", &t4_fcoecaps_allowed);
 
-static int t5_write_combine = 0;
+static int t5_write_combine = 1;
 TUNABLE_INT("hw.cxl.write_combine", &t5_write_combine);
 
 static int t4_num_vis = 1;
@@ -677,6 +677,7 @@ struct {
 	/* Custom */
 	{0x6480, "Chelsio T6225 80"},
 	{0x6481, "Chelsio T62100 81"},
+	{0x6484, "Chelsio T62100 84"},
 };
 
 #ifdef TCP_OFFLOAD
@@ -2258,6 +2259,7 @@ t4_map_bar_2(struct adapter *sc)
 				setbit(&sc->doorbells, DOORBELL_WCWR);
 				setbit(&sc->doorbells, DOORBELL_UDBWC);
 			} else {
+				t5_write_combine = 0;
 				device_printf(sc->dev,
 				    "couldn't enable write combining: %d\n",
 				    rc);
@@ -2267,7 +2269,10 @@ t4_map_bar_2(struct adapter *sc)
 			t4_write_reg(sc, A_SGE_STAT_CFG,
 			    V_STATSOURCE_T5(7) | mode);
 		}
+#else
+		t5_write_combine = 0;
 #endif
+		sc->iwt.wc_en = t5_write_combine;
 	}
 
 	return (0);

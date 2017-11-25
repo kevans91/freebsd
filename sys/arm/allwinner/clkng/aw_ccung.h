@@ -29,32 +29,16 @@
 #ifndef __CCU_NG_H__
 #define __CCU_NG_H__
 
-#ifdef __aarch64__
-#include "opt_soc.h"
-#endif
-
-#if defined(SOC_ALLWINNER_H3) || defined(SOC_ALLWINNER_H5)
-#define	H3_CCU		1
-#define	H3_R_CCU	2
-#endif
-
-#if defined(SOC_ALLWINNER_A31)
-#define	A31_CCU		3
-#endif
-
-#if defined(SOC_ALLWINNER_A64)
-#define	A64_CCU		4
-#define	A64_R_CCU	5
-#endif
-
-#if defined(SOC_ALLWINNER_A13)
-#define	A13_CCU		6
-#endif
-
-#if defined(SOC_ALLWINNER_A83T)
-#define	A83T_CCU	7
-#define	A83T_R_CCU	8
-#endif
+enum aw_ccung_type {
+	H3_CCU = 1,
+	H3_R_CCU,
+	A31_CCU,
+	A64_CCU,
+	A64_R_CCU,
+	A13_CCU,
+	A83T_CCU,
+	A83T_R_CCU,
+};
 
 struct aw_ccung_softc {
 	device_t		dev;

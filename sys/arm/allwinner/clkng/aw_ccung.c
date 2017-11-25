@@ -77,6 +77,11 @@ __FBSDID("$FreeBSD$");
 #include <arm/allwinner/clkng/ccu_sun8i_r.h>
 #endif
 
+#if defined(SOC_ALLWINNER_A83T)
+#include <arm/allwinner/clkng/ccu_a83t.h>
+#include <arm/allwinner/clkng/ccu_sun8i_r.h>
+#endif
+
 #include "clkdev_if.h"
 #include "hwreset_if.h"
 

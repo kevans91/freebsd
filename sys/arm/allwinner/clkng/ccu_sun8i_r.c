@@ -104,6 +104,14 @@ DIV_CLK(apb0_clk,
     0, 2,			/* shift, width */
     0, NULL);			/* flags, div table */
 
+static struct aw_clk_prediv_mux_def *r_ccu_prediv_mux_clks[] = {
+	&ar100_clk,
+};
+
+static struct aw_clk_prediv_mux_def *a83t_r_ccu_prediv_mux_clks[] = {
+	&a83t_ar100_clk,
+};
+
 static struct clk_div_def *div_clks[] = {
 	&apb0_clk,
 };
@@ -116,6 +124,7 @@ void
 ccu_sun8i_r_register_clocks(struct aw_ccung_softc *sc)
 {
 	int i;
+	struct aw_clk_prediv_mux_def **prediv_mux_clks;
 
 	sc->resets = ccu_sun8i_r_resets;
 	sc->nresets = nitems(ccu_sun8i_r_resets);
@@ -124,10 +133,12 @@ ccu_sun8i_r_register_clocks(struct aw_ccung_softc *sc)
 
 	/* a83t names the parents differently than the others */
 	if (sc->type == A83T_R_CCU)
-		aw_clk_prediv_mux_register(sc->clkdom, &a83t_ar100_clk);
+		prediv_mux_clks = a83t_r_ccu_prediv_mux_clks;
 	else
-		aw_clk_prediv_mux_register(sc->clkdom, &ar100_clk);
+		prediv_mux_clks = r_ccu_prediv_mux_clks;
 
+	for (i = 0; i < nitems(prediv_mux_clks); i++)
+		aw_clk_prediv_mux_register(sc->clkdom, prediv_mux_clks[i]);
 	for (i = 0; i < nitems(div_clks); i++)
 		clknode_div_register(sc->clkdom, div_clks[i]);
 	for (i = 0; i < nitems(fixed_factor_clks); i++)
