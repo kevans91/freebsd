@@ -65,4 +65,5 @@ arm/allwinner/clk/aw_usbclk.c		standard
 arm/allwinner/clkng/aw_ccung.c		standard
 arm/allwinner/clkng/aw_clk_nkmp.c	standard
 arm/allwinner/clkng/aw_clk_nm.c		standard
+arm/allwinner/clkng/aw_clk_phase.c	standard
 arm/allwinner/clkng/aw_clk_prediv_mux.c	standard

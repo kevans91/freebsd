@@ -423,6 +423,21 @@ aw_clk_factor_get_value(struct aw_clk_factor *factor, uint32_t raw)
 		.prediv.cond_value = _prediv_cond_value,	\
 	}
 
+#define PHASE_CLK(_clkname, _id, _name, _pnames,	\
+  _offset, _shift,  _width)				\
+	static struct aw_clk_phase_def _clkname = {	\
+		.clkdef = {				\
+			.id = _id,			\
+			.name = _name,			\
+			.parent_names = _pnames,	\
+			.parent_cnt = nitems(_pnames)	\
+		},					\
+		.offset = _offset,			\
+		.phase_shift = _shift,			\
+		.phase_width = _width,			\
+	}
+
+
 #define MUX_CLK(_clkname, _id, _name, _pnames,		\
   _offset,  _shift,  _width)				\
 	static struct clk_mux_def _clkname = {	\
