@@ -54,6 +54,10 @@ __FBSDID("$FreeBSD$");
 #include <arm/allwinner/clkng/aw_ccung.h>
 #include <arm/allwinner/clkng/aw_clk.h>
 
+#ifdef __aarch64__
+#include "opt_soc.h"
+#endif
+
 #if defined(SOC_ALLWINNER_A13)
 #include <arm/allwinner/clkng/ccu_a13.h>
 #endif
@@ -64,11 +68,6 @@ __FBSDID("$FreeBSD$");
 
 #if defined(SOC_ALLWINNER_A64)
 #include <arm/allwinner/clkng/ccu_a64.h>
-#include <arm/allwinner/clkng/ccu_sun8i_r.h>
-#endif
-
-#if defined(SOC_ALLWINNER_A83T)
-#include <arm/allwinner/clkng/ccu_a83t.h>
 #include <arm/allwinner/clkng/ccu_sun8i_r.h>
 #endif
 
