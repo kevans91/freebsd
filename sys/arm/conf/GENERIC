@@ -211,6 +211,8 @@ device		bpf
 # Ethernet NICs that use the common MII bus controller code.
 # NOTE: Be sure to keep the 'device miibus' line in order to use these NICs!
 device		miibus
+# Syscon is required for awg
+device		syscon
 
 device		awg			# 10/100/1000 integrated EMAC controller
 device		cpsw			# TI Common Platform Ethernet Switch (CPSW)
