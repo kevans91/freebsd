@@ -1,0 +1,199 @@
+/*-
+ * Copyright (c) 2016 Jared McNeill <jmcneill@invisible.ca>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ *
+ * $FreeBSD$
+ */
+
+#include <dt-bindings/pinctrl/sun4i-a10.h>
+
+/ {
+	cpus {
+		cpu@0 {
+			clocks = <&ccu CLK_C0CPUX>;
+			clock-latency = <2000000>;
+		};
+
+		cpu@100 {
+			clocks = <&ccu CLK_C1CPUX>;
+			clock-latency = <2000000>;
+		};
+	};
+
+	pmu {
+		compatible = "arm,cortex-a7-pmu", "arm,cortex-a15-pmu";
+
+		/* Cluster 0 only */
+		interrupts = <GIC_SPI 132 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 133 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 134 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 135 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	soc {
+		i2c0: i2c@01c2ac00 {
+			compatible = "allwinner,sun8i-a83t-i2c";
+			reg = <0x01c2ac00 0x400>;
+			interrupts = <GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ccu CLK_BUS_I2C0>;
+			resets = <&ccu RST_BUS_I2C0>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c1: i2c@01c2b000 {
+			compatible = "allwinner,sun8i-a83t-i2c";
+			reg = <0x01c2b000 0x400>;
+			interrupts = <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ccu CLK_BUS_I2C1>;
+			resets = <&ccu RST_BUS_I2C1>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c2: i2c@01c2b400 {
+			compatible = "allwinner,sun8i-a83t-i2c";
+			reg = <0x01c2b400 0x400>;
+			interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&ccu CLK_BUS_I2C2>;
+			resets = <&ccu RST_BUS_I2C2>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		emac: ethernet@01c30000 {
+			compatible = "allwinner,sun8i-a83t-emac";
+			reg = <0x01c30000 0x104>, <0x01c00030 0x4>;
+			reg-names = "emac", "syscon";
+			interrupts = <GIC_SPI 82 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "macirq";
+			clocks = <&ccu CLK_BUS_EMAC>;
+			clock-names = "ahb";
+			resets = <&ccu RST_BUS_EMAC>;
+			reset-names = "ahb";
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		tstamp: tstamp@1720000 {
+			compatible = "allwinner,sun8i-a83t-timestamp";
+			reg = <0x01720000 0x24>;
+		};
+
+
+		sid: eeprom@01c14000 {
+			compatible = "allwinner,sun8i-a83t-sid";
+			reg = <0x01c14000 0x400>;
+		};
+
+		rtp: rtp@01f04000 {
+			compatible = "allwinner,sun8i-a83t-ts";
+			reg = <0x01f04000 0x400>;
+			interrupts = <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
+			#thermal-sensor-cells = <0>;
+		};
+
+		fb: fb@01000000 {
+			compatible = "allwinner,sun8i-a83t-fb";
+			reg = <0x01000000 0x400000>,	/* DE */
+			      <0x01c0c000 0x400>,	/* TCON0 */
+			      <0x01c0d000 0x400>;	/* TCON1 */
+			clocks = <&ccu CLK_BUS_DE>, <&ccu CLK_PLL_DE>,
+				 <&ccu CLK_BUS_TCON0>, <&ccu CLK_BUS_TCON1>,
+				 <&ccu CLK_TCON0>, <&ccu CLK_TCON1>;
+			clock-names = "gate_de", "clock_de",
+				      "gate_tcon0", "gate_tcon1",
+				      "clock_tcon0", "clock_tcon1";
+			resets = <&ccu RST_BUS_DE>,
+				 <&ccu RST_BUS_TCON0>, <&ccu RST_BUS_TCON1>;
+			reset-names = "de",
+				      "tcon0", "tcon1";
+		};
+
+		hdmi: hdmi@01ee0000 {
+			compatible = "allwinner,sun8i-a83t-hdmi";
+			reg = <0x01ee0000 0x20000>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&hdmi_pins_a>;
+			clocks = <&ccu CLK_BUS_HDMI>, <&ccu CLK_HDMI>, <&ccu CLK_HDMI_SLOW>;
+			clock-names = "bus", "clock", "ddc-clock";
+			resets = <&ccu RST_BUS_HDMI0>, <&ccu RST_BUS_HDMI1>;
+			reset-names = "hdmi0", "hdmi1";
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+/*
+			port@0 {
+				reg = <0>;
+				hdmi_lcd0: endpoint {
+					remote-endpoint = <&lcd0_hdmi>;
+				};
+			};
+*/
+		};
+	};
+};
+
+&pio {
+	emac_pins_rgmii_a: emac_rgmii@0 {
+		allwinner,pins = "PD2", "PD3", "PD4", "PD5", "PD6", "PD7",
+				 "PD11", "PD12", "PD13", "PD14",
+				 "PD18", "PD19", "PD20", "PD21", "PD22", "PD23";
+		allwinner,function = "emac";
+		allwinner,drive = <SUN4I_PINCTRL_40_MA>;
+		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
+	};
+
+	i2c0_pins_a: i2c0@0 {
+		allwinner,pins = "PH0", "PH1";
+		allwinner,function = "i2c0";
+		allwinner,drive = <SUN4I_PINCTRL_10_MA>;
+		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
+	};
+
+	i2c1_pins_a: i2c1@0 {
+		allwinner,pins = "PH2", "PH3";
+		allwinner,function = "i2c1";
+		allwinner,drive = <SUN4I_PINCTRL_10_MA>;
+		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
+	};
+
+	i2c2_pins_a: i2c2@0 {
+		allwinner,pins = "PH4", "PH5";
+		allwinner,function = "i2c2";
+		allwinner,drive = <SUN4I_PINCTRL_10_MA>;
+		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
+	};
+
+	hdmi_pins_a: hdmiddc@0 {
+		allwinner,pins = "PH6", "PH7", "PH8";
+		allwinner,function = "hdmiddc";
+		allwinner,drive = <SUN4I_PINCTRL_10_MA>;
+		allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
+	};
+};

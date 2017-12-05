@@ -41,6 +41,7 @@ __FBSDID("$FreeBSD$");
 #include <arm/allwinner/clkng/aw_clk.h>
 #include <arm/allwinner/clkng/aw_clk_nm.h>
 #include <arm/allwinner/clkng/aw_clk_nkmp.h>
+#include <arm/allwinner/clkng/aw_clk_phase.h>
 #include <arm/allwinner/clkng/aw_clk_prediv_mux.h>
 
 #include <gnu/dts/include/dt-bindings/clock/sun8i-a83t-ccu.h>
@@ -420,6 +421,9 @@ MUX_CLK(cci400_clk,
     0x78, 24, 2);				/* offset, shift, width */
 
 static const char *mod_parents[] = {"osc24M", "pll_periph"};
+static const char *mmc0mod_parents[] = {"mmc0"};
+static const char *mmc1mod_parents[] = {"mmc1"};
+static const char *mmc2mod_parents[] = {"mmc2"};
 
 NM_CLK(nand_clk,
     CLK_NAND,					/* id */
@@ -441,6 +445,17 @@ NM_CLK(mmc0_clk,
     31,						/* gate */
     AW_CLK_HAS_GATE | AW_CLK_HAS_MUX |
     AW_CLK_REPARENT);
+PHASE_CLK(mmc0_sample_clk,
+    CLK_MMC0_SAMPLE,				/* id */
+    "mmc0_sample", mmc0mod_parents,		/* name, parents */
+    0x88,					/* offset */
+    20, 2);					/* shift, width */
+PHASE_CLK(mmc0_output_clk,
+    CLK_MMC0_OUTPUT,				/* id */
+    "mmc0_output", mmc0mod_parents,		/* name, parents */
+    0x88,					/* offset */
+    8, 2);					/* shift, width */
+
 NM_CLK(mmc1_clk,
     CLK_MMC1,					/* id */
     "mmc1", mod_parents,			/* name, parents */
@@ -451,6 +466,17 @@ NM_CLK(mmc1_clk,
     31,						/* gate */
     AW_CLK_HAS_GATE | AW_CLK_HAS_MUX |
     AW_CLK_REPARENT);
+PHASE_CLK(mmc1_sample_clk,
+    CLK_MMC1_SAMPLE,				/* id */
+    "mmc1_sample", mmc1mod_parents,		/* name, parents */
+    0x8c,					/* offset */
+    20, 2);					/* shift, width */
+PHASE_CLK(mmc1_output_clk,
+    CLK_MMC1_OUTPUT,				/* id */
+    "mmc1_output", mmc1mod_parents,		/* name, parents */
+    0x8c,					/* offset */
+    8, 2);					/* shift, width */
+
 NM_CLK(mmc2_clk,
     CLK_MMC2,					/* id */
     "mmc2", mod_parents,			/* name, parents */
@@ -461,6 +487,16 @@ NM_CLK(mmc2_clk,
     31,						/* gate */
     AW_CLK_HAS_GATE | AW_CLK_HAS_MUX |
     AW_CLK_REPARENT);
+PHASE_CLK(mmc2_sample_clk,
+    CLK_MMC2_SAMPLE,				/* id */
+    "mmc2_sample", mmc2mod_parents,		/* name, parents */
+    0x90,					/* offset */
+    20, 2);					/* shift, width */
+PHASE_CLK(mmc2_output_clk,
+    CLK_MMC2_OUTPUT,				/* id */
+    "mmc2_output", mmc2mod_parents,		/* name, parents */
+    0x90,					/* offset */
+    8, 2);					/* shift, width */
 
 NM_CLK(ss_clk,
     CLK_SS,					/* id */
@@ -728,6 +764,15 @@ static struct aw_clk_prediv_mux_def *prediv_mux_clks[] = {
 	&ahb2_clk,
 };
 
+static struct aw_clk_phase_def *phase_clks[] = {
+	&mmc0_sample_clk,
+	&mmc0_output_clk,
+	&mmc1_sample_clk,
+	&mmc1_output_clk,
+	&mmc2_sample_clk,
+	&mmc2_output_clk,
+};
+
 static struct clk_mux_def *mux_clks[] = {
 	&c0cpux_clk,
 	&c1cpux_clk,
@@ -769,6 +814,8 @@ ccu_a83t_register_clocks(struct aw_ccung_softc *sc)
 		aw_clk_nm_register(sc->clkdom, nm_clks[i]);
 	for (i = 0; i < nitems(prediv_mux_clks); i++)
 		aw_clk_prediv_mux_register(sc->clkdom, prediv_mux_clks[i]);
+	for (i = 0; i < nitems(phase_clks); i++)
+		aw_clk_phase_register(sc->clkdom, phase_clks[i]);
 
 	for (i = 0; i < nitems(mux_clks); i++)
 		clknode_mux_register(sc->clkdom, mux_clks[i]);

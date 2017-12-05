@@ -65,9 +65,12 @@ MALLOC_DEFINE(M_AXP81X_REG, "AXP81x regulator", "AXP81x power regulator");
 #define	 AXP_POWERCTL1_DCDC2	(1 << 1)
 #define	AXP_POWERCTL2		0x12
 #define	 AXP_POWERCTL2_DC1SW	(1 << 7)
+#define	AXP_POWERCTL3		0x13
+#define	 AXP_POWERCTL3_ALDO1	(1 << 5)
 #define	AXP_VOLTCTL_DCDC2	0x21
-#define	 AXP_VOLTCTL_STATUS	(1 << 7)
-#define	 AXP_VOLTCTL_MASK	0x7f
+#define	 AXP_VOLTCTL_DCDC2_MASK	0x7f
+#define	AXP_VOLTCTL_ALDO1	0x28
+#define	 AXP_VOLTCTL_ALDO1_MASK	0x1f
 #define	AXP_POWERBAT		0x32
 #define	 AXP_POWERBAT_SHUTDOWN	(1 << 7)
 #define	AXP_IRQEN1		0x40
@@ -115,6 +118,7 @@ struct axp81x_regdef {
 	uint8_t			enable_reg;
 	uint8_t			enable_mask;
 	uint8_t			voltage_reg;
+	uint8_t			voltage_mask;
 	int			voltage_min;
 	int			voltage_max;
 	int			voltage_step1;
@@ -126,6 +130,7 @@ struct axp81x_regdef {
 enum axp81x_reg_id {
 	AXP81X_REG_ID_DC1SW,
 	AXP81X_REG_ID_DCDC2,
+	AXP81X_REG_ID_ALDO1,
 };
 
 static struct axp81x_regdef axp81x_regdefs[] = {
@@ -141,12 +146,25 @@ static struct axp81x_regdef axp81x_regdefs[] = {
 		.enable_reg = AXP_POWERCTL1,
 		.enable_mask = AXP_POWERCTL1_DCDC2,
 		.voltage_reg = AXP_VOLTCTL_DCDC2,
+		.voltage_mask = AXP_VOLTCTL_DCDC2_MASK,
 		.voltage_min = 500,
 		.voltage_max = 1300,
 		.voltage_step1 = 10,
 		.voltage_nstep1 = 70,
 		.voltage_step2 = 20,
 		.voltage_nstep2 = 5,
+	},
+	{
+		.id = AXP81X_REG_ID_ALDO1,
+		.name = "aldo1",
+		.enable_reg = AXP_POWERCTL3,
+		.enable_mask = AXP_POWERCTL3_ALDO1,
+		.voltage_reg = AXP_VOLTCTL_ALDO1,
+		.voltage_mask = AXP_VOLTCTL_ALDO1_MASK,
+		.voltage_min = 700,
+		.voltage_max = 3300,
+		.voltage_step1 = 100,
+		.voltage_nstep1 = 27,
 	},
 };
 
@@ -219,12 +237,6 @@ axp81x_write(device_t dev, uint8_t reg, uint8_t val)
 }
 
 static int
-axp81x_regnode_init(struct regnode *regnode)
-{
-	return (0);
-}
-
-static int
 axp81x_regnode_enable(struct regnode *regnode, bool enable, int *udelay)
 {
 	struct axp81x_reg_sc *sc;
@@ -240,6 +252,24 @@ axp81x_regnode_enable(struct regnode *regnode, bool enable, int *udelay)
 	axp81x_write(sc->base_dev, sc->def->enable_reg, val);
 
 	*udelay = 0;
+
+	return (0);
+}
+
+static int
+axp81x_regnode_init(struct regnode *regnode)
+{
+	struct axp81x_reg_sc *sc;
+	int udelay;
+
+	sc = regnode_get_softc(regnode);
+
+	if (sc->param->boot_on) {
+		axp81x_regnode_enable(regnode, true, &udelay);
+		if (udelay > 0)
+			DELAY(udelay);
+	}
+
 
 	return (0);
 }
@@ -292,7 +322,8 @@ axp81x_regnode_set_voltage(struct regnode *regnode, int min_uvolt,
 
 	sc = regnode_get_softc(regnode);
 
-	if (!sc->def->voltage_step1 || !sc->def->voltage_step2)
+	if (sc->def->voltage_step1 == 0 ||
+	    (sc->def->voltage_step2 == 0 && sc->def->voltage_nstep2 > 0))
 		return (ENXIO);
 
 	if (axp81x_regnode_voltage_to_reg(sc, min_uvolt, max_uvolt, &val) != 0)
@@ -317,7 +348,7 @@ axp81x_regnode_get_voltage(struct regnode *regnode, int *uvolt)
 		return (ENXIO);
 
 	axp81x_read(sc->base_dev, sc->def->voltage_reg, &val, 1);
-	axp81x_regnode_reg_to_voltage(sc, val & AXP_VOLTCTL_MASK, uvolt);
+	axp81x_regnode_reg_to_voltage(sc, val & sc->def->voltage_mask, uvolt);
 
 	return (0);
 }
