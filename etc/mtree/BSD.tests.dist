@@ -101,8 +101,6 @@
                     ..
                     end
                     ..
-                    env
-                    ..
                     enum
                     ..
                     error
@@ -479,10 +477,6 @@
         mqueue
         ..
         netinet
-        ..
-        netipsec
-            tunnel
-            ..
         ..
         netpfil
             pf

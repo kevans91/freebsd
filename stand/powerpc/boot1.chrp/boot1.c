@@ -22,7 +22,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/dirent.h>
 #include <machine/elf.h>
 #include <machine/stdarg.h>
-#include <machine/md_var.h>
 
 #include "paths.h"
 
@@ -75,6 +74,8 @@ static int __puts(const char *s, putc_func_t *putc, void *arg);
 static int __sputc(char c, void *arg);
 static char *__uitoa(char *buf, u_int val, int base);
 static char *__ultoa(char *buf, u_long val, int base);
+
+void __syncicache(void *, int);
 
 /*
  * Open Firmware interface functions

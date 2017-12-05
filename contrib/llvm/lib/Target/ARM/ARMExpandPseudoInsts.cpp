@@ -1030,11 +1030,8 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
         if (STI->isThumb())
           MIB.add(predOps(ARMCC::AL));
       } else if (RetOpcode == ARM::TCRETURNri) {
-        unsigned Opcode =
-          STI->isThumb() ? ARM::tTAILJMPr
-                         : (STI->hasV4TOps() ? ARM::TAILJMPr : ARM::TAILJMPr4);
         BuildMI(MBB, MBBI, dl,
-                TII.get(Opcode))
+                TII.get(STI->isThumb() ? ARM::tTAILJMPr : ARM::TAILJMPr))
             .addReg(JumpTarget.getReg(), RegState::Kill);
       }
 

@@ -176,10 +176,9 @@ out:
 }
 
 int
-proc_create(const char *file, char * const *argv, char * const *envp,
-    proc_child_func *pcf, void *child_arg, struct proc_handle **pphdl)
+proc_create(const char *file, char * const *argv, proc_child_func *pcf,
+    void *child_arg, struct proc_handle **pphdl)
 {
-	extern char * const *environ;
 	struct proc_handle *phdl;
 	int error, status;
 	pid_t pid;
@@ -190,7 +189,8 @@ proc_create(const char *file, char * const *argv, char * const *envp,
 	error = 0;
 	phdl = NULL;
 
-	if ((pid = fork()) == -1)
+	/* Fork a new process. */
+	if ((pid = vfork()) == -1)
 		error = errno;
 	else if (pid == 0) {
 		/* The child expects to be traced. */
@@ -200,14 +200,18 @@ proc_create(const char *file, char * const *argv, char * const *envp,
 		if (pcf != NULL)
 			(*pcf)(child_arg);
 
-		if (envp != NULL)
-			environ = envp;
-
+		/* Execute the specified file: */
 		execvp(file, argv);
 
+		/* Couldn't execute the file. */
 		_exit(2);
 		/* NOTREACHED */
 	} else {
+		/* The parent owns the process handle. */
+		error = proc_init(pid, 0, PS_IDLE, &phdl);
+		if (error != 0)
+			goto bad;
+
 		/* Wait for the child process to stop. */
 		if (waitpid(pid, &status, WUNTRACED) == -1) {
 			error = errno;
@@ -217,15 +221,11 @@ proc_create(const char *file, char * const *argv, char * const *envp,
 
 		/* Check for an unexpected status. */
 		if (!WIFSTOPPED(status)) {
-			error = ENOENT;
+			error = EBUSY;
 			DPRINTFX("ERROR: child process %d status 0x%x", pid, status);
 			goto bad;
 		}
-
-		/* The parent owns the process handle. */
-		error = proc_init(pid, 0, PS_IDLE, &phdl);
-		if (error == 0)
-			phdl->status = PS_STOP;
+		phdl->status = PS_STOP;
 
 bad:
 		if (error != 0 && phdl != NULL) {

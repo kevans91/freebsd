@@ -2459,9 +2459,9 @@ def DLLImport : InheritableAttr, TargetSpecificAttr<TargetWindows> {
   let Documentation = [DLLImportDocs];
 }
 
-def SelectAny : InheritableAttr {
+def SelectAny : InheritableAttr, TargetSpecificAttr<TargetWindows> {
   let Spellings = [Declspec<"selectany">, GCC<"selectany">];
-  let Documentation = [SelectAnyDocs];
+  let Documentation = [Undocumented];
 }
 
 def Thread : Attr {

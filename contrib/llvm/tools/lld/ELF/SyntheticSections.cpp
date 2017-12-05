@@ -427,11 +427,10 @@ CieRecord *EhFrameSection<ELFT>::addCie(EhSectionPiece &Piece,
         &Sec->template getFile<ELFT>()->getRelocTargetSym(Rels[FirstRelI]);
 
   // Search for an existing CIE by CIE contents/relocation target pair.
-  CieRecord *&Cie = CieMap[{Piece.data(), Personality}];
+  CieRecord *Cie = &CieMap[{Piece.data(), Personality}];
 
   // If not found, create a new one.
-  if (!Cie) {
-    Cie = make<CieRecord>();
+  if (Cie->Piece == nullptr) {
     Cie->Piece = &Piece;
     Cies.push_back(Cie);
   }
@@ -523,14 +522,9 @@ template <class ELFT>
 static void writeCieFde(uint8_t *Buf, ArrayRef<uint8_t> D) {
   memcpy(Buf, D.data(), D.size());
 
-  size_t Aligned = alignTo(D.size(), sizeof(typename ELFT::uint));
-
-  // Zero-clear trailing padding if it exists.
-  memset(Buf + D.size(), 0, Aligned - D.size());
-
   // Fix the size field. -4 since size does not include the size field itself.
   const endianness E = ELFT::TargetEndianness;
-  write32<E>(Buf, Aligned - 4);
+  write32<E>(Buf, alignTo(D.size(), sizeof(typename ELFT::uint)) - 4);
 }
 
 template <class ELFT> void EhFrameSection<ELFT>::finalizeContents() {

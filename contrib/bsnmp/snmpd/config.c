@@ -663,7 +663,7 @@ gettoken()
 			printf("(EOL)");
 			break;
 		  case TOK_NUM:
-			printf("(NUM %ju)", (uintmax_t)numval);
+			printf("(NUM %llu)", numval);
 			break;
 		  case TOK_STR:
 			printf("(STR %.*s)", (int)strvallen, strval);

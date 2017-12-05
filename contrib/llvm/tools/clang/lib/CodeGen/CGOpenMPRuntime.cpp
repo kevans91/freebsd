@@ -264,13 +264,6 @@ public:
     return nullptr;
   }
 
-  /// \brief Get an LValue for the current ThreadID variable.
-  LValue getThreadIDVariableLValue(CodeGenFunction &CGF) override {
-    if (OuterRegionInfo)
-      return OuterRegionInfo->getThreadIDVariableLValue(CGF);
-    llvm_unreachable("No LValue for inlined OpenMP construct");
-  }
-
   /// \brief Get the name of the capture helper.
   StringRef getHelperName() const override {
     if (auto *OuterRegionInfo = getOldCSI())
@@ -778,8 +771,7 @@ static void emitInitWithReductionInitializer(CodeGenFunction &CGF,
 /// \param Init Initial expression of array.
 /// \param SrcAddr Address of the original array.
 static void EmitOMPAggregateInit(CodeGenFunction &CGF, Address DestAddr,
-                                 QualType Type, bool EmitDeclareReductionInit,
-                                 const Expr *Init,
+                                 QualType Type, const Expr *Init,
                                  const OMPDeclareReductionDecl *DRD,
                                  Address SrcAddr = Address::invalid()) {
   // Perform element-by-element initialization.
@@ -833,7 +825,7 @@ static void EmitOMPAggregateInit(CodeGenFunction &CGF, Address DestAddr,
   // Emit copy.
   {
     CodeGenFunction::RunCleanupsScope InitScope(CGF);
-    if (EmitDeclareReductionInit) {
+    if (DRD && (DRD->getInitializer() || !Init)) {
       emitInitWithReductionInitializer(CGF, DRD, Init, DestElementCurrent,
                                        SrcElementCurrent, ElementTy);
     } else
@@ -891,12 +883,8 @@ void ReductionCodeGen::emitAggregateInitialization(
   // captured region.
   auto *PrivateVD =
       cast<VarDecl>(cast<DeclRefExpr>(ClausesData[N].Private)->getDecl());
-  bool EmitDeclareReductionInit =
-      DRD && (DRD->getInitializer() || !PrivateVD->hasInit());
   EmitOMPAggregateInit(CGF, PrivateAddr, PrivateVD->getType(),
-                       EmitDeclareReductionInit,
-                       EmitDeclareReductionInit ? ClausesData[N].ReductionOp
-                                                : PrivateVD->getInit(),
+                       DRD ? ClausesData[N].ReductionOp : PrivateVD->getInit(),
                        DRD, SharedLVal.getAddress());
 }
 
@@ -4256,20 +4244,9 @@ CGOpenMPRuntime::emitTaskInit(CodeGenFunction &CGF, SourceLocation Loc,
   // Build type kmp_routine_entry_t (if not built yet).
   emitKmpRoutineEntryT(KmpInt32Ty);
   // Build type kmp_task_t (if not built yet).
-  if (isOpenMPTaskLoopDirective(D.getDirectiveKind())) {
-    if (SavedKmpTaskloopTQTy.isNull()) {
-      SavedKmpTaskloopTQTy = C.getRecordType(createKmpTaskTRecordDecl(
-          CGM, D.getDirectiveKind(), KmpInt32Ty, KmpRoutineEntryPtrQTy));
-    }
-    KmpTaskTQTy = SavedKmpTaskloopTQTy;
-  } else if (D.getDirectiveKind() == OMPD_task) {
-    assert(D.getDirectiveKind() == OMPD_task &&
-           "Expected taskloop or task directive");
-    if (SavedKmpTaskTQTy.isNull()) {
-      SavedKmpTaskTQTy = C.getRecordType(createKmpTaskTRecordDecl(
-          CGM, D.getDirectiveKind(), KmpInt32Ty, KmpRoutineEntryPtrQTy));
-    }
-    KmpTaskTQTy = SavedKmpTaskTQTy;
+  if (KmpTaskTQTy.isNull()) {
+    KmpTaskTQTy = C.getRecordType(createKmpTaskTRecordDecl(
+        CGM, D.getDirectiveKind(), KmpInt32Ty, KmpRoutineEntryPtrQTy));
   }
   auto *KmpTaskTQTyRD = cast<RecordDecl>(KmpTaskTQTy->getAsTagDecl());
   // Build particular struct kmp_task_t for the given task.

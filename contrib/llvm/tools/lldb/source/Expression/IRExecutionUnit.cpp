@@ -282,7 +282,8 @@ void IRExecutionUnit::GetRunnableInfo(Status &error, lldb::addr_t &func_addr,
       .setMCJITMemoryManager(
           std::unique_ptr<MemoryManager>(new MemoryManager(*this)))
       .setCodeModel(codeModel)
-      .setOptLevel(llvm::CodeGenOpt::Less);
+      .setOptLevel(llvm::CodeGenOpt::Less)
+      .setUseOrcMCJITReplacement(true);
 
   llvm::StringRef mArch;
   llvm::StringRef mCPU;

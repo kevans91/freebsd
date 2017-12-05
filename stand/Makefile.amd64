@@ -11,7 +11,7 @@ SUBDIR+=		ficl32
 SUBDIR+=		efi
 SUBDIR+=		userboot
 
-.if ${MK_LOADER_GELI} == "yes"
+.if ${LOADER_GELI_SUPPORT:Uyes} == "yes"
 SUBDIR+=		geli
 .endif
 

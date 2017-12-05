@@ -67,8 +67,6 @@ _start:				\n\
 2:	b	startup		\n\
 ");
 
-void main(int (*openfirm)(void *));
-
 void
 startup(void *vpd, int res, int (*openfirm)(void *), char *arg, int argl)
 {

@@ -2169,7 +2169,7 @@ class AMDGPUTargetInfo final : public TargetInfo {
 public:
   AMDGPUTargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
     : TargetInfo(Triple) ,
-      GPU(isAMDGCN(Triple) ? GK_GFX6 : parseR600Name(Opts.CPU)),
+      GPU(isAMDGCN(Triple) ? GK_GFX6 : GK_R600),
       hasFP64(false),
       hasFMAF(false),
       hasLDEXPF(false),
@@ -2179,12 +2179,6 @@ public:
       hasFMAF = true;
       hasLDEXPF = true;
     }
-    if (getTriple().getArch() == llvm::Triple::r600) {
-      if (GPU == GK_EVERGREEN_DOUBLE_OPS || GPU == GK_CAYMAN) {
-        hasFMAF = true;
-      }
-    }
-
     auto IsGenericZero = isGenericZero(Triple);
     resetDataLayout(getTriple().getArch() == llvm::Triple::amdgcn ?
                     (IsGenericZero ? DataLayoutStringSIGenericIsZero :
@@ -9356,7 +9350,8 @@ public:
     WIntType = SignedInt;
     Char32Type = UnsignedLong;
     SigAtomicType = SignedChar;
-    resetDataLayout("e-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8-a:8");
+    resetDataLayout("e-p:16:16:16-i8:8:8-i16:16:16-i32:32:32-i64:64:64"
+		    "-f32:32:32-f64:64:64-n8");
   }
 
   void getTargetDefines(const LangOptions &Opts,
