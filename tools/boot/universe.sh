@@ -26,6 +26,8 @@ dobuild()
     local opt=$3
 
     echo -n "Building $ta ${opt} ... "
+    objdir=$(make buildenv TARGET_ARCH=$ta BUILDENV_SHELL="make -V .OBJDIR" | tail -1)
+    rm -rf ${objdir}
     if ! make buildenv TARGET_ARCH=$ta BUILDENV_SHELL="make clean cleandepend cleandir obj depend"  \
 	 > $lf 2>&1; then
 	echo "Fail (cleanup)"
