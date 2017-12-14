@@ -33,6 +33,8 @@
 
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
+#include "opt_platform.h"
+
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -46,8 +48,10 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 
+#ifdef FDT
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
+#endif
 
 #include "syscon_if.h"
 #include "syscon.h"
@@ -177,11 +181,12 @@ syscon_register(struct syscon *syscon)
 		return (NULL);
 	}
 
+#ifdef FDT
 	node = ofw_bus_get_node(syscon->pdev);
 	if (node <= 0)
 		panic("%s called on not ofw based device.\n", __func__);
 	OF_device_register_xref(OF_xref_from_node(node), syscon->pdev);
-
+#endif
 	SYSCON_TOPO_XLOCK();
 	TAILQ_INSERT_TAIL(&syscon_list, syscon, syscon_link);
 	SYSCON_TOPO_UNLOCK();
@@ -196,10 +201,10 @@ syscon_unregister(struct syscon *syscon)
 	SYSCON_TOPO_XLOCK();
 	TAILQ_REMOVE(&syscon_list, syscon, syscon_link);
 	SYSCON_TOPO_UNLOCK();
-
+#ifdef FDT
 	xref = OF_xref_from_device(syscon->pdev);
 	OF_device_register_xref(xref, NULL);
-
+#endif
 	return (SYSCON_UNINIT(syscon));
 }
 
@@ -221,6 +226,7 @@ syscon_find_by_pdev(device_t pdev)
 	return (NULL);
 }
 
+#ifdef FDT
 int
 syscon_get_by_ofw_property(device_t cdev, phandle_t cnode, char *name,
     struct syscon **syscon)
@@ -259,3 +265,4 @@ syscon_get_by_ofw_property(device_t cdev, phandle_t cnode, char *name,
 	device_printf(syscondev, "Returning syscon pdev\n");
 	return (0);
 }
+#endif

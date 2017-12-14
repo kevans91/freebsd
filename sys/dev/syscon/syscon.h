@@ -28,6 +28,8 @@
 #ifndef DEV_SYSCON_H
 #define DEV_SYSCON_H
 
+#include "opt_platform.h"
+
 #include <sys/types.h>
 #include <dev/ofw/ofw_bus.h>
 
@@ -49,7 +51,6 @@ struct syscon {
 #define	syscon_class_t		kobj_class_t
 DECLARE_CLASS(syscon_class);
 
-
 void *syscon_get_softc(struct syscon *syscon);
 
 /*
@@ -59,10 +60,9 @@ struct syscon *syscon_create(device_t pdev, syscon_class_t syscon_class);
 struct syscon *syscon_register(struct syscon *syscon);
 int syscon_unregister(struct syscon *syscon);
 
-/*
- * Consumer interface
- */
+#ifdef FDT
 int syscon_get_by_ofw_property(device_t consumer, phandle_t node, char *name,
     struct syscon **syscon);
+#endif
 
 #endif /* DEV_EXTRES_PHY_H */
