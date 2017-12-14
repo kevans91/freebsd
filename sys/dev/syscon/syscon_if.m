@@ -27,7 +27,6 @@
 #
 
 #include <machine/bus.h>
-#include <dev/ofw/ofw_bus.h>
 
 INTERFACE syscon;
 
