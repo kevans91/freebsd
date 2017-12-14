@@ -69,6 +69,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/extres/clk/clk.h>
 #include <dev/extres/hwreset/hwreset.h>
 #include <dev/extres/regulator/regulator.h>
+#include <dev/syscon/syscon.h>
 
 #include "syscon_if.h"
 #include "miibus_if.h"
@@ -205,7 +206,7 @@ struct awg_softc {
 	int			link;
 	int			if_flags;
 	enum awg_type		type;
-	device_t		syscon;
+	struct syscon		*syscon;
 
 	struct awg_txring	tx;
 	struct awg_rxring	rx;
@@ -1166,7 +1167,7 @@ syscon_read_emac_clk_reg(device_t dev)
 
 	sc = device_get_softc(dev);
 	if (sc->syscon != NULL)
-		return (SYSCON_READ_4(sc->syscon, dev, EMAC_CLK_REG));
+		return (SYSCON_READ_4(sc->syscon, EMAC_CLK_REG));
 	else if (sc->res[_RES_SYSCON] != NULL)
 		return (bus_read_4(sc->res[_RES_SYSCON], 0));
 
@@ -1180,7 +1181,7 @@ syscon_write_emac_clk_reg(device_t dev, uint32_t val)
 
 	sc = device_get_softc(dev);
 	if (sc->syscon != NULL)
-		SYSCON_WRITE_4(sc->syscon, dev, EMAC_CLK_REG, val);
+		SYSCON_WRITE_4(sc->syscon, EMAC_CLK_REG, val);
 	else if (sc->res[_RES_SYSCON] != NULL)
 		bus_write_4(sc->res[_RES_SYSCON], 0, val);
 }
@@ -1335,7 +1336,10 @@ awg_setup_extres(device_t dev)
 	}
 	if (clk_get_by_ofw_name(dev, 0, "ephy", &clk_ephy) != 0)
 		clk_ephy = NULL;
-	
+
+	if (OF_hasprop(node, "syscon"))
+		syscon_get_by_ofw_property(dev, node, "syscon", &sc->syscon);
+
 	/* Configure PHY for MII or RGMII mode */
 	if (awg_setup_phy(dev) != 0)
 		goto fail;

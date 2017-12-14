@@ -156,6 +156,8 @@ struct awusbphy_softc {
 #define	PMU_UNK_H3	0x10
 #define	 PMU_UNK_H3_CLR		0x2
 
+#define	SATABRIDGE_DELAY	1000
+
 static void
 awusbphy_configure(device_t dev, int phyno)
 {
@@ -253,6 +255,14 @@ awusbphy_init(device_t dev)
 			return (ENXIO);
 		}
 	}
+
+	/*
+	 * The GL830 SATA Bridge present on the a83t occasionally doesn't get
+	 * powered up in time, causing CAM errors. We insert a small delay here
+	 * to give it some time to get ready.
+	 */
+	if (sc->phy_conf->phy_type == AWUSBPHY_TYPE_A83T)
+		DELAY(SATABRIDGE_DELAY);
 
 	return (0);
 }
