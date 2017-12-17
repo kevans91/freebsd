@@ -31,7 +31,10 @@
 #include "opt_platform.h"
 
 #include <sys/types.h>
+#include <sys/kobj.h>
+#ifdef FDT
 #include <dev/ofw/ofw_bus.h>
+#endif
 
 struct syscon {
 	KOBJ_FIELDS;

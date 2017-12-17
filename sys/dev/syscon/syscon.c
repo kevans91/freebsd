@@ -262,7 +262,6 @@ syscon_get_by_ofw_property(device_t cdev, phandle_t cnode, char *name,
 		return (ENODEV);
 	}
 	SYSCON_TOPO_UNLOCK();
-	device_printf(syscondev, "Returning syscon pdev\n");
 	return (0);
 }
 #endif
