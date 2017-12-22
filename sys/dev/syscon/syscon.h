@@ -74,4 +74,4 @@ int syscon_get_by_ofw_property(device_t consumer, phandle_t node, char *name,
     struct syscon **syscon);
 #endif
 
-#endif /* DEV_EXTRES_PHY_H */
+#endif /* DEV_SYSCON_H */
