@@ -72,6 +72,7 @@ device		clk
 device		phy
 device		hwreset
 device		regulator
+device		syscon
 
 # CPU frequency control
 device		cpufreq

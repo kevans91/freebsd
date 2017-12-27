@@ -60,8 +60,21 @@ __FBSDID("$FreeBSD$");
 
 #include "miibus_if.h"
 
+#ifdef FDT
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_bus.h>
+#include <dev/ofw/ofw_bus_subr.h>
+#include <dev/mii/mii_fdt.h>
+#endif
+
 #include <machine/bus.h>
 #include <dev/rl/if_rlreg.h>
+
+struct rgephy_softc {
+	mii_softc_t	mii_sc;
+	device_t	dev;
+	mii_contype_t	contype;
+};
 
 static int rgephy_probe(device_t);
 static int rgephy_attach(device_t);
@@ -80,11 +93,14 @@ static devclass_t rgephy_devclass;
 static driver_t rgephy_driver = {
 	"rgephy",
 	rgephy_methods,
-	sizeof(struct mii_softc)
+	sizeof(struct rgephy_softc)
 };
 
 DRIVER_MODULE(rgephy, miibus, rgephy_driver, rgephy_devclass, 0, 0);
 
+#ifdef FDT
+static void	rgephy_fdt_get_config(struct rgephysoftc *);
+#endif
 static int	rgephy_service(struct mii_softc *, struct mii_data *, int);
 static void	rgephy_status(struct mii_softc *);
 static int	rgephy_mii_phy_auto(struct mii_softc *, int);
@@ -106,6 +122,18 @@ static const struct mii_phy_funcs rgephy_funcs = {
 	rgephy_reset
 };
 
+#ifdef FDT
+static void
+rgephy_fdt_get_config(struct rgephysoftc *sc)
+{
+	mii_fdt_phy_config_t *cfg;
+
+	cfg = mii_fdt_get_config(sc->dev);
+	sc->contype = cfg->con_typ;
+	mii_fdt_free_config(cfg);
+}
+#endif
+
 static int
 rgephy_probe(device_t dev)
 {
@@ -116,15 +144,22 @@ rgephy_probe(device_t dev)
 static int
 rgephy_attach(device_t dev)
 {
+	struct rgephy_softc *rsc;
 	struct mii_softc *sc;
 	u_int flags;
 
-	sc = device_get_softc(dev);
+	rsc = device_get_softc(dev);
+	rsc->dev = dev;
+	sc = &rsc->mii_sc;
+
 	flags = 0;
 	if (mii_dev_mac_match(dev, "re"))
 		flags |= MIIF_PHYPRIV0;
 	else if (mii_dev_mac_match(dev, "ure"))
 		flags |= MIIF_PHYPRIV1;
+#ifdef FDT
+	rgephy_fdt_get_config(rsc);
+#endif
 	mii_phy_dev_attach(dev, flags, &rgephy_funcs, 0);
 
 	/* RTL8169S do not report auto-sense; add manually. */
