@@ -39,6 +39,7 @@
 
 #define	RGEPHY_8211B		2
 #define	RGEPHY_8211C		3
+#define	RGEPHY_8211E		5
 #define	RGEPHY_8211F		6
 
 /*
@@ -167,6 +168,12 @@
 #define	RGEPHY_SSR_MDI_XOVER	0x0040	/* MDI crossover */
 #define	RGEPHY_SSR_ALDPS	0x0008	/* RTL8211C(L) only */
 #define	RGEPHY_SSR_JABBER	0x0001	/* Jabber */
+
+/* RTL8211E */
+#define	RGEPHY_E_CONFREG	0x1C	/* Presumably rxd configuration */
+#define	RGEPHY_E_CONFREG_MAGICID	0xB591	/* Disable TX/RX Delay */
+#define	RGEPHY_E_EPAGSR		0x1E	/* Extension page select register */
+#define	RGEPHY_E_PAGSEL		0x1F	/* Page select register */
 
 /* RTL8211F */
 #define	RGEPHY_F_MII_PCR1	0x18	/* PHY Specific control register 1 */

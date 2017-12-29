@@ -1,4 +1,4 @@
-/*-
+/*
  * Copyright (c) 2016 Jared McNeill <jmcneill@invisible.ca>
  * All rights reserved.
  *
@@ -69,7 +69,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/extres/clk/clk.h>
 #include <dev/extres/hwreset/hwreset.h>
 #include <dev/extres/regulator/regulator.h>
-#include <dev/syscon/syscon.h>
+#include <dev/extres/syscon/syscon.h>
 
 #include "syscon_if.h"
 #include "miibus_if.h"
@@ -1222,7 +1222,7 @@ awg_setup_phy(device_t dev)
 		 */
 		reg = syscon_read_emac_clk_reg(dev);
 		reg &= ~(EMAC_CLK_PIT | EMAC_CLK_SRC | EMAC_CLK_RMII_EN);
-		if (strcmp(phy_type, "rgmii") == 0)
+		if (strncmp(phy_type, "rgmii", 5) == 0)
 			reg |= EMAC_CLK_PIT_RGMII | EMAC_CLK_SRC_RGMII;
 		else if (strcmp(phy_type, "rmii") == 0)
 			reg |= EMAC_CLK_RMII_EN;
@@ -1262,7 +1262,7 @@ awg_setup_phy(device_t dev)
 			device_printf(dev, "EMAC clock: 0x%08x\n", reg);
 		syscon_write_emac_clk_reg(dev, reg);
 	} else {
-		if (strcmp(phy_type, "rgmii") == 0)
+		if (strncmp(phy_type, "rgmii", 5) == 0)
 			tx_parent_name = "emac_int_tx";
 		else
 			tx_parent_name = "mii_phy_tx";
@@ -1308,18 +1308,18 @@ static int
 awg_setup_extres(device_t dev)
 {
 	struct awg_softc *sc;
+	phandle_t node;
 	hwreset_t rst_ahb, rst_ephy;
 	clk_t clk_ahb, clk_ephy;
 	regulator_t reg;
-	phandle_t node;
 	uint64_t freq;
 	int error, div;
 
 	sc = device_get_softc(dev);
-	node = ofw_bus_get_node(dev);
 	rst_ahb = rst_ephy = NULL;
 	clk_ahb = clk_ephy = NULL;
 	reg = NULL;
+	node = ofw_bus_get_node(dev);
 
 	/* Get AHB clock and reset resources */
 	error = hwreset_get_by_ofw_name(dev, 0, "ahb", &rst_ahb);
@@ -1761,21 +1761,12 @@ awg_attach(device_t dev)
 {
 	uint8_t eaddr[ETHER_ADDR_LEN];
 	struct awg_softc *sc;
-	phandle_t node, syscon_xref;
-	int error, len;
+	int error;
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
 	sc->type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 	sc->syscon = NULL;
-	node = ofw_bus_get_node(dev);
-
-	if (OF_hasprop(node, "syscon")) {
-		len = OF_getencprop(node, "syscon", &syscon_xref,
-		    sizeof(syscon_xref));
-		if (len > 0)
-			sc->syscon = OF_device_from_xref(syscon_xref);
-	}
 
 	if (bus_alloc_resources(dev, awg_spec, sc->res) != 0) {
 		device_printf(dev, "cannot allocate resources for device\n");
