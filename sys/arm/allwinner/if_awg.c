@@ -1222,7 +1222,6 @@ awg_setup_phy(device_t dev)
 		 */
 		reg = syscon_read_emac_clk_reg(dev);
 		reg &= ~(EMAC_CLK_PIT | EMAC_CLK_SRC | EMAC_CLK_RMII_EN);
-
 		if (strncmp(phy_type, "rgmii", 5) == 0)
 			reg |= EMAC_CLK_PIT_RGMII | EMAC_CLK_SRC_RGMII;
 		else if (strcmp(phy_type, "rmii") == 0)
