@@ -336,34 +336,63 @@ static int overlay_update_local_references(void *fdto, uint32_t delta)
 }
 
 /**
+ * overlay_next_phandle - Grab next phandle to be assigned
+ * @fdt: Base Device Tree blob
+ * @fdto: Device tree overlay blob
+ *
+ * overlay_next_phandle() determines the next phandle to be assigned to the
+ * fdt blob.
+ *
+ * This is part of the device tree overlay application process, when you need to
+ * assign a phandle to a node that doesn't currently have one.
+ *
+ * returns:
+ *      Next phandle to be assigned on success
+ *      Negative error code on failure
+ */
+static int overlay_next_phandle(void *fdt, void *fdto)
+{
+	int base_max, overlay_max;
+
+	base_max = fdt_get_max_phandle(fdt);
+	if (base_max < 0)
+		return base_max;
+	overlay_max = fdt_get_max_phandle(fdto);
+	if (overlay_max < 0)
+		return overlay_max;
+	return (base_max > overlay_max ? base_max : overlay_max) + 1;
+}
+
+/**
  * overlay_assign_phandle - Assign a phandle to a symbol in the base fdt
  * @fdt: Base Device Tree blob
+ * @fdto: Device tree overlay blob
  * @symbol_off: Node offset of the symbol to be assigned a phandle
  *
  * overlay_assign_phandle() assigns the next phandle available to the requested
  * node in the base device tree.
  *
- * This is part of the device tree overlay application process, when
- * you want to reference a symbol in the base device tree that doesn't yet have
- * a phandle.
+ * This is part of the device tree overlay application process, when you want to
+ * reference a symbol in the base device tree that doesn't yet have a phandle.
  *
  * returns:
  *      phandle assigned on success
- *      Negative error code on failure
+ *      0 on failure
  */
-static int overlay_assign_phandle(void *fdt, int symbol_off)
+static int overlay_assign_phandle(void *fdt, void *fdto, int symbol_off)
 {
 	int phandle, ret;
+	fdt32_t phandle_val;
 
-	phandle = fdt_get_max_phandle(fdt);
+	/* Overlay phandles have already been adjusted, grab highest phandle */
+	phandle = overlay_next_phandle(fdt, fdto);
 	if (phandle < 0)
-		return phandle;
-	phandle++;
-
-	ret = fdt_setprop(fdt, symbol_off, "phandle", &phandle, sizeof(phandle));
+		return 0;
+	phandle_val = cpu_to_fdt32(phandle);
+	ret = fdt_setprop(fdt, symbol_off, "phandle", &phandle_val, sizeof(phandle_val));
 	if (!ret)
 		return phandle;
-	return ret;
+	return 0;
 }
 
 /**
@@ -377,7 +406,6 @@ static int overlay_assign_phandle(void *fdt, int symbol_off)
  * @name_len: number of name characters to consider
  * @poffset: Offset within the overlay property where the phandle is stored
  * @label: Label of the node referenced by the phandle
- * @phandles_allocated: Indicate to the caller number of phandles allocated
  *
  * overlay_fixup_one_phandle() resolves an overlay phandle pointing to
  * a node in the base device tree.
@@ -391,11 +419,10 @@ static int overlay_assign_phandle(void *fdt, int symbol_off)
  *      Negative error code on failure
  */
 static int overlay_fixup_one_phandle(void *fdt, void *fdto,
-				     int symbols_off,
+				     int *symbols_off,
 				     const char *path, uint32_t path_len,
 				     const char *name, uint32_t name_len,
-				     int poffset, const char *label,
-				     int *phandles_allocated)
+				     int poffset, const char *label)
 {
 	const char *symbol_path;
 	uint32_t phandle;
@@ -403,10 +430,10 @@ static int overlay_fixup_one_phandle(void *fdt, void *fdto,
 	int symbol_off, fixup_off;
 	int prop_len;
 
-	if (symbols_off < 0)
-		return symbols_off;
+	if (*symbols_off < 0)
+		return *symbols_off;
 
-	symbol_path = fdt_getprop(fdt, symbols_off, label,
+	symbol_path = fdt_getprop(fdt, *symbols_off, label,
 				  &prop_len);
 	if (!symbol_path)
 		return prop_len;
@@ -417,10 +444,12 @@ static int overlay_fixup_one_phandle(void *fdt, void *fdto,
 
 	phandle = fdt_get_phandle(fdt, symbol_off);
 	if (!phandle) {
-		phandle = overlay_assign_phandle(fdt, symbol_off);
-		if (phandle < 0)
+		phandle = overlay_assign_phandle(fdt, fdto, symbol_off);
+		if (phandle == 0)
 			return -FDT_ERR_NOTFOUND;
-		(*phandles_allocated)++;
+
+		/* Re-lookup symbols offset, it's been invalidated */
+		*symbols_off = fdt_path_offset(fdt, "/__symbols__");
 	}
 
 	fixup_off = fdt_path_offset_namelen(fdto, path, path_len);
@@ -442,7 +471,6 @@ static int overlay_fixup_one_phandle(void *fdt, void *fdto,
  * @fdto: Device tree overlay blob
  * @symbols_off: Node offset of the symbols node in the base device tree
  * @property: Property offset in the overlay holding the list of fixups
- * @phandles_allocated: Indicate to the caller that a phandle has been allocated
  *
  * overlay_fixup_phandle() resolves all the overlay phandles pointed
  * to in a __fixups__ property, and updates them to match the phandles
@@ -456,8 +484,8 @@ static int overlay_fixup_one_phandle(void *fdt, void *fdto,
  *      0 on success
  *      Negative error code on failure
  */
-static int overlay_fixup_phandle(void *fdt, void *fdto, int symbols_off,
-				 int property, int *phandles_allocated)
+static int overlay_fixup_phandle(void *fdt, void *fdto, int *symbols_off,
+				 int property)
 {
 	const char *value;
 	const char *label;
@@ -513,7 +541,7 @@ static int overlay_fixup_phandle(void *fdt, void *fdto, int symbols_off,
 
 		ret = overlay_fixup_one_phandle(fdt, fdto, symbols_off,
 						path, path_len, name, name_len,
-						poffset, label, phandles_allocated);
+						poffset, label);
 		if (ret)
 			return ret;
 	} while (len > 0);
@@ -542,7 +570,6 @@ static int overlay_fixup_phandles(void *fdt, void *fdto)
 {
 	int fixups_off, symbols_off;
 	int property;
-	int phandles_allocated;
 
 	/* We can have overlays without any fixups */
 	fixups_off = fdt_path_offset(fdto, "/__fixups__");
@@ -556,19 +583,9 @@ static int overlay_fixup_phandles(void *fdt, void *fdto)
 	if ((symbols_off < 0 && (symbols_off != -FDT_ERR_NOTFOUND)))
 		return symbols_off;
 
-	phandles_allocated = 0;
-
 	fdt_for_each_property_offset(property, fdto, fixups_off) {
 		int ret;
-		/* phandles being allocated may have invalidated our handle */
-		if (phandles_allocated > 0) {
-			phandles_allocated = 0;
-			symbols_off = fdt_path_offset(fdt, "/__symbols__");
-			if (symbols_off < 0)
-				return symbols_off;
-		}
-		ret = overlay_fixup_phandle(fdt, fdto, symbols_off, property,
-					    &phandles_allocated);
+		ret = overlay_fixup_phandle(fdt, fdto, &symbols_off, property);
 		if (ret)
 			return ret;
 	}
