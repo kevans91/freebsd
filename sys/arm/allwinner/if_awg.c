@@ -1337,8 +1337,11 @@ awg_setup_extres(device_t dev)
 	if (clk_get_by_ofw_name(dev, 0, "ephy", &clk_ephy) != 0)
 		clk_ephy = NULL;
 
-	if (OF_hasprop(node, "syscon"))
-		syscon_get_by_ofw_property(dev, node, "syscon", &sc->syscon);
+	if (OF_hasprop(node, "syscon") && syscon_get_by_ofw_property(dev, node,
+	    "syscon", &sc->syscon) != 0) {
+		device_printf(dev, "cannot get syscon driver handle\n");
+		goto fail;
+	}
 
 	/* Configure PHY for MII or RGMII mode */
 	if (awg_setup_phy(dev) != 0)
