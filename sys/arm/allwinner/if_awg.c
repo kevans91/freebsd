@@ -1769,7 +1769,6 @@ awg_attach(device_t dev)
 	sc = device_get_softc(dev);
 	sc->dev = dev;
 	sc->type = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
-	sc->syscon = NULL;
 
 	if (bus_alloc_resources(dev, awg_spec, sc->res) != 0) {
 		device_printf(dev, "cannot allocate resources for device\n");
