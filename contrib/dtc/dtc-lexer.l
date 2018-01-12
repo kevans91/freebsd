@@ -38,10 +38,6 @@ LINECOMMENT	"//".*\n
 #include "srcpos.h"
 #include "dtc-parser.tab.h"
 
-#define MAX_INCLUDE_NESTING 100
-YY_BUFFER_STATE include_stack[MAX_INCLUDE_NESTING];
-int include_stack_pointer = 0;
-
 YYLTYPE yylloc;
 extern bool treesource_error;
 
@@ -66,12 +62,7 @@ static int dts_version = 1;
 
 static void push_input_file(const char *filename);
 static bool pop_input_file(void);
-#ifdef __GNUC__
-static void lexical_error(const char *fmt, ...)
-	__attribute__((format (printf, 1, 2)));
-#else
-static void lexical_error(const char *fmt, ...);
-#endif
+static void PRINTF(1, 2) lexical_error(const char *fmt, ...);
 
 %}
 
@@ -284,15 +275,11 @@ static void push_input_file(const char *filename)
 {
 	assert(filename);
 
-	assert(include_stack_pointer < MAX_INCLUDE_NESTING);
-
 	srcfile_push(filename);
 
 	yyin = current_srcfile->f;
 
-	include_stack[include_stack_pointer++] = YY_CURRENT_BUFFER;
-
-	yy_switch_to_buffer(yy_create_buffer(yyin, YY_BUF_SIZE));
+	yypush_buffer_state(yy_create_buffer(yyin, YY_BUF_SIZE));
 }
 
 
@@ -301,12 +288,7 @@ static bool pop_input_file(void)
 	if (srcfile_pop() == 0)
 		return false;
 
-	assert(include_stack_pointer > 0);
-
-	yy_delete_buffer( YY_CURRENT_BUFFER );
-
-	yy_switch_to_buffer( include_stack[--include_stack_pointer] );
-
+	yypop_buffer_state();
 	yyin = current_srcfile->f;
 
 	return true;
