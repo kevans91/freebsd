@@ -233,13 +233,17 @@ static int overlay_update_local_node_references(void *fdto,
 		if (!fixup_val)
 			return fixup_len;
 
-		if (fixup_len % sizeof(uint32_t))
+		if (fixup_len % sizeof(uint32_t)) {
+			printf("Not uint32_t aligned; len=%u, align=%u\n", fixup_len, sizeof(uint32_t));
 			return -FDT_ERR_BADOVERLAY;
+		}
 
 		tree_val = fdt_getprop(fdto, tree_node, name, &tree_len);
 		if (!tree_val) {
-			if (tree_len == -FDT_ERR_NOTFOUND)
+			if (tree_len == -FDT_ERR_NOTFOUND) {
+				printf("No tree size\n");
 				return -FDT_ERR_BADOVERLAY;
+			}
 
 			return tree_len;
 		}
@@ -267,8 +271,10 @@ static int overlay_update_local_node_references(void *fdto,
 								  poffset,
 								  &adj_val,
 								  sizeof(adj_val));
-			if (ret == -FDT_ERR_NOSPACE)
+			if (ret == -FDT_ERR_NOSPACE) {
+				printf("no space\n");
 				return -FDT_ERR_BADOVERLAY;
+			}
 
 			if (ret)
 				return ret;
@@ -282,8 +288,10 @@ static int overlay_update_local_node_references(void *fdto,
 
 		tree_child = fdt_subnode_offset(fdto, tree_node,
 						fixup_child_name);
-		if (tree_child == -FDT_ERR_NOTFOUND)
+		if (tree_child == -FDT_ERR_NOTFOUND) {
+			printf("offset not found\n");
 			return -FDT_ERR_BADOVERLAY;
+		}
 		if (tree_child < 0)
 			return tree_child;
 

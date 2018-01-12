@@ -1,5 +1,6 @@
 # $FreeBSD$
 
+PACKAGE=lib${LIB}
 LIB=dl
 SHLIB_MAJOR=1
 

@@ -813,6 +813,9 @@ aw_fdt_configure_pins(device_t dev, phandle_t cfgxref)
 	}
 
  out:
+	if (bootverbose && (ret != 0))
+		device_printf(dev, "failed to configure pins for %s\n",
+		    pin_function);
 	OF_prop_free(pinlist);
 	OF_prop_free(pin_function);
 	return (ret);

@@ -370,7 +370,7 @@ class property
 	/**
 	 * Returns the key for this property.
 	 */
-	inline std::string get_key()
+	inline const std::string &get_key()
 	{
 		return key;
 	}
@@ -906,7 +906,10 @@ class device_tree
 	 */
 	void sort()
 	{
-		root->sort();
+		if (root)
+		{
+			root->sort();
+		}
 	}
 	/**
 	 * Adds a path to search for include files.  The argument must be a

@@ -497,6 +497,29 @@ property::property(text_input_buffer &input,
 				return;
 			case '/':
 			{
+				if (input.consume("/incbin/(\""))
+				{
+					auto loc = input.location();
+					std::string filename = input.parse_to('"');
+					if (!(valid = input.consume('"')))
+					{
+						loc.report_error("Syntax error, expected '\"' to terminate /incbin/(");
+						return;
+					}
+					property_value v;
+					if (!(valid = input.read_binary_file(filename, v.byte_data)))
+					{
+						input.parse_error("Cannot open binary include file");
+						return;
+					}
+					if (!(valid &= input.consume(')')))
+					{
+						input.parse_error("Syntax error, expected ')' to terminate /incbin/(");
+						return;
+					}
+					values.push_back(v);
+					break;
+				}
 				unsigned long long bits = 0;
 				valid = input.consume("/bits/");
 				input.next_token();
@@ -505,7 +528,9 @@ property::property(text_input_buffer &input,
 				    (bits != 16) &&
 				    (bits != 32) &&
 				    (bits != 64)) {
-					input.parse_error("Invalid size for elements");
+					std::stringstream ss;
+					ss << "Invalid size for elements: " << bits;
+					input.parse_error(ss.str().c_str());
 					valid = false;
 				}
 				if (!valid) return;
@@ -1769,21 +1794,72 @@ device_tree::parse_dts(const string &fn, FILE *depfile)
 			}
 			symbols.clear();
 			// If we have any resolved phandle references in this plugin, then
-			// we must leave a property in the /__local_fixups__ node whose key
-			// is 'fixup' and whose value is as described above.
+			// we must create a child in the __local_fixups__ node whose path
+			// matches the node path from the root and whose value contains the
+			// location of the reference within a property.
+			
+			// Create a local_fixups node that is initially empty.
+			node_ptr local_fixups = node::create_special_node("__local_fixups__", symbols);
 			for (auto &i : fixups)
 			{
 				if (!i.val.is_phandle())
 				{
 					continue;
 				}
-				symbols.push_back(create_fixup_entry(i, "fixup"));
+				node *n = local_fixups.get();
+				for (auto &p : i.path)
+				{
+					// Skip the implicit root
+					if (p.first.empty())
+					{
+						continue;
+					}
+					bool found = false;
+					for (auto &c : n->child_nodes())
+					{
+						if (c->name == p.first)
+						{
+							n = c.get();
+							found = true;
+							break;
+						}
+					}
+					if (!found)
+					{
+						n->add_child(node::create_special_node(p.first, symbols));
+						n = (--n->child_end())->get();
+					}
+				}
+				assert(n);
+				property_value pv;
+				push_big_endian(pv.byte_data, static_cast<uint32_t>(i.prop->offset_of_value(i.val)));
+				pv.type = property_value::BINARY;
+				auto key = i.prop->get_key();
+				property_ptr prop = n->get_property(key);
+				// If we don't have an existing property then create one and
+				// use this property value
+				if (!prop)
+				{
+					prop = std::make_shared<property>(std::move(key));
+					n->add_property(prop);
+					prop->add_value(pv);
+				}
+				else
+				{
+					// If we do have an existing property value, try to append
+					// this value.
+					property_value &old_val = *(--prop->end());
+					if (!old_val.try_to_merge(pv))
+					{
+						prop->add_value(pv);
+					}
+				}
 			}
 			// We've iterated over all fixups, but only emit the
 			// __local_fixups__ if we found some that were resolved internally.
-			if (!symbols.empty())
+			if (local_fixups->child_begin() != local_fixups->child_end())
 			{
-				root->add_child(node::create_special_node("__local_fixups__", symbols));
+				root->add_child(std::move(local_fixups));
 			}
 		}
 	}
