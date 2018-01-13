@@ -52,10 +52,18 @@
  *     EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _KERNEL
+#include <sys/cdefs.h>
+#include <sys/param.h>
+#include <sys/types.h>
+#include <sys/systm.h>
+#include <sys/stdint.h>
+#else
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#endif
 
 #ifdef __CHECKER__
 #define FDT_FORCE __attribute__((force))
