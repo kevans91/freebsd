@@ -24,6 +24,8 @@
 #include "dtc.h"
 #include "srcpos.h"
 
+YYLTYPE yylloc;
+
 extern int yylex(void);
 extern void yyerror(char const *s);
 #define ERROR(loc, ...) \
@@ -129,7 +131,7 @@ headers:
 	| header headers
 		{
 			if ($2 != $1)
-				ERROR(&@2, "Header flags don't match earlier ones");
+				ERROR(&yylloc, "Header flags don't match earlier ones");
 			$$ = $1;
 		}
 	;
@@ -166,17 +168,7 @@ devicetree:
 		{
 			$$ = merge_nodes($1, $3);
 		}
-	| DT_REF nodedef
-		{
-			/*
-			 * We rely on the rule being always:
-			 *   versioninfo plugindecl memreserves devicetree
-			 * so $-1 is what we want (plugindecl)
-			 */
-			if (!($<flags>-1 & DTSF_PLUGIN))
-				ERROR(&@2, "Label or path %s not found", $1);
-			$$ = add_orphan_node(name_node(build_node(NULL, NULL), ""), $2, $1);
-		}
+
 	| devicetree DT_LABEL DT_REF nodedef
 		{
 			struct node *target = get_node_by_ref($1, $3);
@@ -185,26 +177,17 @@ devicetree:
 				add_label(&target->labels, $2);
 				merge_nodes(target, $4);
 			} else
-				ERROR(&@3, "Label or path %s not found", $3);
+				ERROR(&yylloc, "Label or path %s not found", $3);
 			$$ = $1;
 		}
 	| devicetree DT_REF nodedef
 		{
 			struct node *target = get_node_by_ref($1, $2);
 
-			if (target) {
+			if (target)
 				merge_nodes(target, $3);
-			} else {
-				/*
-				 * We rely on the rule being always:
-				 *   versioninfo plugindecl memreserves devicetree
-				 * so $-1 is what we want (plugindecl)
-				 */
-				if ($<flags>-1 & DTSF_PLUGIN)
-					add_orphan_node($1, $3, $2);
-				else
-					ERROR(&@2, "Label or path %s not found", $2);
-			}
+			else
+				ERROR(&yylloc, "Label or path %s not found", $2);
 			$$ = $1;
 		}
 	| devicetree DT_DEL_NODE DT_REF ';'
@@ -214,7 +197,7 @@ devicetree:
 			if (target)
 				delete_node(target);
 			else
-				ERROR(&@3, "Label or path %s not found", $3);
+				ERROR(&yylloc, "Label or path %s not found", $3);
 
 
 			$$ = $1;
@@ -332,7 +315,7 @@ arrayprefix:
 
 			if ((bits !=  8) && (bits != 16) &&
 			    (bits != 32) && (bits != 64)) {
-				ERROR(&@2, "Array elements must be"
+				ERROR(&yylloc, "Array elements must be"
 				      " 8, 16, 32 or 64-bits");
 				bits = 32;
 			}
@@ -358,7 +341,7 @@ arrayprefix:
 				 * mask), all bits are one.
 				 */
 				if (($2 > mask) && (($2 | mask) != -1ULL))
-					ERROR(&@2, "Value out of range for"
+					ERROR(&yylloc, "Value out of range for"
 					      " %d-bit array element", $1.bits);
 			}
 
@@ -373,7 +356,7 @@ arrayprefix:
 							  REF_PHANDLE,
 							  $2);
 			else
-				ERROR(&@2, "References are only allowed in "
+				ERROR(&yylloc, "References are only allowed in "
 					    "arrays with 32-bit elements.");
 
 			$$.data = data_append_integer($1.data, val, $1.bits);
@@ -460,7 +443,7 @@ integer_mul:
 			if ($3 != 0) {
 				$$ = $1 / $3;
 			} else {
-				ERROR(&@$, "Division by zero");
+				ERROR(&yylloc, "Division by zero");
 				$$ = 0;
 			}
 		}
@@ -469,7 +452,7 @@ integer_mul:
 			if ($3 != 0) {
 				$$ = $1 % $3;
 			} else {
-				ERROR(&@$, "Division by zero");
+				ERROR(&yylloc, "Division by zero");
 				$$ = 0;
 			}
 		}
@@ -509,7 +492,7 @@ subnodes:
 		}
 	| subnode propdef
 		{
-			ERROR(&@2, "Properties must precede subnodes");
+			ERROR(&yylloc, "Properties must precede subnodes");
 			YYERROR;
 		}
 	;
