@@ -40,6 +40,7 @@
 
 # 20180201: Obsolete forth files
 OLD_FILES+=boot/efi.4th
+OLD_FILES+=boot/pcibios.4th
 # 20180222: Remove libstand
 OLD_FILES+=usr/lib/libstand.a
 OLD_FILES+=usr/lib/libstand_p.a
