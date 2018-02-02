@@ -38,6 +38,8 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20180201: Obsolete forth files
+OLD_FILES+=boot/efi.4th
 # 20180222: Remove libstand
 OLD_FILES+=usr/lib/libstand.a
 OLD_FILES+=usr/lib/libstand_p.a
