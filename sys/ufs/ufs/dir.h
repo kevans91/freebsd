@@ -72,14 +72,14 @@
  * dp->d_ino set to 0.
  */
 #define	DIRBLKSIZ	DEV_BSIZE
-#define	MAXNAMLEN	255
+#define	UFS_MAXNAMLEN	255
 
 struct	direct {
 	u_int32_t d_ino;		/* inode number of entry */
 	u_int16_t d_reclen;		/* length of this record */
 	u_int8_t  d_type; 		/* file type, see below */
 	u_int8_t  d_namlen;		/* length of string in d_name */
-	char	  d_name[MAXNAMLEN + 1];/* name with length <= MAXNAMLEN */
+	char	  d_name[UFS_MAXNAMLEN + 1];/* name with length <= MAXNAMLEN */
 };
 
 /*

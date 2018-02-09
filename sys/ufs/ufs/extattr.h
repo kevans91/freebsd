@@ -95,8 +95,8 @@ struct extattr {
  *	and ea_contentpadlen fields of the extended attribute structure.
  */
 #define	EXTATTR_NEXT(eap) \
-	((struct extattr *)(((void *)(eap)) + (eap)->ea_length))
-#define	EXTATTR_CONTENT(eap) (((void *)(eap)) + EXTATTR_BASE_LENGTH(eap))
+	((struct extattr *)(((uint8_t *)(eap)) + (eap)->ea_length))
+#define	EXTATTR_CONTENT(eap) ((void *)(((uint8_t *)(eap)) + EXTATTR_BASE_LENGTH(eap)))
 #define	EXTATTR_CONTENT_SIZE(eap) \
 	((eap)->ea_length - EXTATTR_BASE_LENGTH(eap) - (eap)->ea_contentpadlen)
 #define	EXTATTR_BASE_LENGTH(eap) \
