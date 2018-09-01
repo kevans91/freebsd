@@ -173,6 +173,10 @@ MAN1=	${MAN}
 .endif
 .endif # defined(PROG)
 
+.if "${PROG}" != "init"
+CFLAGS+= -fsanitize=undefined
+.endif
+
 .if defined(_SKIP_BUILD)
 all:
 .else

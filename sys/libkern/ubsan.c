@@ -55,11 +55,7 @@ __RCSID("$NetBSD: ubsan.c,v 1.3 2018/08/03 16:31:04 kamil Exp $");
 #include <machine/_inttypes.h>
 #include <machine/stdarg.h>
 #define ASSERT(x) KASSERT(x, ("%s: " __STRING(x) " failed", __func__))
-#define	__arraycount(x) nitems(x)
 #define ISSET(x, y)	((x) & (y))
-#define	__BIT(x)	((uintmax_t)1 << (uintmax_t)(x))
-#define	__LOWEST_SET_BIT(__mask) ((((__mask) - 1) & (__mask)) ^ (__mask))
-#define	__SHIFTOUT(__x, __mask) (((__x) & (__mask)) / __LOWEST_SET_BIT(__mask))
 #else
 #if defined(_LIBC)
 #include "namespace.h"
@@ -78,17 +74,33 @@ __RCSID("$NetBSD: ubsan.c,v 1.3 2018/08/03 16:31:04 kamil Exp $");
 #include <syslog.h>
 #include <unistd.h>
 #if defined(_LIBC)
+#if defined(__FreeBSD__)
+#define	ubsan_vsyslog vsyslog
+#define	ASSERT(x) assert(x)
+#else
 #include "extern.h"
 #define ubsan_vsyslog vsyslog_ss
 #define ASSERT(x) _DIAGASSERT(x)
+#endif	/* __FreeBSD__ */
+#else
+#if defined(__FreeBSD__)
+#define	ubsan_vsyslog vsyslog
 #else
 #define ubsan_vsyslog vsyslog_r
+#endif	/* __FreeBSD__ */
 #define ASSERT(x) assert(x)
 #endif
 /* These macros are available in _KERNEL only */
 #define SET(t, f)	((t) |= (f))
 #define ISSET(t, f)	((t) & (f))
 #define CLR(t, f)	((t) &= ~(f))
+#endif
+
+#if defined(__FreeBSD__)
+#define	__arraycount(x) nitems(x)
+#define	__BIT(x)	((uintmax_t)1 << (uintmax_t)(x))
+#define	__LOWEST_SET_BIT(__mask) ((((__mask) - 1) & (__mask)) ^ (__mask))
+#define	__SHIFTOUT(__x, __mask) (((__x) & (__mask)) / __LOWEST_SET_BIT(__mask))
 #endif
 
 #define REINTERPRET_CAST(__dt, __st)	((__dt)(__st))
@@ -1198,8 +1210,12 @@ Report(bool isFatal, const char *pFormat, ...)
 	if (ISSET(ubsan_flags, UBSAN_SYSLOG)) {
 		va_list tmp;
 		va_copy(tmp, ap);
+#ifdef __FreeBSD__
+		syslog(LOG_DEBUG | LOG_USER, pFormat, tmp);
+#else
 		struct syslog_data SyslogData = SYSLOG_DATA_INIT;
 		ubsan_vsyslog(LOG_DEBUG | LOG_USER, &SyslogData, pFormat, tmp);
+#endif
 		va_end(tmp);
 	}
 	if (isFatal || ISSET(ubsan_flags, UBSAN_ABORT)) {
