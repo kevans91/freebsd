@@ -97,6 +97,7 @@ div_t	 div(int, int) __pure2;
 _Noreturn void	 exit(int);
 void	 free(void *);
 char	*getenv(const char *);
+int	 getenv_r(const char *, char *, size_t);
 long	 labs(long) __pure2;
 ldiv_t	 ldiv(long, long) __pure2;
 void	*malloc(size_t) __malloc_like __result_use_check __alloc_size(1);

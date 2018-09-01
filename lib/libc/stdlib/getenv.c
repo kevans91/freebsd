@@ -447,6 +447,28 @@ getenv(const char *name)
 	}
 }
 
+/*
+ * Copies the value of a variable into buf if the value does not exceed len in
+ * size.
+ */
+int
+getenv_r(const char *name, char *buf, size_t len)
+{
+	char *val;
+
+	val = getenv(name);
+	if (val == NULL) {
+		errno = ENOENT;
+		return (-1);
+	}
+
+	if (strlcpy(buf, val, len) >= len) {
+		errno = ERANGE;
+		return (-1);
+	}
+
+	return (0);
+}
 
 /*
  * Set the value of a variable.  Older settings are labeled as inactive.  If an

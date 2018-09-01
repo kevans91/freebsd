@@ -32,11 +32,12 @@
 .\"     @(#)getenv.3	8.2 (Berkeley) 12/11/93
 .\" $FreeBSD$
 .\"
-.Dd June 20, 2007
+.Dd August 31, 2018
 .Dt GETENV 3
 .Os
 .Sh NAME
 .Nm getenv ,
+.Nm getenv_r ,
 .Nm putenv ,
 .Nm setenv ,
 .Nm unsetenv
@@ -47,6 +48,8 @@
 .In stdlib.h
 .Ft char *
 .Fn getenv "const char *name"
+.Ft int
+.Fn getenv_r "const char *name" "char *buf" "size_t len"
 .Ft int
 .Fn setenv "const char *name" "const char *value" "int overwrite"
 .Ft int
@@ -66,6 +69,22 @@ The application should not modify the string pointed
 to by the
 .Fn getenv
 function.
+.Pp
+The
+.Fn getenv_r
+function obtains the current value of the environment variable,
+.Fa name ,
+and copies it into
+.Fa buf .
+If
+.Fa name
+is not in the current environment, or the string length of the value of
+.Fa name
+plus the null terminator is longer than
+.Fa len
+characters, then -1 is returned and
+.Va errno
+is set to indicate the error.
 .Pp
 The
 .Fn setenv
