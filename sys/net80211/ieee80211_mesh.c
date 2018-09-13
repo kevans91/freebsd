@@ -2030,8 +2030,7 @@ mesh_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0, int subtype,
 		if (meshid != NULL) {
 			IEEE80211_VERIFY_ELEMENT(meshid,
 			    IEEE80211_MESHID_LEN, return);
-			/* NB: meshid, not ssid */
-			IEEE80211_VERIFY_SSID(vap->iv_bss, meshid, return);
+			IEEE80211_VERIFY_MESHID(vap->iv_bss, meshid, return);
 		}
 
 		/* XXX find a better class or define it's own */

@@ -884,6 +884,16 @@ ieee80211_ssid_mismatch(struct ieee80211vap *vap, const char *tag,
 	printf("\n");
 }
 
+void
+ieee80211_meshid_mismatch(struct ieee80211vap *vap, const char *tag,
+	uint8_t mac[IEEE80211_ADDR_LEN], uint8_t *meshid)
+{
+	printf("[%s] discard %s frame, meshid mismatch: ",
+		ether_sprintf(mac), tag);
+	ieee80211_print_essid(meshid + 2, meshid[1]);
+	printf("\n");
+}
+
 /*
  * Return the bssid of a frame.
  */

@@ -57,6 +57,8 @@
 #ifdef IEEE80211_DEBUG
 void	ieee80211_ssid_mismatch(struct ieee80211vap *, const char *tag,
 	uint8_t mac[IEEE80211_ADDR_LEN], uint8_t *ssid);
+void	ieee80211_meshid_mismatch(struct ieee80211vap *, const char *tag,
+	uint8_t mac[IEEE80211_ADDR_LEN], uint8_t *meshid);
 
 #define	IEEE80211_VERIFY_SSID(_ni, _ssid, _action) do {			\
 	if ((_ssid)[1] != 0 &&						\
@@ -70,12 +72,32 @@ void	ieee80211_ssid_mismatch(struct ieee80211vap *, const char *tag,
 		_action;						\
 	}								\
 } while (0)
+#define	IEEE80211_VERIFY_MESHID(_ni, _msid, _action) do {		\
+	if ((_msid)[1] != 0 &&						\
+	    ((_msid)[1] != (_ni)->ni_esslen ||				\
+	    memcmp((_msid) + 2, (_ni)->ni_essid, (_msid)[1]) != 0)) {	\
+		if (ieee80211_msg_input(vap))				\
+			ieee80211_meshid_mismatch(vap,			\
+			    ieee80211_mgt_subtype_name(subtype),	\
+				wh->i_addr2, _msid);			\
+		vap->iv_stats.is_rx_meshidmismatch++;			\
+		_action;						\
+	}								\
+} while (0)
 #else /* !IEEE80211_DEBUG */
 #define	IEEE80211_VERIFY_SSID(_ni, _ssid, _action) do {			\
 	if ((_ssid)[1] != 0 &&						\
 	    ((_ssid)[1] != (_ni)->ni_esslen ||				\
 	    memcmp((_ssid) + 2, (_ni)->ni_essid, (_ssid)[1]) != 0)) {	\
 		vap->iv_stats.is_rx_ssidmismatch++;			\
+		_action;						\
+	}								\
+} while (0)
+#define	IEEE80211_VERIFY_MESHID(_ni, _msid, _action) do {		\
+	if ((_msid)[1] != 0 &&						\
+	    ((_msid)[1] != (_ni)->ni_esslen ||				\
+	    memcmp((_msid) + 2, (_ni)->ni_essid, (_msid)[1]) != 0)) {	\
+		vap->iv_stats.is_rx_meshidmismatch++;			\
 		_action;						\
 	}								\
 } while (0)

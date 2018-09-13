@@ -255,7 +255,9 @@ struct ieee80211_stats {
 	uint32_t	is_ff_encapfail;	/* failed FF encap */
 	uint32_t	is_amsdu_encapfail;	/* failed A-MSDU encap */
 
-	uint32_t	is_spare[5];
+	uint32_t	is_rx_meshidmismatch;	/* rx frame meshid mismatch  */
+
+	uint32_t	is_spare[4];
 };
 
 /*
