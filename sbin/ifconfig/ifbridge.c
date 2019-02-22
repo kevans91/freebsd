@@ -301,6 +301,18 @@ setbridge_add(const char *val, int d, int s, const struct afswtch *afp)
 }
 
 static void
+setbridge_add_local(const char *val, int d, int s, const struct afswtch *afp)
+{
+	struct ifbreq req;
+
+	memset(&req, 0, sizeof(req));
+	strlcpy(req.ifbr_ifsname, val, sizeof(req.ifbr_ifsname));
+	req.ifbr_ifsflags |= IFBIF_LOCAL;
+	if (do_cmd(s, BRDGADD, &req, sizeof(req), 1) < 0)
+		err(1, "BRDGADD %s (local)",  val);
+}
+
+static void
 setbridge_delete(const char *val, int d, int s, const struct afswtch *afp)
 {
 	struct ifbreq req;
@@ -701,6 +713,7 @@ unsetbridge_private(const char *val, int d, int s, const struct afswtch *afp)
 
 static struct cmd bridge_cmds[] = {
 	DEF_CMD_ARG("addm",		setbridge_add),
+	DEF_CMD_ARG("addlocalm",	setbridge_add_local),
 	DEF_CMD_ARG("deletem",		setbridge_delete),
 	DEF_CMD_ARG("discover",		setbridge_discover),
 	DEF_CMD_ARG("-discover",	unsetbridge_discover),

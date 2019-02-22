@@ -87,6 +87,8 @@ SUBDIR=	adduser \
 	snapinfo \
 	spi \
 	spray \
+	switchctl \
+	switchd \
 	syslogd \
 	sysrc \
 	tcpdrop \

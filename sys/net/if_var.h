@@ -423,6 +423,7 @@ struct ifnet {
 	struct debugnet_methods *if_debugnet_methods;
 	struct epoch_context	if_epoch_ctx;
 
+	void	*if_switch;	/* switch glue */
 	/*
 	 * Spare fields to be added before branching a stable branch, so
 	 * that structure can be enhanced without changing the kernel

@@ -664,7 +664,7 @@ ether_input_internal(struct ifnet *ifp, struct mbuf *m)
 	 * The BRIDGE_INPUT() macro will update ifp if the bridge changed it
 	 * and the frame should be delivered locally.
 	 */
-	if (ifp->if_bridge != NULL) {
+	if (ifp->if_bridge != NULL || ifp->if_switch != NULL) {
 		m->m_flags &= ~M_PROMISC;
 		BRIDGE_INPUT(ifp, m);
 		if (m == NULL) {

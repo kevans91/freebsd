@@ -156,7 +156,9 @@ SUBDIR=	\
 	if_lagg \
 	${_if_ndis} \
 	${_if_stf} \
+	if_switch \
 	if_tuntap \
+	if_vether \
 	if_vlan \
 	if_vxlan \
 	iflib \

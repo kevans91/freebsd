@@ -815,12 +815,12 @@ bad:
  * ipsec_encap() is called by IPsec output routine for tunnel mode SA.
  * It is expected that after IP encapsulation some IPsec transform will
  * be performed. Each IPsec transform inserts its variable length header
- * just after outer IP header using m_makespace(). If given mbuf has not
+ * just after outer IP header using m_makespace_ipsec(). If given mbuf has not
  * enough free space at the beginning, we allocate new mbuf and reserve
  * some space at the beginning and at the end.
- * This helps avoid allocating of new mbuf and data copying in m_makespace(),
- * we place outer header in the middle of mbuf's data with reserved leading
- * and trailing space:
+ * This helps avoid allocating of new mbuf and data copying in
+ * m_makespace_ipsec(), we place outer header in the middle of mbuf's data with
+ * reserved leading and trailing space:
  *	[ LEADINGSPACE ][ Outer IP header ][ TRAILINGSPACE ]
  * LEADINGSPACE will be used to add ethernet header, TRAILINGSPACE will
  * be used to inject AH/ESP/IPCOMP header.

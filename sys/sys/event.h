@@ -351,6 +351,7 @@ int 	kqfd_register(int fd, struct kevent *kev, struct thread *p,
 	    int mflag);
 int	kqueue_add_filteropts(int filt, struct filterops *filtops);
 int	kqueue_del_filteropts(int filt);
+void	klist_invalidate(struct klist *list);
 
 #else 	/* !_KERNEL */
 

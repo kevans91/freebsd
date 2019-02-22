@@ -51,7 +51,7 @@
  * the caller is assumed to always free the chain.
  */
 struct mbuf *
-m_makespace(struct mbuf *m0, int skip, int hlen, int *off)
+m_makespace_ipsec(struct mbuf *m0, int skip, int hlen, int *off)
 {
 	struct mbuf *m;
 	unsigned remain;

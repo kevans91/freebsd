@@ -224,9 +224,9 @@ udp_ipsec_output(struct mbuf *m, struct secasvar *sav)
 
 	ip = mtod(m, struct ip *);
 	hlen = ip->ip_hl << 2;
-	n = m_makespace(m, hlen, sizeof(*udp), &off);
+	n = m_makespace_ipsec(m, hlen, sizeof(*udp), &off);
 	if (n == NULL) {
-		DPRINTF(("%s: m_makespace for udphdr failed\n", __func__));
+		DPRINTF(("%s: m_makespace_ipsec for udphdr failed\n", __func__));
 		return (ENOBUFS);
 	}
 

@@ -298,6 +298,8 @@ static void	bridge_delete_member(struct bridge_softc *,
 		    struct bridge_iflist *, int);
 static void	bridge_delete_span(struct bridge_softc *,
 		    struct bridge_iflist *);
+int		bridge_fragment(struct ifnet *ifp, struct mbuf **mp,
+    struct ether_header *eh, int snap, struct llc *llc);
 
 static int	bridge_ioctl_add(struct bridge_softc *, void *);
 static int	bridge_ioctl_del(struct bridge_softc *, void *);
@@ -336,8 +338,6 @@ static int	bridge_ip_checkbasic(struct mbuf **mp);
 #ifdef INET6
 static int	bridge_ip6_checkbasic(struct mbuf **mp);
 #endif /* INET6 */
-static int	bridge_fragment(struct ifnet *, struct mbuf **mp,
-		    struct ether_header *, int, struct llc *);
 static void	bridge_linkstate(struct ifnet *ifp);
 static void	bridge_linkcheck(struct bridge_softc *sc);
 
@@ -2898,6 +2898,7 @@ bridge_rtable_fini(struct bridge_softc *sc)
 
 	KASSERT(sc->sc_brtcnt == 0,
 	    ("%s: %d bridge routes referenced", __func__, sc->sc_brtcnt));
+	bridge_rtflush(sc, 1);
 	free(sc->sc_rthash, M_DEVBUF);
 }
 
@@ -3040,7 +3041,9 @@ bridge_rtnode_destroy(struct bridge_softc *sc, struct bridge_rtnode *brt)
 	LIST_REMOVE(brt, brt_list);
 	sc->sc_brtcnt--;
 	brt->brt_dst->bif_addrcnt--;
+	CURVNET_SET(sc->sc_ifp->if_vnet);
 	uma_zfree(V_bridge_rtnode_zone, brt);
+	CURVNET_RESTORE();
 }
 
 /*
@@ -3502,7 +3505,7 @@ bad:
  *
  *	Fragment mbuf chain in multiple packets and prepend ethernet header.
  */
-static int
+int
 bridge_fragment(struct ifnet *ifp, struct mbuf **mp, struct ether_header *eh,
     int snap, struct llc *llc)
 {

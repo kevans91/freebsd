@@ -2739,3 +2739,14 @@ noacquire:
 	fdrop(fp, td);
 	return (error);
 }
+
+void
+klist_invalidate(struct klist *list)
+{
+	struct knote *kn;
+
+	SLIST_FOREACH(kn, list, kn_selnext) {
+		kn->kn_status |= KN_DETACHED;
+		kn->kn_flags |= EV_EOF | EV_ONESHOT;
+	}
+}

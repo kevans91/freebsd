@@ -18,6 +18,7 @@ smmsp:*:25:
 mailnull:*:26:
 guest:*:31:
 video:*:44:
+_switchd:*:49:
 bind:*:53:
 unbound:*:59:
 proxy:*:62:

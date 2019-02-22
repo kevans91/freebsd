@@ -431,6 +431,88 @@ m_dup_pkthdr(struct mbuf *to, const struct mbuf *from, int how)
 	return (m_tag_copy_chain(to, from, how));
 }
 
+struct mbuf *
+m_dup_pkt(const struct mbuf *m, unsigned int adj, int how)
+{
+	struct mbuf **p, *top = NULL;
+	int remain, moff, nsize;
+
+	MBUF_CHECKSLEEP(how);
+	/* Sanity check */
+	if (m == NULL)
+		return (NULL);
+	M_ASSERTPKTHDR(m);
+	KASSERT(adj <= MCLBYTES, ("%s: adj=%u does not fit in a single payload",
+	    __func__, adj));
+
+	/*
+	 * While there's more data, get a new mbuf, tack it on, and fill it.
+	 * Account for the adjustment here so we can allocate a cluster for the
+	 * first mbuf in the adjustment pushes us into it.
+	 */
+	remain = m->m_pkthdr.len + adj;
+	moff = 0;
+	p = &top;
+	while (remain > 0 || top == NULL) {	/* allow m->m_pkthdr.len == 0 */
+		struct mbuf *n;
+
+		/* Get the next new mbuf */
+		if (remain >= MINCLSIZE) {
+			n = m_getcl(how, m->m_type, 0);
+			nsize = MCLBYTES;
+		} else {
+			n = m_get(how, m->m_type);
+			nsize = MLEN;
+		}
+		if (n == NULL)
+			goto nospace;
+
+		if (top == NULL) {		/* First one, must be PKTHDR */
+			if (!m_dup_pkthdr(n, m, how)) {
+				m_free(n);
+				goto nospace;
+			}
+			if ((n->m_flags & M_EXT) == 0)
+				nsize = MHLEN;
+			n->m_flags &= ~M_RDONLY;
+			/* First mbuf gets the payload adjustment */
+			if (adj > 0) {
+				n->m_data += adj;
+				nsize -= adj;
+				remain -= adj;
+			}
+		}
+		n->m_len = 0;
+
+		/* Link it into the new chain */
+		*p = n;
+		p = &n->m_next;
+
+		/* Copy data from original mbuf(s) into new mbuf */
+		while (n->m_len < nsize && m != NULL) {
+			int chunk = min(nsize - n->m_len, m->m_len - moff);
+
+			bcopy(m->m_data + moff, n->m_data + n->m_len, chunk);
+			moff += chunk;
+			n->m_len += chunk;
+			remain -= chunk;
+			if (moff == m->m_len) {
+				m = m->m_next;
+				moff = 0;
+			}
+		}
+
+		/* Check correct total mbuf length */
+		KASSERT((remain > 0 && m != NULL) || (remain == 0 && m == NULL),
+		    	("%s: bogus m_pkthdr.len", __func__));
+	}
+	return (top);
+
+nospace:
+	m_freem(top);
+	return (NULL);
+}
+
 /*
  * Lesser-used path for M_PREPEND:
  * allocate new mbuf to prepend to chain,
@@ -650,71 +732,8 @@ m_copydata(const struct mbuf *m, int off, int len, caddr_t cp)
 struct mbuf *
 m_dup(const struct mbuf *m, int how)
 {
-	struct mbuf **p, *top = NULL;
-	int remain, moff, nsize;
 
-	MBUF_CHECKSLEEP(how);
-	/* Sanity check */
-	if (m == NULL)
-		return (NULL);
-	M_ASSERTPKTHDR(m);
-
-	/* While there's more data, get a new mbuf, tack it on, and fill it */
-	remain = m->m_pkthdr.len;
-	moff = 0;
-	p = &top;
-	while (remain > 0 || top == NULL) {	/* allow m->m_pkthdr.len == 0 */
-		struct mbuf *n;
-
-		/* Get the next new mbuf */
-		if (remain >= MINCLSIZE) {
-			n = m_getcl(how, m->m_type, 0);
-			nsize = MCLBYTES;
-		} else {
-			n = m_get(how, m->m_type);
-			nsize = MLEN;
-		}
-		if (n == NULL)
-			goto nospace;
-
-		if (top == NULL) {		/* First one, must be PKTHDR */
-			if (!m_dup_pkthdr(n, m, how)) {
-				m_free(n);
-				goto nospace;
-			}
-			if ((n->m_flags & M_EXT) == 0)
-				nsize = MHLEN;
-			n->m_flags &= ~M_RDONLY;
-		}
-		n->m_len = 0;
-
-		/* Link it into the new chain */
-		*p = n;
-		p = &n->m_next;
-
-		/* Copy data from original mbuf(s) into new mbuf */
-		while (n->m_len < nsize && m != NULL) {
-			int chunk = min(nsize - n->m_len, m->m_len - moff);
-
-			bcopy(m->m_data + moff, n->m_data + n->m_len, chunk);
-			moff += chunk;
-			n->m_len += chunk;
-			remain -= chunk;
-			if (moff == m->m_len) {
-				m = m->m_next;
-				moff = 0;
-			}
-		}
-
-		/* Check correct total mbuf length */
-		KASSERT((remain > 0 && m != NULL) || (remain == 0 && m == NULL),
-		    	("%s: bogus m_pkthdr.len", __func__));
-	}
-	return (top);
-
-nospace:
-	m_freem(top);
-	return (NULL);
+	return (m_dup_pkt(m, 0, how));
 }
 
 /*
@@ -1027,6 +1046,123 @@ extpacket:
 	m->m_next = NULL;
 	return (n);
 }
+
+/*
+ * Make space for a new header of length hlen at skip bytes
+ * into the packet.  When doing this we allocate new mbufs only
+ * when absolutely necessary.  The mbuf where the new header
+ * is to go is returned together with an offset into the mbuf.
+ * If NULL is returned then the mbuf chain may have been modified;
+ * the caller is assumed to always free the chain.
+ */
+struct mbuf *
+m_makespace(struct mbuf *m0, int skip, int hlen, int *off)
+{
+	struct mbuf *m;
+	unsigned remain;
+
+	KASSERT(m0 != NULL, ("null mbuf"));
+	KASSERT(hlen < MHLEN, ("hlen too big: %u", hlen));
+
+	for (m = m0; m && skip > m->m_len; m = m->m_next)
+		skip -= m->m_len;
+	if (m == NULL)
+		return (NULL);
+	/*
+	 * At this point skip is the offset into the mbuf m
+	 * where the new header should be placed.  Figure out
+	 * if there's space to insert the new header.  If so,
+	 * and copying the remainder makes sense then do so.
+	 * Otherwise insert a new mbuf in the chain, splitting
+	 * the contents of m as needed.
+	 */
+	remain = m->m_len - skip;		/* data to move */
+	if (remain > skip && hlen < M_LEADINGSPACE(m)) {
+		/*
+		 * mbuf has enough free space at the beginning.
+		 * XXX: which operation is the most heavy - copying of
+		 *	possible several hundred of bytes or allocation
+		 *	of new mbuf?
+		 */
+		m->m_data -= hlen;
+		bcopy(mtodo(m, hlen), mtod(m, caddr_t), skip);
+		m->m_len += hlen;
+		*off = skip;
+	} else if (hlen > M_TRAILINGSPACE(m)) {
+		struct mbuf *n0, *n, **np;
+		int todo, len, done, alloc;
+
+		n0 = NULL;
+		np = &n0;
+		alloc = 0;
+		done = 0;
+		todo = remain;
+		while (todo > 0) {
+			if (todo > MHLEN) {
+				n = m_getcl(M_NOWAIT, m->m_type, 0);
+				len = MCLBYTES;
+			}
+			else {
+				n = m_get(M_NOWAIT, m->m_type);
+				len = MHLEN;
+			}
+			if (n == NULL) {
+				m_freem(n0);
+				return NULL;
+			}
+			*np = n;
+			np = &n->m_next;
+			alloc++;
+			len = min(todo, len);
+			memcpy(n->m_data, mtod(m, char *) + skip + done, len);
+			n->m_len = len;
+			done += len;
+			todo -= len;
+		}
+
+		if (hlen <= M_TRAILINGSPACE(m) + remain) {
+			m->m_len = skip + hlen;
+			*off = skip;
+			if (n0 != NULL) {
+				*np = m->m_next;
+				m->m_next = n0;
+			}
+		}
+		else {
+			n = m_get(M_NOWAIT, m->m_type);
+			if (n == NULL) {
+				m_freem(n0);
+				return NULL;
+			}
+			alloc++;
+
+			if ((n->m_next = n0) == NULL)
+				np = &n->m_next;
+			n0 = n;
+
+			*np = m->m_next;
+			m->m_next = n0;
+
+			n->m_len = hlen;
+			m->m_len = skip;
+
+			m = n;			/* header is at front ... */
+			*off = 0;		/* ... of new mbuf */
+		}
+	} else {
+		/*
+		 * Copy the remainder to the back of the mbuf
+		 * so there's space to write the new header.
+		 */
+		bcopy(mtod(m, caddr_t) + skip,
+		    mtod(m, caddr_t) + skip + hlen, remain);
+		m->m_len += hlen;
+		*off = skip;
+	}
+	m0->m_pkthdr.len += hlen;		/* adjust packet length */
+	return m;
+}
+
 /*
  * Routine to copy from device local memory into mbufs.
  * Note that `off' argument is offset into first mbuf of target chain from
@@ -1098,22 +1234,24 @@ m_devget(char *buf, int totlen, int off, struct ifnet *ifp,
  * starting "off" bytes from the beginning, extending the mbuf
  * chain if necessary.
  */
-void
-m_copyback(struct mbuf *m0, int off, int len, c_caddr_t cp)
+int
+m_copyback2(struct mbuf *m0, int off, int len, c_caddr_t cp, int how)
 {
 	int mlen;
 	struct mbuf *m = m0, *n;
-	int totlen = 0;
+	int error = 0, totlen = 0;
 
 	if (m0 == NULL)
-		return;
+		return (0);
 	while (off > (mlen = m->m_len)) {
 		off -= mlen;
 		totlen += mlen;
 		if (m->m_next == NULL) {
-			n = m_get(M_NOWAIT, m->m_type);
-			if (n == NULL)
+			n = m_get(how, m->m_type);
+			if (n == NULL) {
+				error = ENOBUFS;
 				goto out;
+			}
 			bzero(mtod(n, caddr_t), MLEN);
 			n->m_len = min(MLEN, len + off);
 			m->m_next = n;
@@ -1135,9 +1273,11 @@ m_copyback(struct mbuf *m0, int off, int len, c_caddr_t cp)
 		if (len == 0)
 			break;
 		if (m->m_next == NULL) {
-			n = m_get(M_NOWAIT, m->m_type);
-			if (n == NULL)
+			n = m_get(how, m->m_type);
+			if (n == NULL) {
+				error = ENOBUFS;
 				break;
+			}
 			n->m_len = min(MLEN, len);
 			m->m_next = n;
 		}
@@ -1145,6 +1285,14 @@ m_copyback(struct mbuf *m0, int off, int len, c_caddr_t cp)
 	}
 out:	if (((m = m0)->m_flags & M_PKTHDR) && (m->m_pkthdr.len < totlen))
 		m->m_pkthdr.len = totlen;
+	return (error);
+}
+
+void
+m_copyback(struct mbuf *m0, int off, int len, c_caddr_t cp)
+{
+
+	m_copyback2(m0, off, len, cp, M_NOWAIT);
 }
 
 /*
@@ -1945,10 +2093,6 @@ m_unshare(struct mbuf *m0, int how)
 			if (mlast != NULL)
 				mlast->m_next = n;
 			mlast = n;
-#if 0
-			newipsecstat.ips_clcopied++;
-#endif
-
 			len -= cc;
 			if (len <= 0)
 				break;
@@ -2120,4 +2264,3 @@ SYSCTL_PROC(_kern_ipc, OID_AUTO, mbufprofile, CTLTYPE_STRING|CTLFLAG_RD,
 SYSCTL_PROC(_kern_ipc, OID_AUTO, mbufprofileclr, CTLTYPE_INT|CTLFLAG_RW,
 	    NULL, 0, mbprof_clr_handler, "I", "clear mbuf profiling statistics");
 #endif
-

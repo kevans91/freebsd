@@ -754,7 +754,7 @@ esp_output(struct mbuf *m, struct secpolicy *sp, struct secasvar *sav,
 	}
 
 	/* Inject ESP header. */
-	mo = m_makespace(m, skip, hlen, &roff);
+	mo = m_makespace_ipsec(m, skip, hlen, &roff);
 	if (mo == NULL) {
 		DPRINTF(("%s: %u byte ESP hdr inject failed for SA %s/%08lx\n",
 		    __func__, hlen, ipsec_address(&saidx->dst, buf,

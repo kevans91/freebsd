@@ -126,7 +126,7 @@ struct ifbreq {
 	uint32_t	ifbr_ifsflags;		/* member if flags */
 	uint32_t	ifbr_stpflags;		/* member if STP flags */
 	uint32_t	ifbr_path_cost;		/* member if STP cost */
-	uint8_t		ifbr_portno;		/* member if port number */
+	uint32_t	ifbr_portno;		/* member if port number */
 	uint8_t		ifbr_priority;		/* member if STP priority */
 	uint8_t		ifbr_proto;		/* member if STP protocol */
 	uint8_t		ifbr_role;		/* member if STP role */
@@ -150,6 +150,7 @@ struct ifbreq {
 #define	IFBIF_BSTP_ADMEDGE	0x0200	/* member stp admin edge enabled */
 #define	IFBIF_BSTP_ADMCOST	0x0400	/* member stp admin path cost */
 #define	IFBIF_PRIVATE		0x0800	/* if is a private segment */
+#define	IFBIF_LOCAL		0x1000  /* local port in switch(4) */
 
 #define	IFBIFBITS	"\020\001LEARNING\002DISCOVER\003STP\004SPAN" \
 			"\005STICKY\014PRIVATE\006EDGE\007AUTOEDGE\010PTP" \
@@ -211,6 +212,7 @@ struct ifbaconf {
  */
 struct ifbrparam {
 	union {
+		uint64_t ifbrpu_int64;
 		uint32_t ifbrpu_int32;
 		uint16_t ifbrpu_int16;
 		uint8_t ifbrpu_int8;
@@ -226,6 +228,10 @@ struct ifbrparam {
 #define	ifbrp_maxage	ifbrp_ifbrpu.ifbrpu_int8	/* max age (sec) */
 #define	ifbrp_cexceeded ifbrp_ifbrpu.ifbrpu_int32	/* # of cache dropped
 							 * adresses */
+#define	ifbrp_datapath	ifbrp_ifbrpu.ifbrpu_int64
+#define	ifbrp_maxflow	ifbrp_ifbrpu.ifbrpu_int32
+#define	ifbrp_maxgroup	ifbrp_ifbrpu.ifbrpu_int32
+
 /*
  * Bridge current operational parameters structure.
  */

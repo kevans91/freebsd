@@ -3055,6 +3055,7 @@ prison_priv_check(struct ucred *cred, int priv)
 		 * Network stack privileges.
 		 */
 	case PRIV_NET_BRIDGE:
+	case PRIV_NET_SWITCH:
 	case PRIV_NET_GRE:
 	case PRIV_NET_BPF:
 	case PRIV_NET_RAW:		/* Dup, cond. in legacy jail case. */

@@ -934,7 +934,7 @@ ah_output(struct mbuf *m, struct secpolicy *sp, struct secasvar *sav,
 	}
 
 	/* Inject AH header. */
-	mi = m_makespace(m, skip, ahsize, &roff);
+	mi = m_makespace_ipsec(m, skip, ahsize, &roff);
 	if (mi == NULL) {
 		DPRINTF(("%s: failed to inject %u byte AH header for SA "
 		    "%s/%08lx\n", __func__, ahsize,
@@ -946,7 +946,7 @@ ah_output(struct mbuf *m, struct secpolicy *sp, struct secasvar *sav,
 	}
 
 	/*
-	 * The AH header is guaranteed by m_makespace() to be in
+	 * The AH header is guaranteed by m_makespace_ipsec() to be in
 	 * contiguous memory, at roff bytes offset into the returned mbuf.
 	 */
 	ah = (struct newah *)(mtod(mi, caddr_t) + roff);

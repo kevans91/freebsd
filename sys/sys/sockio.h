@@ -144,5 +144,10 @@
 #define	SIOCSLANPCP	 _IOW('i', 153, struct ifreq)	/* Set (V)LAN PCP */
 
 #define	SIOCGIFDOWNREASON	_IOWR('i', 154, struct ifdownreason)
+#define	SIOCSWGDPID	_IOWR('i', 160, struct ifbrparam)/* set datapath id */
+#define	SIOCSWSDPID	 _IOW('i', 161, struct ifbrparam)/* get datapath id */
+#define	SIOCSWGMAXGROUP	_IOWR('i', 162, struct ifbrparam)/* get max groups */
+#define	SIOCSWSPORTNO	_IOWR('i', 163, struct ifbreq)	/* set port number */
+#define	SIOCSWGMAXFLOW	_IOWR('i', 164, struct ifbrparam)/* get max flow per table */
 
 #endif /* !_SYS_SOCKIO_H_ */

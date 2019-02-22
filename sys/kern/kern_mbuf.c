@@ -1393,6 +1393,29 @@ m_cljget(struct mbuf *m, int how, int size)
 }
 
 /*
+ * m_cljget2() is even further different from m_clget in that it accepts a size
+ * argument that it will use to calculate the cluster size required to fit at
+ * least the requested size.
+ */
+void *
+m_cljget2(struct mbuf *m, int how, int size)
+{
+	uma_zone_t zone;
+
+	if (m != NULL) {
+		KASSERT((m->m_flags & M_EXT) == 0, ("%s: mbuf %p has M_EXT",
+		    __func__, m));
+		m->m_ext.ext_buf = NULL;
+	}
+
+	zone = m_clzone(size);
+	if (zone == NULL)
+		return (NULL);
+
+	return (uma_zalloc_arg(zone, m, how));
+}
+
+/*
  * m_get2() allocates minimum mbuf that would fit "size" argument.
  */
 struct mbuf *

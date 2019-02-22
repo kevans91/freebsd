@@ -711,8 +711,10 @@ void		 m_cat(struct mbuf *, struct mbuf *);
 void		 m_catpkt(struct mbuf *, struct mbuf *);
 int		 m_clget(struct mbuf *m, int how);
 void 		*m_cljget(struct mbuf *m, int how, int size);
+void 		*m_cljget2(struct mbuf *m, int how, int size);
 struct mbuf	*m_collapse(struct mbuf *, int, int);
 void		 m_copyback(struct mbuf *, int, int, c_caddr_t);
+int		 m_copyback2(struct mbuf *, int, int, c_caddr_t, int);
 void		 m_copydata(const struct mbuf *, int, int, caddr_t);
 struct mbuf	*m_copym(struct mbuf *, int, int, int);
 struct mbuf	*m_copypacket(struct mbuf *, int);
@@ -721,11 +723,13 @@ struct mbuf	*m_copyup(struct mbuf *, int, int);
 struct mbuf	*m_defrag(struct mbuf *, int);
 void		 m_demote_pkthdr(struct mbuf *);
 void		 m_demote(struct mbuf *, int, int);
+struct mbuf	*m_makespace(struct mbuf *, int, int, int *);
 struct mbuf	*m_devget(char *, int, int, struct ifnet *,
 		    void (*)(char *, caddr_t, u_int));
 void		 m_dispose_extcontrolm(struct mbuf *m);
 struct mbuf	*m_dup(const struct mbuf *, int);
 int		 m_dup_pkthdr(struct mbuf *, const struct mbuf *, int);
+struct mbuf	*m_dup_pkt(const struct mbuf *, unsigned int, int);
 void		 m_extadd(struct mbuf *, char *, u_int, m_ext_free_t,
 		    void *, void *, int, int);
 u_int		 m_fixhdr(struct mbuf *);
@@ -829,6 +833,24 @@ m_getzone(int size)
 	}
 
 	return (zone);
+}
+
+static __inline uma_zone_t
+m_clzone(int size)
+{
+
+	if (size > MJUM16BYTES)
+		return (NULL);
+
+	if (size <= MCLBYTES)
+		return (zone_clust);
+#if MJUMPAGESIZE != MCLBYTES
+	else if (size <= MJUMPAGESIZE)
+		return (zone_jumbop);
+#endif
+	else if (size <= MJUM9BYTES)
+		return (zone_jumbo9);
+	return (zone_jumbo16);
 }
 
 /*
@@ -981,6 +1003,7 @@ m_extrefcnt(struct mbuf *m)
 #define	MGET(m, how, type)	((m) = m_get((how), (type)))
 #define	MGETHDR(m, how, type)	((m) = m_gethdr((how), (type)))
 #define	MCLGET(m, how)		m_clget((m), (how))
+#define	MCLGETI(m, how, ifp, l)	m_cljget2((m), (how), (l))
 #define	MEXTADD(m, buf, size, free, arg1, arg2, flags, type)		\
     m_extadd((m), (char *)(buf), (size), (free), (arg1), (arg2),	\
     (flags), (type))
@@ -1377,6 +1400,102 @@ uint32_t	m_ether_tcpip_hash(const uint32_t, const struct mbuf *, const uint32_t)
 #else
  #define M_PROFILE(m)
 #endif
+
+/* mbuf lists and queues */
+
+struct mbuf_list {
+	STAILQ_HEAD(, mbuf)	ml_head;
+	int			ml_len;
+};
+
+static inline void
+ml_init(struct mbuf_list *ml)
+{
+
+	STAILQ_INIT(&ml->ml_head);
+	ml->ml_len = 0;
+}
+
+static inline void
+ml_enqueue(struct mbuf_list *ml, struct mbuf *m)
+{
+
+	STAILQ_INSERT_TAIL(&ml->ml_head, m, m_stailqpkt);
+	ml->ml_len++;
+}
+
+static inline struct mbuf *
+ml_dequeue(struct mbuf_list *ml)
+{
+	struct mbuf *m;
+
+	m = STAILQ_FIRST(&ml->ml_head);
+	if (m) {
+		STAILQ_REMOVE_HEAD(&ml->ml_head, m_stailqpkt);
+		m->m_nextpkt = NULL;
+		ml->ml_len--;
+	}
+	return (m);
+}
+
+static inline void
+ml_enlist(struct mbuf_list *ml, struct mbuf_list *src)
+{
+
+	ml->ml_len += src->ml_len;
+	STAILQ_CONCAT(&ml->ml_head, &src->ml_head);
+	src->ml_len = 0;
+}
+
+static inline struct mbuf *
+ml_flush(struct mbuf_list *ml)
+{
+	struct mbuf *m;
+
+	m = STAILQ_FIRST(&ml->ml_head);
+	STAILQ_INIT(&ml->ml_head);
+	ml->ml_len = 0;
+	return (m);
+}
+
+static inline int
+ml_len(struct mbuf_list *ml)
+{
+
+	return (ml->ml_len);
+}
+
+static inline int
+ml_empty(struct mbuf_list *ml)
+{
+
+	return (ml->ml_len == 0);
+}
+
+static inline int
+ml_drain(struct mbuf_list *ml)
+{
+	struct mbuf *m, *n;
+	int len;
+
+	len = ml->ml_len;
+	n = ml_flush(ml);
+	while ((m = n) != NULL) {
+		n = STAILQ_NEXT(m, m_stailqpkt);
+		m_freem(m);
+	}
+	return (len);
+}
+
+#define	ml_dechain(_ml)	ml_flush(_ml)
+#define	ml_purge(_ml)	ml_drain(_ml)
+
+#define	MBUF_LIST_FIRST(_ml)		STAILQ_FIRST(&(_ml)->ml_head)
+#define	MBUF_LIST_LAST(_ml)		\
+    STAILQ_LAST(&(_ml)->ml_head, mbuf, m_stailqpkt)
+#define	MBUF_LIST_NEXT(_m)		STAILQ_NEXT(_m, m_stailqpkt)
+#define	MBUF_LIST_FOREACH(_ml, var)	\
+    STAILQ_FOREACH(var, &(_ml)->ml_head, m_stailqpkt)
 
 struct mbufq {
 	STAILQ_HEAD(, mbuf)	mq_head;

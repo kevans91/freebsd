@@ -354,7 +354,7 @@ int ipsec_process_done(struct mbuf *, struct secpolicy *, struct secasvar *,
 
 extern	void m_checkalignment(const char* where, struct mbuf *m0,
 		int off, int len);
-extern	struct mbuf *m_makespace(struct mbuf *m0, int skip, int hlen, int *off);
+extern	struct mbuf *m_makespace_ipsec(struct mbuf *m0, int skip, int hlen, int *off);
 extern	caddr_t m_pad(struct mbuf *m, int n);
 extern	int m_striphdr(struct mbuf *m, int skip, int hlen);
 

@@ -579,7 +579,7 @@ ipcomp_output_cb(struct cryptop *crp)
 		uint8_t prot;
 
 		/* Compression helped, inject IPCOMP header. */
-		mo = m_makespace(m, skip, IPCOMP_HLENGTH, &roff);
+		mo = m_makespace_ipsec(m, skip, IPCOMP_HLENGTH, &roff);
 		if (mo == NULL) {
 			IPCOMPSTAT_INC(ipcomps_wrap);
 			DPRINTF(("%s: IPCOMP header inject failed "
