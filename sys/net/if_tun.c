@@ -2,8 +2,9 @@
 /*-
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
- * Copyright (c) 2019 Kyle <kevans@FreeBSD.org>
+ * Copyright (C) 1999-2000 by Maksim Yevmenkin <m_evmenkin@yahoo.com>
  * All rights reserved.
+ * Copyright (c) 2019 Kyle Evans <kevans@FreeBSD.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -1175,7 +1176,8 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 			ifrp = (struct ifreq *)data;
 			strlcpy(ifrp->ifr_name, TUN2IFP(tp)->if_xname,
 			    IFNAMSIZ);
-			break;
+
+			return (0);
 		/* VMware/VMnet port ioctl's */
 #if defined(COMPAT_FREEBSD6) || defined(COMPAT_FREEBSD5) || \
     defined(COMPAT_FREEBSD4)
@@ -1194,22 +1196,22 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 			TUN2IFP(tp)->if_flags = f |
 			    (TUN2IFP(tp)->if_flags & IFF_CANTCHANGE);
 			mtx_unlock(&tp->tun_mtx);
-			break;
 
+			return (0);
 		case SIOCGIFADDR:	/* get MAC address of the remote side */
 			mtx_lock(&tp->tun_mtx);
 			bcopy(&tp->tun_ether.octet, data,
 			    sizeof(tp->tun_ether.octet));
 			mtx_unlock(&tp->tun_mtx);
-			break;
 
+			return (0);
 		case SIOCSIFADDR:	/* set MAC address of the remote side */
 			mtx_lock(&tp->tun_mtx);
 			bcopy(data, &tp->tun_ether.octet,
 			    sizeof(tp->tun_ether.octet));
 			mtx_unlock(&tp->tun_mtx);
-			break;
 
+			return (0);
 		}
 
 		/* Fall through to the common ioctls if unhandled */
