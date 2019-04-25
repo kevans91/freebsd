@@ -134,6 +134,9 @@ struct tun_softc {
 
 #define TUNDEBUG	if (tundebug) if_printf
 
+#define	TUN_LOCK(tp)	mtx_lock(&(tp)->tun_mtx)
+#define	TUN_UNLOCK(tp)	mtx_unlock(&(tp)->tun_mtx)
+
 /*
  * All mutable global variables in if_tun are locked using tunmtx, with
  * the exception of tundebug, which is used unlocked, and the drivers' *clones,
@@ -147,7 +150,7 @@ static const char vmnetname[] = "vmnet";
 static MALLOC_DEFINE(M_TUN, tunname, "Tunnel Interface");
 static int tundebug = 0;
 static int tundclone = 1;
-static int tapuopen = 0;        /* allow user open() */
+static int tap_allow_uopen = 0;        /* allow user open() */
 static int tapuponopen = 0;    /* IFF_UP on open() */
 static int tapdclone = 1;	/* enable devfs cloning */
 
@@ -167,7 +170,7 @@ SYSCTL_INT(_net_link_tun, OID_AUTO, devfs_cloning, CTLFLAG_RWTUN, &tundclone, 0,
 /* tap */
 static SYSCTL_NODE(_net_link, OID_AUTO, tap, CTLFLAG_RW, 0,
     "Ethernet tunnel software network interface");
-SYSCTL_INT(_net_link_tap, OID_AUTO, user_open, CTLFLAG_RW, &tapuopen, 0,
+SYSCTL_INT(_net_link_tap, OID_AUTO, user_open, CTLFLAG_RW, &tap_allow_uopen, 0,
 	"Allow user to open /dev/tap (based on node permissions)");
 SYSCTL_INT(_net_link_tap, OID_AUTO, up_on_open, CTLFLAG_RW, &tapuponopen, 0,
 	"Bring interface up when /dev/tap is opened");
@@ -205,9 +208,7 @@ VNET_DEFINE_STATIC(struct if_clone *, vmnet_cloner);
 static d_open_t		tunopen;
 static d_close_t	tunclose;
 static d_read_t		tunread;
-static d_read_t		tunread_l2;
 static d_write_t	tunwrite;
-static d_write_t	tunwrite_l2;
 static d_ioctl_t	tunioctl;
 static d_poll_t		tunpoll;
 static d_kqfilter_t	tunkqfilter;
@@ -260,8 +261,8 @@ static struct tun_driver {
 		    .d_flags =		D_NEEDMINOR,
 		    .d_open =		tunopen,
 		    .d_close =		tunclose,
-		    .d_read =		tunread_l2,
-		    .d_write =		tunwrite_l2,
+		    .d_read =		tunread,
+		    .d_write =		tunwrite,
 		    .d_ioctl =		tunioctl,
 		    .d_poll =		tunpoll,
 		    .d_kqfilter =	tunkqfilter,
@@ -275,8 +276,8 @@ static struct tun_driver {
 		    .d_flags =		D_NEEDMINOR,
 		    .d_open =		tunopen,
 		    .d_close =		tunclose,
-		    .d_read =		tunread_l2,
-		    .d_write =		tunwrite_l2,
+		    .d_read =		tunread,
+		    .d_write =		tunwrite,
 		    .d_ioctl =		tunioctl,
 		    .d_poll =		tunpoll,
 		    .d_kqfilter =	tunkqfilter,
@@ -450,7 +451,7 @@ tunclone(void *arg, struct ucred *cred, char *name, int namelen,
 	mayclone = priv_check_cred(cred, PRIV_NET_IFCREATE) == 0;
 	if ((tunflags & TUN_L2) != 0) {
 		/* tap/vmnet allow user open with a sysctl */
-		mayclone = (mayclone || tapuopen) && tapdclone;
+		mayclone = (mayclone || tap_allow_uopen) && tapdclone;
 	} else {
 		mayclone = mayclone && tundclone;
 	}
@@ -494,12 +495,12 @@ tun_destroy(struct tun_softc *tp)
 {
 	struct cdev *dev;
 
-	mtx_lock(&tp->tun_mtx);
+	TUN_LOCK(tp);
 	tp->tun_flags |= TUN_DYING;
 	if ((tp->tun_flags & TUN_OPEN) != 0)
 		cv_wait_unlock(&tp->tun_cv, &tp->tun_mtx);
 	else
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 
 	CURVNET_SET(TUN2IFP(tp)->if_vnet);
 	sx_xlock(&tun_ioctl_sx);
@@ -639,7 +640,7 @@ tunstart(struct ifnet *ifp)
 		IFQ_UNLOCK(&ifp->if_snd);
 	}
 
-	mtx_lock(&tp->tun_mtx);
+	TUN_LOCK(tp);
 	if (tp->tun_flags & TUN_RWAIT) {
 		tp->tun_flags &= ~TUN_RWAIT;
 		wakeup(tp);
@@ -647,10 +648,10 @@ tunstart(struct ifnet *ifp)
 	selwakeuppri(&tp->tun_rsel, PZERO + 1);
 	KNOTE_LOCKED(&tp->tun_rsel.si_note, 0);
 	if (tp->tun_flags & TUN_ASYNC && tp->tun_sigio) {
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		pgsigio(&tp->tun_sigio, SIGIO, 0);
 	} else
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 }
 
 /*
@@ -670,7 +671,7 @@ tunstart_l2(struct ifnet *ifp)
 	 * XXX: can this do any harm because of queue overflow?
 	 */
 
-	mtx_lock(&tp->tun_mtx);
+	TUN_LOCK(tp);
 	if (((tp->tun_flags & TUN_VMNET) == 0) &&
 	    ((tp->tun_flags & TUN_READY) != TUN_READY)) {
 		struct mbuf *m;
@@ -686,7 +687,7 @@ tunstart_l2(struct ifnet *ifp)
 			} else
 				break;
 		}
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 
 		return;
 	}
@@ -700,9 +701,9 @@ tunstart_l2(struct ifnet *ifp)
 		}
 
 		if ((tp->tun_flags & TUN_ASYNC) && (tp->tun_sigio != NULL)) {
-			mtx_unlock(&tp->tun_mtx);
+			TUN_UNLOCK(tp);
 			pgsigio(&tp->tun_sigio, SIGIO, 0);
-			mtx_lock(&tp->tun_mtx);
+			TUN_LOCK(tp);
 		}
 
 		selwakeuppri(&tp->tun_rsel, PZERO+1);
@@ -711,7 +712,7 @@ tunstart_l2(struct ifnet *ifp)
 	}
 
 	ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
-	mtx_unlock(&tp->tun_mtx);
+	TUN_UNLOCK(tp);
 } /* tunstart_l2 */
 
 
@@ -776,9 +777,9 @@ tuncreate(struct cdev *dev, struct tun_driver *drv)
 	}
 	dev->si_drv1 = sc;
 
-	mtx_lock(&sc->tun_mtx);
+	TUN_LOCK(sc);
 	sc->tun_flags |= TUN_INITED;
-	mtx_unlock(&sc->tun_mtx);
+	TUN_UNLOCK(sc);
 
 	TUNDEBUG(ifp, "interface %s is created, minor = %#x\n",
 	    ifp->if_xname, dev2unit(dev));
@@ -799,7 +800,7 @@ tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 
 	if ((tunflags & TUN_L2) != 0) {
 		/* Restrict? */
-		if (tapuopen == 0) {
+		if (tap_allow_uopen == 0) {
 			error = priv_check(td, PRIV_NET_TAP);
 			if (error != 0)
 				return (error);
@@ -820,9 +821,9 @@ tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 		tp = dev->si_drv1;
 	}
 
-	mtx_lock(&tp->tun_mtx);
+	TUN_LOCK(tp);
 	if ((tp->tun_flags & (TUN_OPEN | TUN_DYING)) != 0) {
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		return (EBUSY);
 	}
 
@@ -844,7 +845,7 @@ tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 
 	if_link_state_change(ifp, LINK_STATE_UP);
 	TUNDEBUG(ifp, "open\n");
-	mtx_unlock(&tp->tun_mtx);
+	TUN_UNLOCK(tp);
 
 	return (0);
 }
@@ -863,7 +864,7 @@ tunclose(struct cdev *dev, int foo, int bar, struct thread *td)
 	tp = dev->si_drv1;
 	ifp = TUN2IFP(tp);
 
-	mtx_lock(&tp->tun_mtx);
+	TUN_LOCK(tp);
 	/*
 	 * Simply close the device if this isn't the controlling process.  This
 	 * may happen if, for instance, the tunnel has been handed off to
@@ -871,7 +872,7 @@ tunclose(struct cdev *dev, int foo, int bar, struct thread *td)
 	 * without putting us into an inconsistent state.
 	 */
 	if (td->td_proc->p_pid != tp->tun_pid) {
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		return (0);
 	}
 
@@ -893,9 +894,9 @@ tunclose(struct cdev *dev, int foo, int bar, struct thread *td)
 		goto out;
 
 	if (ifp->if_flags & IFF_UP) {
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		if_down(ifp);
-		mtx_lock(&tp->tun_mtx);
+		TUN_LOCK(tp);
 	}
 
 	/* Delete all addresses and routes which reference this interface. */
@@ -903,7 +904,7 @@ tunclose(struct cdev *dev, int foo, int bar, struct thread *td)
 		struct ifaddr *ifa;
 
 		ifp->if_drv_flags &= ~IFF_DRV_RUNNING;
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
 			/* deal w/IPv4 PtP destination; unlocked read */
 			if (!l2tun && ifa->ifa_addr->sa_family == AF_INET) {
@@ -914,7 +915,7 @@ tunclose(struct cdev *dev, int foo, int bar, struct thread *td)
 			}
 		}
 		if_purgeaddrs(ifp);
-		mtx_lock(&tp->tun_mtx);
+		TUN_LOCK(tp);
 	}
 
 out:
@@ -929,7 +930,7 @@ out:
 	tp->tun_pid = 0;
 
 	cv_broadcast(&tp->tun_cv);
-	mtx_unlock(&tp->tun_mtx);
+	TUN_UNLOCK(tp);
 	return (0);
 }
 
@@ -943,7 +944,7 @@ tuninit(struct ifnet *ifp)
 
 	TUNDEBUG(ifp, "tuninit\n");
 
-	mtx_lock(&tp->tun_mtx);
+	TUN_LOCK(tp);
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
 	if ((tp->tun_flags & TUN_L2) == 0) {
 		ifp->if_flags |= IFF_UP;
@@ -965,10 +966,10 @@ tuninit(struct ifnet *ifp)
 		}
 		if_addr_runlock(ifp);
 #endif
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 	} else {
 		ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		/* attempt to start output */
 		tunstart_l2(ifp);
 	}
@@ -1011,13 +1012,13 @@ tunifioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	switch(cmd) {
 	case SIOCGIFSTATUS:
 		ifs = (struct ifstat *)data;
-		mtx_lock(&tp->tun_mtx);
+		TUN_LOCK(tp);
 		if (tp->tun_pid)
 			snprintf(ifs->ascii, sizeof(ifs->ascii),
 			    "\tOpened by PID %d\n", tp->tun_pid);
 		else
 			ifs->ascii[0] = '\0';
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		break;
 	case SIOCSIFADDR:
 		tuninit(ifp);
@@ -1085,9 +1086,9 @@ tunoutput(struct ifnet *ifp, struct mbuf *m0, const struct sockaddr *dst,
 #endif
 
 	/* Could be unlocked read? */
-	mtx_lock(&tp->tun_mtx);
+	TUN_LOCK(tp);
 	cached_tun_flags = tp->tun_flags;
-	mtx_unlock(&tp->tun_mtx);
+	TUN_UNLOCK(tp);
 	if ((cached_tun_flags & TUN_READY) != TUN_READY) {
 		TUNDEBUG (ifp, "not ready 0%o\n", tp->tun_flags);
 		m_freem (m0);
@@ -1192,24 +1193,24 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 			f &= ~IFF_CANTCHANGE;
 			f |= IFF_UP;
 
-			mtx_lock(&tp->tun_mtx);
+			TUN_LOCK(tp);
 			TUN2IFP(tp)->if_flags = f |
 			    (TUN2IFP(tp)->if_flags & IFF_CANTCHANGE);
-			mtx_unlock(&tp->tun_mtx);
+			TUN_UNLOCK(tp);
 
 			return (0);
 		case SIOCGIFADDR:	/* get MAC address of the remote side */
-			mtx_lock(&tp->tun_mtx);
+			TUN_LOCK(tp);
 			bcopy(&tp->tun_ether.octet, data,
 			    sizeof(tp->tun_ether.octet));
-			mtx_unlock(&tp->tun_mtx);
+			TUN_UNLOCK(tp);
 
 			return (0);
 		case SIOCSIFADDR:	/* set MAC address of the remote side */
-			mtx_lock(&tp->tun_mtx);
+			TUN_LOCK(tp);
 			bcopy(data, &tp->tun_ether.octet,
 			    sizeof(tp->tun_ether.octet));
-			mtx_unlock(&tp->tun_mtx);
+			TUN_UNLOCK(tp);
 
 			return (0);
 		}
@@ -1222,7 +1223,7 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 		tunp = (struct tuninfo *)data;
 		if (TUN2IFP(tp)->if_type != tunp->type)
 			return (EPROTOTYPE);
-		mtx_lock(&tp->tun_mtx);
+		TUN_LOCK(tp);
 		if (TUN2IFP(tp)->if_mtu != tunp->mtu) {
 			strlcpy(ifr.ifr_name, if_name(TUN2IFP(tp)), IFNAMSIZ);
 			ifr.ifr_mtu = tunp->mtu;
@@ -1231,20 +1232,20 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 			    (caddr_t)&ifr, td);
 			CURVNET_RESTORE();
 			if (error) {
-				mtx_unlock(&tp->tun_mtx);
+				TUN_UNLOCK(tp);
 				return (error);
 			}
 		}
 		TUN2IFP(tp)->if_baudrate = tunp->baudrate;
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		break;
 	case TUNGIFINFO:
 		tunp = (struct tuninfo *)data;
-		mtx_lock(&tp->tun_mtx);
+		TUN_LOCK(tp);
 		tunp->mtu = TUN2IFP(tp)->if_mtu;
 		tunp->type = TUN2IFP(tp)->if_type;
 		tunp->baudrate = TUN2IFP(tp)->if_baudrate;
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		break;
 	case TUNSDEBUG:
 		tundebug = *(int *)data;
@@ -1253,27 +1254,27 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 		*(int *)data = tundebug;
 		break;
 	case TUNSLMODE:
-		mtx_lock(&tp->tun_mtx);
+		TUN_LOCK(tp);
 		if (*(int *)data) {
 			tp->tun_flags |= TUN_LMODE;
 			tp->tun_flags &= ~TUN_IFHEAD;
 		} else
 			tp->tun_flags &= ~TUN_LMODE;
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		break;
 	case TUNSIFHEAD:
-		mtx_lock(&tp->tun_mtx);
+		TUN_LOCK(tp);
 		if (*(int *)data) {
 			tp->tun_flags |= TUN_IFHEAD;
 			tp->tun_flags &= ~TUN_LMODE;
 		} else
 			tp->tun_flags &= ~TUN_IFHEAD;
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		break;
 	case TUNGIFHEAD:
-		mtx_lock(&tp->tun_mtx);
+		TUN_LOCK(tp);
 		*(int *)data = (tp->tun_flags & TUN_IFHEAD) ? 1 : 0;
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		break;
 	case TUNSIFMODE:
 		/* deny this if UP */
@@ -1283,30 +1284,30 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 		switch (*(int *)data & ~IFF_MULTICAST) {
 		case IFF_POINTOPOINT:
 		case IFF_BROADCAST:
-			mtx_lock(&tp->tun_mtx);
+			TUN_LOCK(tp);
 			TUN2IFP(tp)->if_flags &=
 			    ~(IFF_BROADCAST|IFF_POINTOPOINT|IFF_MULTICAST);
 			TUN2IFP(tp)->if_flags |= *(int *)data;
-			mtx_unlock(&tp->tun_mtx);
+			TUN_UNLOCK(tp);
 			break;
 		default:
 			return(EINVAL);
 		}
 		break;
 	case TUNSIFPID:
-		mtx_lock(&tp->tun_mtx);
+		TUN_LOCK(tp);
 		tp->tun_pid = curthread->td_proc->p_pid;
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		break;
 	case FIONBIO:
 		break;
 	case FIOASYNC:
-		mtx_lock(&tp->tun_mtx);
+		TUN_LOCK(tp);
 		if (*(int *)data)
 			tp->tun_flags |= TUN_ASYNC;
 		else
 			tp->tun_flags &= ~TUN_ASYNC;
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		break;
 	case FIONREAD:
 		if (!IFQ_IS_EMPTY(&TUN2IFP(tp)->if_snd)) {
@@ -1354,9 +1355,9 @@ tunread(struct cdev *dev, struct uio *uio, int flag)
 	int		error=0, len;
 
 	TUNDEBUG (ifp, "read\n");
-	mtx_lock(&tp->tun_mtx);
+	TUN_LOCK(tp);
 	if ((tp->tun_flags & TUN_READY) != TUN_READY) {
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		TUNDEBUG (ifp, "not ready 0%o\n", tp->tun_flags);
 		return (EHOSTDOWN);
 	}
@@ -1367,19 +1368,22 @@ tunread(struct cdev *dev, struct uio *uio, int flag)
 		IFQ_DEQUEUE(&ifp->if_snd, m);
 		if (m == NULL) {
 			if (flag & O_NONBLOCK) {
-				mtx_unlock(&tp->tun_mtx);
+				TUN_UNLOCK(tp);
 				return (EWOULDBLOCK);
 			}
 			tp->tun_flags |= TUN_RWAIT;
 			error = mtx_sleep(tp, &tp->tun_mtx, PCATCH | (PZERO + 1),
 			    "tunread", 0);
 			if (error != 0) {
-				mtx_unlock(&tp->tun_mtx);
+				TUN_UNLOCK(tp);
 				return (error);
 			}
 		}
 	} while (m == NULL);
-	mtx_unlock(&tp->tun_mtx);
+	TUN_UNLOCK(tp);
+
+	if ((tp->tun_flags & TUN_L2) != 0)
+		BPF_MTAP(ifp, m);
 
 	while (m && uio->uio_resid > 0 && error == 0) {
 		len = min(uio->uio_resid, m->m_len);
@@ -1395,127 +1399,59 @@ tunread(struct cdev *dev, struct uio *uio, int flag)
 	return (error);
 }
 
-/*
- * tunread_l2
- *
- * the cdevsw read interface - reads a packet at a time, or at
- * least as much of a packet as can be read
- */
 static int
-tunread_l2(struct cdev *dev, struct uio *uio, int flag)
+tunwrite_l2(struct tun_softc *tp, struct mbuf *m)
 {
-	struct tun_softc	*tp = dev->si_drv1;
-	struct ifnet		*ifp = tp->tun_ifp;
-	struct mbuf		*m = NULL;
-	int			 error = 0, len;
+	struct ether_header *eh;
+	struct ifnet *ifp;
 
-	TUNDEBUG(ifp, "reading, minor = %#x\n", dev2unit(dev));
+	ifp = TUN2IFP(tp);
 
-	mtx_lock(&tp->tun_mtx);
-	if ((tp->tun_flags & TUN_READY) != TUN_READY) {
-		mtx_unlock(&tp->tun_mtx);
-
-		/* Unlocked read. */
-		TUNDEBUG(ifp, "not ready. minor = %#x, tun_flags = 0x%x\n",
-		    dev2unit(dev), tp->tun_flags);
-
-		return (EHOSTDOWN);
-	}
-
-	tp->tun_flags &= ~TUN_RWAIT;
-
-	/* sleep until we get a packet */
-	do {
-		IF_DEQUEUE(&ifp->if_snd, m);
-
-		if (m == NULL) {
-			if (flag & O_NONBLOCK) {
-				mtx_unlock(&tp->tun_mtx);
-				return (EWOULDBLOCK);
-			}
-
-			tp->tun_flags |= TUN_RWAIT;
-			error = mtx_sleep(tp, &tp->tun_mtx, PCATCH | (PZERO + 1),
-			    "tunrd", 0);
-			if (error) {
-				mtx_unlock(&tp->tun_mtx);
-				return (error);
-			}
-		}
-	} while (m == NULL);
-	mtx_unlock(&tp->tun_mtx);
-
-	/* feed packet to bpf */
-	BPF_MTAP(ifp, m);
-
-	/* xfer packet to user space */
-	while ((m != NULL) && (uio->uio_resid > 0) && (error == 0)) {
-		len = min(uio->uio_resid, m->m_len);
-		if (len == 0)
-			break;
-
-		error = uiomove(mtod(m, void *), len, uio);
-		m = m_free(m);
-	}
-
-	if (m != NULL) {
-		TUNDEBUG(ifp, "dropping mbuf, minor = %#x\n", dev2unit(dev));
+	/*
+	 * Only pass a unicast frame to ether_input(), if it would
+	 * actually have been received by non-virtual hardware.
+	 */
+	if (m->m_len < sizeof(struct ether_header)) {
 		m_freem(m);
+		return (0);
 	}
 
-	return (error);
-} /* tunread_l2 */
+	eh = mtod(m, struct ether_header *);
 
-/*
- * the cdevsw write interface - an atomic write is a packet - or else!
- */
-static	int
-tunwrite(struct cdev *dev, struct uio *uio, int flag)
+	if (eh && (ifp->if_flags & IFF_PROMISC) == 0 &&
+	    !ETHER_IS_MULTICAST(eh->ether_dhost) &&
+	    bcmp(eh->ether_dhost, IF_LLADDR(ifp), ETHER_ADDR_LEN) != 0) {
+		m_freem(m);
+		return (0);
+	}
+
+	/* Pass packet up to parent. */
+	CURVNET_SET(ifp->if_vnet);
+	(*ifp->if_input)(ifp, m);
+	CURVNET_RESTORE();
+	/* ibytes are counted in parent */
+	if_inc_counter(ifp, IFCOUNTER_IPACKETS, 1);
+	return (0);
+}
+
+static int
+tunwrite_l3(struct tun_softc *tp, struct mbuf *m)
 {
-	struct tun_softc *tp = dev->si_drv1;
-	struct ifnet	*ifp = TUN2IFP(tp);
-	struct mbuf	*m;
-	uint32_t	family, mru;
-	int 		isr;
+	struct ifnet *ifp;
+	int family, isr;
 
-	TUNDEBUG(ifp, "tunwrite\n");
-
-	if ((ifp->if_flags & IFF_UP) != IFF_UP)
-		/* ignore silently */
-		return (0);
-
-	if (uio->uio_resid == 0)
-		return (0);
-
-	mru = TUNMRU;
-	if (tp->tun_flags & TUN_IFHEAD)
-		mru += sizeof(family);
-	if (uio->uio_resid < 0 || uio->uio_resid > mru) {
-		TUNDEBUG(ifp, "len=%zd!\n", uio->uio_resid);
-		return (EIO);
-	}
-
-	if ((m = m_uiotombuf(uio, M_NOWAIT, 0, 0, M_PKTHDR)) == NULL) {
-		if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
-		return (ENOBUFS);
-	}
-
-	m->m_pkthdr.rcvif = ifp;
-#ifdef MAC
-	mac_ifnet_create_mbuf(ifp, m);
-#endif
-
+	ifp = TUN2IFP(tp);
 	/* Could be unlocked read? */
-	mtx_lock(&tp->tun_mtx);
+	TUN_LOCK(tp);
 	if (tp->tun_flags & TUN_IFHEAD) {
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		if (m->m_len < sizeof(family) &&
-		    (m = m_pullup(m, sizeof(family))) == NULL)
+		(m = m_pullup(m, sizeof(family))) == NULL)
 			return (ENOBUFS);
 		family = ntohl(*mtod(m, u_int32_t *));
 		m_adj(m, sizeof(family));
 	} else {
-		mtx_unlock(&tp->tun_mtx);
+		TUN_UNLOCK(tp);
 		family = AF_INET;
 	}
 
@@ -1547,63 +1483,55 @@ tunwrite(struct cdev *dev, struct uio *uio, int flag)
 }
 
 /*
- * tunwrite_l2
- *
  * the cdevsw write interface - an atomic write is a packet - or else!
  */
-static int
-tunwrite_l2(struct cdev *dev, struct uio *uio, int flag)
+static	int
+tunwrite(struct cdev *dev, struct uio *uio, int flag)
 {
-	struct ether_header	*eh;
-	struct tun_softc	*tp = dev->si_drv1;
-	struct ifnet		*ifp = tp->tun_ifp;
-	struct mbuf		*m;
+	struct tun_softc *tp;
+	struct ifnet	*ifp;
+	struct mbuf	*m;
+	uint32_t	mru;
+	int		align;
+	bool		l2tun;
 
-	TUNDEBUG(ifp, "writing, minor = %#x\n", dev2unit(dev));
+	tp = dev->si_drv1;
+	ifp = TUN2IFP(tp);
+	TUNDEBUG(ifp, "tunwrite\n");
+	if ((ifp->if_flags & IFF_UP) != IFF_UP)
+		/* ignore silently */
+		return (0);
 
 	if (uio->uio_resid == 0)
 		return (0);
 
-	if ((uio->uio_resid < 0) || (uio->uio_resid > TAPMRU)) {
-		TUNDEBUG(ifp, "invalid packet len = %zd, minor = %#x\n",
-		    uio->uio_resid, dev2unit(dev));
-
+	l2tun = (tp->tun_flags & TUN_L2) != 0;
+	align = 0;
+	mru = l2tun ? TAPMRU : TUNMRU;
+	if (l2tun)
+		align = ETHER_ALIGN;
+	else if ((tp->tun_flags & TUN_IFHEAD) != 0)
+		mru += sizeof(uint32_t);	/* family */
+	if (uio->uio_resid < 0 || uio->uio_resid > mru) {
+		TUNDEBUG(ifp, "len=%zd!\n", uio->uio_resid);
 		return (EIO);
 	}
 
-	if ((m = m_uiotombuf(uio, M_NOWAIT, 0, ETHER_ALIGN,
-	    M_PKTHDR)) == NULL) {
+	if ((m = m_uiotombuf(uio, M_NOWAIT, 0, align, M_PKTHDR)) == NULL) {
 		if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 		return (ENOBUFS);
 	}
 
 	m->m_pkthdr.rcvif = ifp;
+#ifdef MAC
+	mac_ifnet_create_mbuf(ifp, m);
+#endif
 
-	/*
-	 * Only pass a unicast frame to ether_input(), if it would actually
-	 * have been received by non-virtual hardware.
-	 */
-	if (m->m_len < sizeof(struct ether_header)) {
-		m_freem(m);
-		return (0);
-	}
-	eh = mtod(m, struct ether_header *);
+	if (l2tun)
+		return (tunwrite_l2(tp, m));
 
-	if (eh && (ifp->if_flags & IFF_PROMISC) == 0 &&
-	    !ETHER_IS_MULTICAST(eh->ether_dhost) &&
-	    bcmp(eh->ether_dhost, IF_LLADDR(ifp), ETHER_ADDR_LEN) != 0) {
-		m_freem(m);
-		return (0);
-	}
-
-	/* Pass packet up to parent. */
-	CURVNET_SET(ifp->if_vnet);
-	(*ifp->if_input)(ifp, m);
-	CURVNET_RESTORE();
-	if_inc_counter(ifp, IFCOUNTER_IPACKETS, 1); /* ibytes are counted in parent */
-
-	return (0);
-} /* tunwrite_l2 */
+	return (tunwrite_l3(tp, m));
+}
 
 /*
  * tunpoll - the poll interface, this is only useful on reads
