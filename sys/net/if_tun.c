@@ -137,6 +137,8 @@ struct tun_softc {
 #define	TUN_LOCK(tp)	mtx_lock(&(tp)->tun_mtx)
 #define	TUN_UNLOCK(tp)	mtx_unlock(&(tp)->tun_mtx)
 
+#define	TUN_VMIO_FLAG_MASK	0x0fff
+
 /*
  * All mutable global variables in if_tun are locked using tunmtx, with
  * the exception of tundebug, which is used unlocked, and the drivers' *clones,
@@ -1162,7 +1164,7 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 	struct ifreq ifr, *ifrp;
 	struct tun_softc *tp = dev->si_drv1;
 	struct tuninfo *tunp;
-	int error, f;
+	int error, iflags;
 #if defined(COMPAT_FREEBSD6) || defined(COMPAT_FREEBSD5) || \
     defined(COMPAT_FREEBSD4)
 	int	ival;
@@ -1188,13 +1190,13 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 			/* FALLTHROUGH */
 #endif
 		case VMIO_SIOCSIFFLAGS: /* VMware/VMnet SIOCSIFFLAGS */
-			f = *(int *)data;
-			f &= 0x0fff;
-			f &= ~IFF_CANTCHANGE;
-			f |= IFF_UP;
+			iflags = *(int *)data;
+			iflags &= TUN_VMIO_FLAG_MASK;
+			iflags &= ~IFF_CANTCHANGE;
+			iflags |= IFF_UP;
 
 			TUN_LOCK(tp);
-			TUN2IFP(tp)->if_flags = f |
+			TUN2IFP(tp)->if_flags = iflags |
 			    (TUN2IFP(tp)->if_flags & IFF_CANTCHANGE);
 			TUN_UNLOCK(tp);
 
