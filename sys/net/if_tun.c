@@ -1303,10 +1303,10 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 	case TIOCGPGRP:
 		*(int *)data = -fgetown(&tp->tun_sigio);
 		return (0);
+
 	default:
 		return (ENOTTY);
 	}
-
 	return (0);
 }
 
@@ -1459,7 +1459,6 @@ tunwrite(struct cdev *dev, struct uio *uio, int flag)
 	mru = TUNMRU;
 	if (tp->tun_flags & TUN_IFHEAD)
 		mru += sizeof(family);
-
 	if (uio->uio_resid < 0 || uio->uio_resid > mru) {
 		TUNDEBUG(ifp, "len=%zd!\n", uio->uio_resid);
 		return (EIO);
