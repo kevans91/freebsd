@@ -915,9 +915,9 @@ tuninit(struct ifnet *ifp)
 	TUNDEBUG(ifp, "tuninit\n");
 
 	mtx_lock(&tp->tun_mtx);
-	ifp->if_flags |= IFF_UP;
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
 	if ((tp->tun_flags & TUN_L2) == 0) {
+		ifp->if_flags |= IFF_UP;
 		getmicrotime(&ifp->if_lastchange);
 #ifdef INET
 		if_addr_rlock(ifp);
@@ -938,6 +938,7 @@ tuninit(struct ifnet *ifp)
 #endif
 		mtx_unlock(&tp->tun_mtx);
 	} else {
+		ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
 		mtx_unlock(&tp->tun_mtx);
 		/* attempt to start output */
 		tunstart_l2(ifp);
