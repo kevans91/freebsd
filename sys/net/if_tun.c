@@ -199,14 +199,6 @@ static int	vmnet_clone_match(struct if_clone *ifc, const char *name);
 static int	tun_clone_create(struct if_clone *, char *, size_t, caddr_t);
 static int	tun_clone_destroy(struct if_clone *, struct ifnet *);
 
-VNET_DEFINE_STATIC(struct if_clone *, tun_cloner);
-VNET_DEFINE_STATIC(struct if_clone *, tap_cloner);
-VNET_DEFINE_STATIC(struct if_clone *, vmnet_cloner);
-
-#define V_tun_cloner VNET(tun_cloner)
-#define V_tap_cloner VNET(tap_cloner)
-#define V_vmnet_cloner VNET(vmnet_cloner)
-
 static d_open_t		tunopen;
 static d_close_t	tunclose;
 static d_read_t		tunread;
@@ -240,6 +232,9 @@ static struct tun_driver {
 	struct unrhdr		*unrhdr;
 	struct cdevsw		 cdevsw;
 	struct clonedevs	*clones;
+	ifc_match_t		*clone_match_fn;
+	ifc_create_t		*clone_create_fn;
+	ifc_destroy_t		*clone_destroy_fn;
 } tun_drivers[] = {
 	{
 		.tun_flags =	0,
@@ -255,6 +250,9 @@ static struct tun_driver {
 		    .d_kqfilter =	tunkqfilter,
 		    .d_name =		tunname,
 		},
+		.clone_match_fn =	tun_clone_match,
+		.clone_create_fn =	tun_clone_create,
+		.clone_destroy_fn =	tun_clone_destroy,
 	},
 	{
 		.tun_flags =	TUN_L2,
@@ -270,6 +268,9 @@ static struct tun_driver {
 		    .d_kqfilter =	tunkqfilter,
 		    .d_name =		tapname,
 		},
+		.clone_match_fn =	tap_clone_match,
+		.clone_create_fn =	tun_clone_create,
+		.clone_destroy_fn =	tun_clone_destroy,
 	},
 	{
 		.tun_flags =	TUN_L2 | TUN_VMNET,
@@ -285,18 +286,34 @@ static struct tun_driver {
 		    .d_kqfilter =	tunkqfilter,
 		    .d_name =		vmnetname,
 		},
+		.clone_match_fn =	vmnet_clone_match,
+		.clone_create_fn =	tun_clone_create,
+		.clone_destroy_fn =	tun_clone_destroy,
 	},
 };
 
+struct tun_driver_cloner {
+	SLIST_ENTRY(tun_driver_cloner)		 link;
+	struct tun_driver			*drv;
+	struct if_clone				*cloner;
+};
+
+VNET_DEFINE_STATIC(SLIST_HEAD(, tun_driver_cloner), tun_driver_cloners) =
+    SLIST_HEAD_INITIALIZER(tun_driver_cloners);
+
+#define	V_tun_driver_cloners	VNET(tun_driver_cloners)
+
 /*
- * Sets unit and/or flags given the device name.
+ * Sets unit and/or flags given the device name.  Must be called with correct
+ * vnet context.
  */
 static int
 tun_name2info(const char *name, int *outunit, int *outflags)
 {
 	struct tun_driver *drv;
+	struct tun_driver_cloner *drvc;
 	char *dname;
-	int i, flags, unit;
+	int flags, unit;
 	bool found;
 
 	if (name == NULL)
@@ -309,8 +326,13 @@ tun_name2info(const char *name, int *outunit, int *outflags)
 	 */
 	dname = __DECONST(char *, name);
 	found = false;
-	for (i = 0; i < nitems(tun_drivers); ++i) {
-		drv = &tun_drivers[i];
+
+	KASSERT(!SLIST_EMPTY(&V_tun_driver_cloners),
+	    ("tun_driver_cloners failed to initialize"));
+	SLIST_FOREACH(drvc, &V_tun_driver_cloners, link) {
+		KASSERT(drvc->drv != NULL,
+		    ("tun_driver_cloners entry not properly initialized"));
+		drv = drvc->drv;
 
 		if (strcmp(name, drv->cdevsw.d_name) == 0) {
 			found = true;
@@ -335,6 +357,32 @@ tun_name2info(const char *name, int *outunit, int *outflags)
 		*outflags = flags;
 	return (0);
 }
+
+/*
+ * Get driver information from a set of flags specified.  Masks the identifying
+ * part of the flags and compares it against all of the available tun_drivers.
+ * Must be called with correct vnet context.
+ */
+static struct tun_driver *
+tun_driver_from_flags(int tun_flags)
+{
+	struct tun_driver *drv;
+	struct tun_driver_cloner *drvc;
+
+	KASSERT(!SLIST_EMPTY(&V_tun_driver_cloners),
+	    ("tun_driver_cloners failed to initialize"));
+	SLIST_FOREACH(drvc, &V_tun_driver_cloners, link) {
+		KASSERT(drvc->drv != NULL,
+		    ("tun_driver_cloners entry not properly initialized"));
+		drv = drvc->drv;
+		if ((tun_flags & TUN_DRIVER_IDENT_MASK) == drv->tun_flags)
+			return (drv);
+	}
+
+	return (NULL);
+}
+
+
 
 static int
 tun_clone_match(struct if_clone *ifc, const char *name)
@@ -374,22 +422,6 @@ vmnet_clone_match(struct if_clone *ifc, const char *name)
 
 	return (0);
 }
-
-static struct tun_driver *
-tun_driver_from_flags(int tun_flags)
-{
-	struct tun_driver *drv;
-	int i;
-
-	for (i = 0; i < nitems(tun_drivers); ++i) {
-		drv = &tun_drivers[i];
-		if ((tun_flags & TUN_DRIVER_IDENT_MASK) == drv->tun_flags)
-			return (drv);
-	}
-
-	return (NULL);
-}
-
 
 static int
 tun_clone_create(struct if_clone *ifc, char *name, size_t len, caddr_t params)
@@ -444,11 +476,12 @@ tunclone(void *arg, struct ucred *cred, char *name, int namelen,
 		return;
 
 	tunflags = 0;
+	CURVNET_SET(CRED_TO_VNET(cred));
 	if (tun_name2info(name, &u, &tunflags) != 0)
-		return;	/* Not recognized */
+		goto out;	/* Not recognized */
 
 	if (u != -1 && u > IF_MAXUNIT)
-		return;	/* Unit number too high */
+		goto out;	/* Unit number too high */
 
 	mayclone = priv_check_cred(cred, PRIV_NET_IFCREATE) == 0;
 	if ((tunflags & TUN_L2) != 0) {
@@ -463,7 +496,7 @@ tunclone(void *arg, struct ucred *cred, char *name, int namelen,
 	 * interface.
 	 */
 	if (!mayclone)
-		return;
+		goto out;
 
 	if (u == -1)
 		append_unit = 1;
@@ -472,9 +505,8 @@ tunclone(void *arg, struct ucred *cred, char *name, int namelen,
 
 	drv = tun_driver_from_flags(tunflags);
 	if (drv == NULL)
-		return;
+		goto out;
 
-	CURVNET_SET(CRED_TO_VNET(cred));
 	/* find any existing device, or allocate new unit number */
 	i = clone_create(&drv->clones, &drv->cdevsw, &u, dev, 0);
 	if (i) {
@@ -489,6 +521,7 @@ tunclone(void *arg, struct ucred *cred, char *name, int namelen,
 	}
 
 	if_clone_create(name, namelen, NULL);
+out:
 	CURVNET_RESTORE();
 }
 
@@ -540,13 +573,20 @@ tun_clone_destroy(struct if_clone *ifc __unused, struct ifnet *ifp)
 static void
 vnet_tun_init(const void *unused __unused)
 {
+	struct tun_driver *drv;
+	struct tun_driver_cloner *drvc;
+	int i;
 
-	V_tun_cloner = if_clone_advanced(tunname, 0, tun_clone_match,
-			tun_clone_create, tun_clone_destroy);
-	V_tap_cloner = if_clone_advanced(tapname, 0, tap_clone_match,
-			tun_clone_create, tun_clone_destroy);
-	V_vmnet_cloner = if_clone_advanced(vmnetname, 0, vmnet_clone_match,
-			tun_clone_create, tun_clone_destroy);
+	for (i = 0; i < nitems(tun_drivers); ++i) {
+		drv = &tun_drivers[i];
+		drvc = malloc(sizeof(*drvc), M_TUN, M_WAITOK | M_ZERO);
+
+		drvc->drv = drv;
+		drvc->cloner = if_clone_advanced(drv->cdevsw.d_name, 0,
+		    drv->clone_match_fn, drv->clone_create_fn,
+		    drv->clone_destroy_fn);
+		SLIST_INSERT_HEAD(&V_tun_driver_cloners, drvc, link);
+	};
 }
 VNET_SYSINIT(vnet_tun_init, SI_SUB_PROTO_IF, SI_ORDER_ANY,
 		vnet_tun_init, NULL);
@@ -554,10 +594,15 @@ VNET_SYSINIT(vnet_tun_init, SI_SUB_PROTO_IF, SI_ORDER_ANY,
 static void
 vnet_tun_uninit(const void *unused __unused)
 {
+	struct tun_driver_cloner *drvc;
 
-	if_clone_detach(V_tun_cloner);
-	if_clone_detach(V_tap_cloner);
-	if_clone_detach(V_vmnet_cloner);
+	while (!SLIST_EMPTY(&V_tun_driver_cloners)) {
+		drvc = SLIST_FIRST(&V_tun_driver_cloners);
+		SLIST_REMOVE_HEAD(&V_tun_driver_cloners, link);
+
+		if_clone_detach(drvc->cloner);
+		free(drvc, M_TUN);
+	}
 }
 VNET_SYSUNINIT(vnet_tun_uninit, SI_SUB_PROTO_IF, SI_ORDER_ANY,
     vnet_tun_uninit, NULL);
@@ -796,16 +841,21 @@ tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 	int error, tunflags;
 
 	tunflags = 0;
+	CURVNET_SET(TD_TO_VNET(td));
 	error = tun_name2info(dev->si_name, NULL, &tunflags);
-	if (error != 0)
+	if (error != 0) {
+		CURVNET_RESTORE();
 		return (error);	/* Shouldn't happen */
+	}
 
 	if ((tunflags & TUN_L2) != 0) {
 		/* Restrict? */
 		if (tap_allow_uopen == 0) {
 			error = priv_check(td, PRIV_NET_TAP);
-			if (error != 0)
+			if (error != 0) {
+				CURVNET_RESTORE();
 				return (error);
+			}
 		}
 	}
 
@@ -816,9 +866,10 @@ tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 	tp = dev->si_drv1;
 	if (!tp) {
 		drv = tun_driver_from_flags(tunflags);
-		if (drv == NULL)
+		if (drv == NULL) {
+			CURVNET_RESTORE();
 			return (ENXIO);
-
+		}
 		tuncreate(dev, drv);
 		tp = dev->si_drv1;
 	}
@@ -826,6 +877,7 @@ tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 	TUN_LOCK(tp);
 	if ((tp->tun_flags & (TUN_OPEN | TUN_DYING)) != 0) {
 		TUN_UNLOCK(tp);
+		CURVNET_RESTORE();
 		return (EBUSY);
 	}
 
@@ -848,7 +900,7 @@ tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 	if_link_state_change(ifp, LINK_STATE_UP);
 	TUNDEBUG(ifp, "open\n");
 	TUN_UNLOCK(tp);
-
+	CURVNET_RESTORE();
 	return (0);
 }
 
