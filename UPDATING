@@ -31,6 +31,12 @@ NOTE TO PEOPLE WHO THINK THAT FreeBSD 13.x IS SLOW:
 	disable the most expensive debugging functionality run
 	"ln -s 'abort:false,junk:false' /etc/malloc.conf".)
 
+2019xxxx:
+	The tap(4) driver has been folded into tun(4).  You should update any
+	kld_load="if_tap" entries in /etc/rc.conf, if_tap_load="YES" entries in
+	/boot/loader.conf, and "options tap" entries in kernel config files to
+	load the tun(4) driver instead.
+
 20190418:
 	The following knobs have been added related to tradeoffs between
 	safe use of the random device and availability in the absence of
