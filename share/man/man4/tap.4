@@ -1,14 +1,14 @@
 .\" $FreeBSD$
 .\" Based on PR#2411
 .\"
-.Dd April 24, 2019
+.Dd April 29, 2019
 .Dt TAP 4
 .Os
 .Sh NAME
 .Nm tap
 .Nd Ethernet tunnel software network interface
 .Sh SYNOPSIS
-.Cd device tun
+.Cd device tuntap
 .Sh DESCRIPTION
 The
 .Nm
@@ -51,7 +51,7 @@ The network interfaces are named
 .Dq Li tap1 ,
 etc., one for each control device that has been opened.
 These Ethernet network interfaces persist until
-.Pa if_tun.ko
+.Pa if_tuntap.ko
 module is unloaded, or until removed with "ifconfig destroy" (see below).
 .Pp
 .Nm
@@ -96,7 +96,7 @@ It therefore defaults to being enabled until further notice.
 .Ef
 .Pp
 Control devices (once successfully opened) persist until
-.Pa if_tun.ko
+.Pa if_tuntap.ko
 is unloaded or the interface is destroyed.
 .Pp
 Each interface supports the usual Ethernet network interface

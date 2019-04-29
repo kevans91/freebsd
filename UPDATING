@@ -32,10 +32,12 @@ NOTE TO PEOPLE WHO THINK THAT FreeBSD 13.x IS SLOW:
 	"ln -s 'abort:false,junk:false' /etc/malloc.conf".)
 
 2019xxxx:
-	The tap(4) driver has been folded into tun(4).  You should update any
-	kld_load="if_tap" entries in /etc/rc.conf, if_tap_load="YES" entries in
-	/boot/loader.conf, and "options tap" entries in kernel config files to
-	load the tun(4) driver instead.
+	The tap(4) driver has been folded into tun(4), and the module has been
+	renamed to tuntap(4).  You should update any kld_load="if_tap" or
+	kld_load="if_tun" entries in /etc/rc.conf, if_tap_load="YES" or
+	if_tun_load="YES" entries in /boot/loader.conf, and "options tap" or
+	"options tun" entries in kernel config files to load the tuntap(4)
+	driver instead.
 
 20190418:
 	The following knobs have been added related to tradeoffs between
