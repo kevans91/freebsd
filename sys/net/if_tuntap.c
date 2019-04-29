@@ -188,7 +188,7 @@ static void	tuncreate(struct cdev *dev, struct tuntap_driver *);
 static int	tunifioctl(struct ifnet *, u_long, caddr_t);
 static void	tuninit(struct ifnet *);
 static void	tunifinit(void *xtp);
-static int	tunmodevent(module_t, int, void *);
+static int	tuntapmodevent(module_t, int, void *);
 static int	tunoutput(struct ifnet *, struct mbuf *,
 		    const struct sockaddr *, struct route *ro);
 static void	tunstart(struct ifnet *);
@@ -636,7 +636,7 @@ tun_uninit(const void *unused __unused)
 SYSUNINIT(tun_uninit, SI_SUB_PROTO_IF, SI_ORDER_ANY, tun_uninit, NULL);
 
 static int
-tunmodevent(module_t mod, int type, void *data)
+tuntapmodevent(module_t mod, int type, void *data)
 {
 	struct tuntap_driver *drv;
 	int i;
@@ -662,14 +662,14 @@ tunmodevent(module_t mod, int type, void *data)
 	return 0;
 }
 
-static moduledata_t tun_mod = {
-	"if_tun",
-	tunmodevent,
+static moduledata_t tuntap_mod = {
+	"if_tuntap",
+	tuntapmodevent,
 	0
 };
 
-DECLARE_MODULE(if_tun, tun_mod, SI_SUB_PSEUDO, SI_ORDER_ANY);
-MODULE_VERSION(if_tun, 1);
+DECLARE_MODULE(if_tuntap, tuntap_mod, SI_SUB_PSEUDO, SI_ORDER_ANY);
+MODULE_VERSION(if_tuntap, 1);
 
 static void
 tunstart(struct ifnet *ifp)
