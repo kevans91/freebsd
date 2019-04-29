@@ -1076,8 +1076,12 @@ tunifioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		TUN_UNLOCK(tp);
 		break;
 	case SIOCSIFADDR:
-		tuninit(ifp);
-		TUNDEBUG(ifp, "address set\n");
+		if (l2tun)
+			error = ether_ioctl(ifp, cmd, data);
+		else
+			tuninit(ifp);
+		if (error == 0)
+		    TUNDEBUG(ifp, "address set\n");
 		break;
 	case SIOCSIFMTU:
 		ifp->if_mtu = ifr->ifr_mtu;
@@ -1271,8 +1275,63 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 		}
 
 		/* Fall through to the common ioctls if unhandled */
+	} else {
+		switch (cmd) {
+		case TUNSLMODE:
+			TUN_LOCK(tp);
+			if (*(int *)data) {
+				tp->tun_flags |= TUN_LMODE;
+				tp->tun_flags &= ~TUN_IFHEAD;
+			} else
+				tp->tun_flags &= ~TUN_LMODE;
+			TUN_UNLOCK(tp);
+			return (0);
+		case TUNSIFHEAD:
+			TUN_LOCK(tp);
+			if (*(int *)data) {
+				tp->tun_flags |= TUN_IFHEAD;
+				tp->tun_flags &= ~TUN_LMODE;
+			} else
+				tp->tun_flags &= ~TUN_IFHEAD;
+			TUN_UNLOCK(tp);
+			return (0);
+		case TUNGIFHEAD:
+			TUN_LOCK(tp);
+			*(int *)data = (tp->tun_flags & TUN_IFHEAD) ? 1 : 0;
+			TUN_UNLOCK(tp);
+			return (0);
+		case TUNSIFMODE:
+			/* deny this if UP */
+			if (TUN2IFP(tp)->if_flags & IFF_UP)
+				return (EBUSY);
+
+			switch (*(int *)data & ~IFF_MULTICAST) {
+			case IFF_POINTOPOINT:
+			case IFF_BROADCAST:
+				TUN_LOCK(tp);
+				TUN2IFP(tp)->if_flags &=
+				    ~(IFF_BROADCAST|IFF_POINTOPOINT|IFF_MULTICAST);
+				TUN2IFP(tp)->if_flags |= *(int *)data;
+				TUN_UNLOCK(tp);
+				return (0);
+			default:
+				return (EINVAL);
+			}
+			/* NOTREACHED */
+			break;
+		case TUNSIFPID:
+			TUN_LOCK(tp);
+			tp->tun_pid = curthread->td_proc->p_pid;
+			TUN_UNLOCK(tp);
+			return (0);
+		}
+		/* Fall through to the common ioctls if unhandled */
 	}
 
+	/*
+	 * Both TUN* and TAP* versions of these ioctl names have been included
+	 * mostly for searchability.  They are identical in behavior.
+	 */
 	switch (cmd) {
 	case TUNSIFINFO:
 		tunp = (struct tuninfo *)data;
@@ -1307,52 +1366,6 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 		break;
 	case TUNGDEBUG:
 		*(int *)data = tundebug;
-		break;
-	case TUNSLMODE:
-		TUN_LOCK(tp);
-		if (*(int *)data) {
-			tp->tun_flags |= TUN_LMODE;
-			tp->tun_flags &= ~TUN_IFHEAD;
-		} else
-			tp->tun_flags &= ~TUN_LMODE;
-		TUN_UNLOCK(tp);
-		break;
-	case TUNSIFHEAD:
-		TUN_LOCK(tp);
-		if (*(int *)data) {
-			tp->tun_flags |= TUN_IFHEAD;
-			tp->tun_flags &= ~TUN_LMODE;
-		} else
-			tp->tun_flags &= ~TUN_IFHEAD;
-		TUN_UNLOCK(tp);
-		break;
-	case TUNGIFHEAD:
-		TUN_LOCK(tp);
-		*(int *)data = (tp->tun_flags & TUN_IFHEAD) ? 1 : 0;
-		TUN_UNLOCK(tp);
-		break;
-	case TUNSIFMODE:
-		/* deny this if UP */
-		if (TUN2IFP(tp)->if_flags & IFF_UP)
-			return(EBUSY);
-
-		switch (*(int *)data & ~IFF_MULTICAST) {
-		case IFF_POINTOPOINT:
-		case IFF_BROADCAST:
-			TUN_LOCK(tp);
-			TUN2IFP(tp)->if_flags &=
-			    ~(IFF_BROADCAST|IFF_POINTOPOINT|IFF_MULTICAST);
-			TUN2IFP(tp)->if_flags |= *(int *)data;
-			TUN_UNLOCK(tp);
-			break;
-		default:
-			return(EINVAL);
-		}
-		break;
-	case TUNSIFPID:
-		TUN_LOCK(tp);
-		tp->tun_pid = curthread->td_proc->p_pid;
-		TUN_UNLOCK(tp);
 		break;
 	case FIONBIO:
 		break;
