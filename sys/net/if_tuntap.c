@@ -27,9 +27,10 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- */
-
-/*-
+ *
+ * BASED ON:
+ * -------------------------------------------------------------------------
+ *
  * Copyright (c) 1988, Julian Onions <jpo@cs.nott.ac.uk>
  * Nottingham University 1987.
  *
