@@ -95,15 +95,15 @@
 #include <sys/condvar.h>
 #include <security/mac/mac_framework.h>
 
-struct tun_driver;
+struct tuntap_driver;
 
 /*
  * tun_list is protected by global tunmtx.  Other mutable fields are
  * protected by tun->tun_mtx, or by their owning subsystem.  tun_dev is
  * static for the duration of a tunnel interface.
  */
-struct tun_softc {
-	TAILQ_ENTRY(tun_softc)	tun_list;
+struct tuntap_softc {
+	TAILQ_ENTRY(tuntap_softc)	tun_list;
 	struct cdev *tun_dev;
 	u_short	tun_flags;		/* misc flags */
 #define	TUN_OPEN	0x0001
@@ -124,7 +124,7 @@ struct tun_softc {
 	pid_t	tun_pid;		/* owning pid */
 	struct	ifnet *tun_ifp;		/* the interface */
 	struct  sigio *tun_sigio;	/* information for async I/O */
-	struct  tun_driver *tun_drv;	/* appropriate driver */
+	struct  tuntap_driver *tun_drv;	/* appropriate driver */
 	struct	selinfo	tun_rsel;	/* read select */
 	struct mtx	tun_mtx;	/* protect mutable softc fields */
 	struct cv	tun_cv;		/* protect against ref'd dev destroy */
@@ -156,7 +156,7 @@ static int tap_allow_uopen = 0;        /* allow user open() */
 static int tapuponopen = 0;    /* IFF_UP on open() */
 static int tapdclone = 1;	/* enable devfs cloning */
 
-static TAILQ_HEAD(,tun_softc)	tunhead = TAILQ_HEAD_INITIALIZER(tunhead);
+static TAILQ_HEAD(,tuntap_softc)	tunhead = TAILQ_HEAD_INITIALIZER(tunhead);
 SYSCTL_INT(_debug, OID_AUTO, if_tun_debug, CTLFLAG_RW, &tundebug, 0, "");
 
 static struct sx tun_ioctl_sx;
@@ -180,10 +180,10 @@ SYSCTL_INT(_net_link_tap, OID_AUTO, devfs_cloning, CTLFLAG_RWTUN, &tapdclone, 0,
 	"Enable legacy devfs interface creation");
 SYSCTL_INT(_net_link_tap, OID_AUTO, debug, CTLFLAG_RW, &tundebug, 0, "");
 
-static int	tun_name2info(const char *name, int *unit, int *flags);
+static int	tuntap_name2info(const char *name, int *unit, int *flags);
 static void	tunclone(void *arg, struct ucred *cred, char *name,
 		    int namelen, struct cdev **dev);
-static void	tuncreate(struct cdev *dev, struct tun_driver *);
+static void	tuncreate(struct cdev *dev, struct tuntap_driver *);
 static int	tunifioctl(struct ifnet *, u_long, caddr_t);
 static void	tuninit(struct ifnet *);
 static void	tunifinit(void *xtp);
@@ -227,7 +227,7 @@ static struct filterops tun_write_filterops = {
 
 #define	TUN_DRIVER_IDENT_MASK	(TUN_L2 | TUN_VMNET)
 
-static struct tun_driver {
+static struct tuntap_driver {
 	int			 tun_flags;
 	struct unrhdr		*unrhdr;
 	struct cdevsw		 cdevsw;
@@ -235,7 +235,7 @@ static struct tun_driver {
 	ifc_match_t		*clone_match_fn;
 	ifc_create_t		*clone_create_fn;
 	ifc_destroy_t		*clone_destroy_fn;
-} tun_drivers[] = {
+} tuntap_drivers[] = {
 	{
 		.tun_flags =	0,
 		.cdevsw =	{
@@ -292,26 +292,26 @@ static struct tun_driver {
 	},
 };
 
-struct tun_driver_cloner {
-	SLIST_ENTRY(tun_driver_cloner)		 link;
-	struct tun_driver			*drv;
+struct tuntap_driver_cloner {
+	SLIST_ENTRY(tuntap_driver_cloner)		 link;
+	struct tuntap_driver			*drv;
 	struct if_clone				*cloner;
 };
 
-VNET_DEFINE_STATIC(SLIST_HEAD(, tun_driver_cloner), tun_driver_cloners) =
-    SLIST_HEAD_INITIALIZER(tun_driver_cloners);
+VNET_DEFINE_STATIC(SLIST_HEAD(, tuntap_driver_cloner), tuntap_driver_cloners) =
+    SLIST_HEAD_INITIALIZER(tuntap_driver_cloners);
 
-#define	V_tun_driver_cloners	VNET(tun_driver_cloners)
+#define	V_tuntap_driver_cloners	VNET(tuntap_driver_cloners)
 
 /*
  * Sets unit and/or flags given the device name.  Must be called with correct
  * vnet context.
  */
 static int
-tun_name2info(const char *name, int *outunit, int *outflags)
+tuntap_name2info(const char *name, int *outunit, int *outflags)
 {
-	struct tun_driver *drv;
-	struct tun_driver_cloner *drvc;
+	struct tuntap_driver *drv;
+	struct tuntap_driver_cloner *drvc;
 	char *dname;
 	int flags, unit;
 	bool found;
@@ -327,11 +327,11 @@ tun_name2info(const char *name, int *outunit, int *outflags)
 	dname = __DECONST(char *, name);
 	found = false;
 
-	KASSERT(!SLIST_EMPTY(&V_tun_driver_cloners),
-	    ("tun_driver_cloners failed to initialize"));
-	SLIST_FOREACH(drvc, &V_tun_driver_cloners, link) {
+	KASSERT(!SLIST_EMPTY(&V_tuntap_driver_cloners),
+	    ("tuntap_driver_cloners failed to initialize"));
+	SLIST_FOREACH(drvc, &V_tuntap_driver_cloners, link) {
 		KASSERT(drvc->drv != NULL,
-		    ("tun_driver_cloners entry not properly initialized"));
+		    ("tuntap_driver_cloners entry not properly initialized"));
 		drv = drvc->drv;
 
 		if (strcmp(name, drv->cdevsw.d_name) == 0) {
@@ -360,20 +360,20 @@ tun_name2info(const char *name, int *outunit, int *outflags)
 
 /*
  * Get driver information from a set of flags specified.  Masks the identifying
- * part of the flags and compares it against all of the available tun_drivers.
- * Must be called with correct vnet context.
+ * part of the flags and compares it against all of the available
+ * tuntap_drivers. Must be called with correct vnet context.
  */
-static struct tun_driver *
-tun_driver_from_flags(int tun_flags)
+static struct tuntap_driver *
+tuntap_driver_from_flags(int tun_flags)
 {
-	struct tun_driver *drv;
-	struct tun_driver_cloner *drvc;
+	struct tuntap_driver *drv;
+	struct tuntap_driver_cloner *drvc;
 
-	KASSERT(!SLIST_EMPTY(&V_tun_driver_cloners),
-	    ("tun_driver_cloners failed to initialize"));
-	SLIST_FOREACH(drvc, &V_tun_driver_cloners, link) {
+	KASSERT(!SLIST_EMPTY(&V_tuntap_driver_cloners),
+	    ("tuntap_driver_cloners failed to initialize"));
+	SLIST_FOREACH(drvc, &V_tuntap_driver_cloners, link) {
 		KASSERT(drvc->drv != NULL,
-		    ("tun_driver_cloners entry not properly initialized"));
+		    ("tuntap_driver_cloners entry not properly initialized"));
 		drv = drvc->drv;
 		if ((tun_flags & TUN_DRIVER_IDENT_MASK) == drv->tun_flags)
 			return (drv);
@@ -389,7 +389,7 @@ tun_clone_match(struct if_clone *ifc, const char *name)
 {
 	int tunflags;
 
-	if (tun_name2info(name, NULL, &tunflags) == 0) {
+	if (tuntap_name2info(name, NULL, &tunflags) == 0) {
 		if ((tunflags & TUN_L2) == 0)
 			return (1);
 	}
@@ -402,7 +402,7 @@ tap_clone_match(struct if_clone *ifc, const char *name)
 {
 	int tunflags;
 
-	if (tun_name2info(name, NULL, &tunflags) == 0) {
+	if (tuntap_name2info(name, NULL, &tunflags) == 0) {
 		if ((tunflags & (TUN_L2 | TUN_VMNET)) == TUN_L2)
 			return (1);
 	}
@@ -415,7 +415,7 @@ vmnet_clone_match(struct if_clone *ifc, const char *name)
 {
 	int tunflags;
 
-	if (tun_name2info(name, NULL, &tunflags) == 0) {
+	if (tuntap_name2info(name, NULL, &tunflags) == 0) {
 		if ((tunflags & TUN_VMNET) != 0)
 			return (1);
 	}
@@ -426,17 +426,17 @@ vmnet_clone_match(struct if_clone *ifc, const char *name)
 static int
 tun_clone_create(struct if_clone *ifc, char *name, size_t len, caddr_t params)
 {
-	struct tun_driver *drv;
+	struct tuntap_driver *drv;
 	struct cdev *dev;
 	int err, i, tunflags, unit;
 
 	tunflags = 0;
 	/* The name here tells us exactly what we're creating */
-	err = tun_name2info(name, &unit, &tunflags);
+	err = tuntap_name2info(name, &unit, &tunflags);
 	if (err != 0)
 		return (err);
 
-	drv = tun_driver_from_flags(tunflags);
+	drv = tuntap_driver_from_flags(tunflags);
 	if (drv == NULL)
 		return (ENXIO);
 
@@ -468,7 +468,7 @@ tunclone(void *arg, struct ucred *cred, char *name, int namelen,
     struct cdev **dev)
 {
 	char devname[SPECNAMELEN + 1];
-	struct tun_driver *drv;
+	struct tuntap_driver *drv;
 	int append_unit, i, u, tunflags;
 	bool mayclone;
 
@@ -477,7 +477,7 @@ tunclone(void *arg, struct ucred *cred, char *name, int namelen,
 
 	tunflags = 0;
 	CURVNET_SET(CRED_TO_VNET(cred));
-	if (tun_name2info(name, &u, &tunflags) != 0)
+	if (tuntap_name2info(name, &u, &tunflags) != 0)
 		goto out;	/* Not recognized */
 
 	if (u != -1 && u > IF_MAXUNIT)
@@ -503,7 +503,7 @@ tunclone(void *arg, struct ucred *cred, char *name, int namelen,
 	else
 		append_unit = 0;
 
-	drv = tun_driver_from_flags(tunflags);
+	drv = tuntap_driver_from_flags(tunflags);
 	if (drv == NULL)
 		goto out;
 
@@ -526,7 +526,7 @@ out:
 }
 
 static void
-tun_destroy(struct tun_softc *tp)
+tun_destroy(struct tuntap_softc *tp)
 {
 	struct cdev *dev;
 
@@ -560,7 +560,7 @@ tun_destroy(struct tun_softc *tp)
 static int
 tun_clone_destroy(struct if_clone *ifc __unused, struct ifnet *ifp)
 {
-	struct tun_softc *tp = ifp->if_softc;
+	struct tuntap_softc *tp = ifp->if_softc;
 
 	mtx_lock(&tunmtx);
 	TAILQ_REMOVE(&tunhead, tp, tun_list);
@@ -573,19 +573,19 @@ tun_clone_destroy(struct if_clone *ifc __unused, struct ifnet *ifp)
 static void
 vnet_tun_init(const void *unused __unused)
 {
-	struct tun_driver *drv;
-	struct tun_driver_cloner *drvc;
+	struct tuntap_driver *drv;
+	struct tuntap_driver_cloner *drvc;
 	int i;
 
-	for (i = 0; i < nitems(tun_drivers); ++i) {
-		drv = &tun_drivers[i];
+	for (i = 0; i < nitems(tuntap_drivers); ++i) {
+		drv = &tuntap_drivers[i];
 		drvc = malloc(sizeof(*drvc), M_TUN, M_WAITOK | M_ZERO);
 
 		drvc->drv = drv;
 		drvc->cloner = if_clone_advanced(drv->cdevsw.d_name, 0,
 		    drv->clone_match_fn, drv->clone_create_fn,
 		    drv->clone_destroy_fn);
-		SLIST_INSERT_HEAD(&V_tun_driver_cloners, drvc, link);
+		SLIST_INSERT_HEAD(&V_tuntap_driver_cloners, drvc, link);
 	};
 }
 VNET_SYSINIT(vnet_tun_init, SI_SUB_PROTO_IF, SI_ORDER_ANY,
@@ -594,11 +594,11 @@ VNET_SYSINIT(vnet_tun_init, SI_SUB_PROTO_IF, SI_ORDER_ANY,
 static void
 vnet_tun_uninit(const void *unused __unused)
 {
-	struct tun_driver_cloner *drvc;
+	struct tuntap_driver_cloner *drvc;
 
-	while (!SLIST_EMPTY(&V_tun_driver_cloners)) {
-		drvc = SLIST_FIRST(&V_tun_driver_cloners);
-		SLIST_REMOVE_HEAD(&V_tun_driver_cloners, link);
+	while (!SLIST_EMPTY(&V_tuntap_driver_cloners)) {
+		drvc = SLIST_FIRST(&V_tuntap_driver_cloners);
+		SLIST_REMOVE_HEAD(&V_tuntap_driver_cloners, link);
 
 		if_clone_detach(drvc->cloner);
 		free(drvc, M_TUN);
@@ -610,8 +610,8 @@ VNET_SYSUNINIT(vnet_tun_uninit, SI_SUB_PROTO_IF, SI_ORDER_ANY,
 static void
 tun_uninit(const void *unused __unused)
 {
-	struct tun_driver *drv;
-	struct tun_softc *tp;
+	struct tuntap_driver *drv;
+	struct tuntap_softc *tp;
 	int i;
 
 	EVENTHANDLER_DEREGISTER(dev_clone, tag);
@@ -625,8 +625,8 @@ tun_uninit(const void *unused __unused)
 		mtx_lock(&tunmtx);
 	}
 	mtx_unlock(&tunmtx);
-	for (i = 0; i < nitems(tun_drivers); ++i) {
-		drv = &tun_drivers[i];
+	for (i = 0; i < nitems(tuntap_drivers); ++i) {
+		drv = &tuntap_drivers[i];
 		delete_unrhdr(drv->unrhdr);
 		clone_cleanup(&drv->clones);
 	}
@@ -637,14 +637,14 @@ SYSUNINIT(tun_uninit, SI_SUB_PROTO_IF, SI_ORDER_ANY, tun_uninit, NULL);
 static int
 tunmodevent(module_t mod, int type, void *data)
 {
-	struct tun_driver *drv;
+	struct tuntap_driver *drv;
 	int i;
 
 	switch (type) {
 	case MOD_LOAD:
 		mtx_init(&tunmtx, "tunmtx", NULL, MTX_DEF);
-		for (i = 0; i < nitems(tun_drivers); ++i) {
-			drv = &tun_drivers[i];
+		for (i = 0; i < nitems(tuntap_drivers); ++i) {
+			drv = &tuntap_drivers[i];
 			clone_setup(&drv->clones);
 			drv->unrhdr = new_unrhdr(0, IF_MAXUNIT, &tunmtx);
 		}
@@ -673,7 +673,7 @@ MODULE_VERSION(if_tun, 1);
 static void
 tunstart(struct ifnet *ifp)
 {
-	struct tun_softc *tp = ifp->if_softc;
+	struct tuntap_softc *tp = ifp->if_softc;
 	struct mbuf *m;
 
 	TUNDEBUG(ifp, "starting\n");
@@ -709,7 +709,7 @@ tunstart(struct ifnet *ifp)
 static void
 tunstart_l2(struct ifnet *ifp)
 {
-	struct tun_softc	*tp = ifp->if_softc;
+	struct tuntap_softc	*tp = ifp->if_softc;
 
 	TUNDEBUG(ifp, "starting\n");
 
@@ -765,9 +765,9 @@ tunstart_l2(struct ifnet *ifp)
 
 /* XXX: should return an error code so it can fail. */
 static void
-tuncreate(struct cdev *dev, struct tun_driver *drv)
+tuncreate(struct cdev *dev, struct tuntap_driver *drv)
 {
-	struct tun_softc *sc;
+	struct tuntap_softc *sc;
 	struct ifnet *ifp;
 	struct ether_addr eaddr;
 	int iflags;
@@ -836,13 +836,13 @@ static int
 tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 {
 	struct ifnet	*ifp;
-	struct tun_driver *drv;
-	struct tun_softc *tp;
+	struct tuntap_driver *drv;
+	struct tuntap_softc *tp;
 	int error, tunflags;
 
 	tunflags = 0;
 	CURVNET_SET(TD_TO_VNET(td));
-	error = tun_name2info(dev->si_name, NULL, &tunflags);
+	error = tuntap_name2info(dev->si_name, NULL, &tunflags);
 	if (error != 0) {
 		CURVNET_RESTORE();
 		return (error);	/* Shouldn't happen */
@@ -865,7 +865,7 @@ tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 	 */
 	tp = dev->si_drv1;
 	if (!tp) {
-		drv = tun_driver_from_flags(tunflags);
+		drv = tuntap_driver_from_flags(tunflags);
 		if (drv == NULL) {
 			CURVNET_RESTORE();
 			return (ENXIO);
@@ -911,7 +911,7 @@ tunopen(struct cdev *dev, int flag, int mode, struct thread *td)
 static	int
 tunclose(struct cdev *dev, int foo, int bar, struct thread *td)
 {
-	struct tun_softc *tp;
+	struct tuntap_softc *tp;
 	struct ifnet *ifp;
 	bool l2tun;
 
@@ -991,7 +991,7 @@ out:
 static void
 tuninit(struct ifnet *ifp)
 {
-	struct tun_softc *tp = ifp->if_softc;
+	struct tuntap_softc *tp = ifp->if_softc;
 #ifdef INET
 	struct ifaddr *ifa;
 #endif
@@ -1036,9 +1036,9 @@ tuninit(struct ifnet *ifp)
 static void
 tunifinit(void *xtp)
 {
-	struct tun_softc *tp;
+	struct tuntap_softc *tp;
 
-	tp = (struct tun_softc *)xtp;
+	tp = (struct tuntap_softc *)xtp;
 	tuninit(tp->tun_ifp);
 }
 
@@ -1049,7 +1049,7 @@ static int
 tunifioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
 	struct ifreq *ifr = (struct ifreq *)data;
-	struct tun_softc *tp;
+	struct tuntap_softc *tp;
 	struct ifstat *ifs;
 	struct ifmediareq	*ifmr;
 	int		dummy, error = 0;
@@ -1124,7 +1124,7 @@ static int
 tunoutput(struct ifnet *ifp, struct mbuf *m0, const struct sockaddr *dst,
     struct route *ro)
 {
-	struct tun_softc *tp = ifp->if_softc;
+	struct tuntap_softc *tp = ifp->if_softc;
 	u_short cached_tun_flags;
 	int error;
 	u_int32_t af;
@@ -1214,7 +1214,7 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
     struct thread *td)
 {
 	struct ifreq ifr, *ifrp;
-	struct tun_softc *tp = dev->si_drv1;
+	struct tuntap_softc *tp = dev->si_drv1;
 	struct tuninfo *tunp;
 	int error, iflags;
 #if defined(COMPAT_FREEBSD6) || defined(COMPAT_FREEBSD5) || \
@@ -1403,7 +1403,7 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 static	int
 tunread(struct cdev *dev, struct uio *uio, int flag)
 {
-	struct tun_softc *tp = dev->si_drv1;
+	struct tuntap_softc *tp = dev->si_drv1;
 	struct ifnet	*ifp = TUN2IFP(tp);
 	struct mbuf	*m;
 	int		error=0, len;
@@ -1454,7 +1454,7 @@ tunread(struct cdev *dev, struct uio *uio, int flag)
 }
 
 static int
-tunwrite_l2(struct tun_softc *tp, struct mbuf *m)
+tunwrite_l2(struct tuntap_softc *tp, struct mbuf *m)
 {
 	struct ether_header *eh;
 	struct ifnet *ifp;
@@ -1489,7 +1489,7 @@ tunwrite_l2(struct tun_softc *tp, struct mbuf *m)
 }
 
 static int
-tunwrite_l3(struct tun_softc *tp, struct mbuf *m)
+tunwrite_l3(struct tuntap_softc *tp, struct mbuf *m)
 {
 	struct ifnet *ifp;
 	int family, isr;
@@ -1542,7 +1542,7 @@ tunwrite_l3(struct tun_softc *tp, struct mbuf *m)
 static	int
 tunwrite(struct cdev *dev, struct uio *uio, int flag)
 {
-	struct tun_softc *tp;
+	struct tuntap_softc *tp;
 	struct ifnet	*ifp;
 	struct mbuf	*m;
 	uint32_t	mru;
@@ -1595,7 +1595,7 @@ tunwrite(struct cdev *dev, struct uio *uio, int flag)
 static	int
 tunpoll(struct cdev *dev, int events, struct thread *td)
 {
-	struct tun_softc *tp = dev->si_drv1;
+	struct tuntap_softc *tp = dev->si_drv1;
 	struct ifnet	*ifp = TUN2IFP(tp);
 	int		revents = 0;
 
@@ -1624,7 +1624,7 @@ tunpoll(struct cdev *dev, int events, struct thread *td)
 static int
 tunkqfilter(struct cdev *dev, struct knote *kn)
 {
-	struct tun_softc	*tp = dev->si_drv1;
+	struct tuntap_softc	*tp = dev->si_drv1;
 	struct ifnet	*ifp = TUN2IFP(tp);
 
 	switch(kn->kn_filter) {
@@ -1659,7 +1659,7 @@ static int
 tunkqread(struct knote *kn, long hint)
 {
 	int			ret;
-	struct tun_softc	*tp = kn->kn_hook;
+	struct tuntap_softc	*tp = kn->kn_hook;
 	struct cdev		*dev = tp->tun_dev;
 	struct ifnet	*ifp = TUN2IFP(tp);
 
@@ -1684,7 +1684,7 @@ tunkqread(struct knote *kn, long hint)
 static int
 tunkqwrite(struct knote *kn, long hint)
 {
-	struct tun_softc	*tp = kn->kn_hook;
+	struct tuntap_softc	*tp = kn->kn_hook;
 	struct ifnet	*ifp = TUN2IFP(tp);
 
 	kn->kn_data = ifp->if_mtu;
@@ -1695,7 +1695,7 @@ tunkqwrite(struct knote *kn, long hint)
 static void
 tunkqdetach(struct knote *kn)
 {
-	struct tun_softc	*tp = kn->kn_hook;
+	struct tuntap_softc	*tp = kn->kn_hook;
 
 	knlist_remove(&tp->tun_rsel.si_note, kn, 0);
 }
