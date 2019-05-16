@@ -88,6 +88,13 @@ struct vnet {
 
 #ifdef _KERNEL
 
+/*
+ * Indicates whether this kernel was configured with vnet support or not.
+ * This will generally be used so that untied modules can do the right thing
+ * based on the linked-in kernel.
+ */
+extern const int vimage_configured;
+
 #define	VNET_PCPUSTAT_DECLARE(type, name)	\
     VNET_DECLARE(counter_u64_t, name[sizeof(type) / sizeof(uint64_t)])
 
@@ -145,7 +152,17 @@ SYSCTL_PROC(parent, nbr, name, CTLFLAG_VNET | CTLTYPE_OPAQUE | CTLFLAG_RW, \
     NULL, 0, array ## _sysctl, "I", desc)
 #endif /* SYSCTL_OID */
 
+#if defined(KLD_MODULE) && !defined(KLD_TIED) && !defined(VIMAGE)
+/*
+ * For independent module builds, we trigger a version of VIMAGE macros that
+ * resolve safely (but slowly) based on vimage_configured.
+ */
+#define	VIMAGE		1
+#define	VIMAGE_RUNTIME	1
+#endif
+
 #ifdef VIMAGE
+/**** STARTVIMAGE ***/
 #include <sys/lock.h>
 #include <sys/proc.h>			/* for struct thread */
 #include <sys/rwlock.h>
@@ -188,40 +205,88 @@ void	vnet_destroy(struct vnet *vnet);
 } while (0)
 #endif
 
+#ifdef VIMAGE_RUNTIME
+/*
+ * This should be used for things that need VNET_ASSERT that shouldn't panic
+ * if the underlying kernel wasn't compiled with VIMAGE.  If we're not dealing
+ * with a kmod, or if we're unconditionally compiled with VIMAGE, this is a
+ * direct VNET_ASSERT.
+ */
+#define	VNET_RUNTIME_ASSERT(exp, msg)	do {				\
+	if (vimage_configured)						\
+		VNET_ASSERT(exp, msg);					\
+} while (0)
+
+#define	_CURVNET_SET_LPUSH(arg)						\
+	if (vimage_configured) {					\
+		curvnet = arg;						\
+		curthread->td_vnet_lpush = __func__;			\
+	}
+
+#define	_CURVNET_SET(arg)						\
+	if (vimage_configured)						\
+		curvnet = arg;
+#define	_CURVNET_RESTORE_LPUSH()					\
+	if (vimage_configured) {					\
+		curvnet = saved_vnet;					\
+		curthread->td_vnet_lpush = saved_vnet_lpush;		\
+	}
+#define	_CURVNET_RESTORE()						\
+	if (vimage_configured)						\
+		curvnet = saved_vnet;
+#else
+#define	VNET_RUNTIME_ASSERT(exp, msg) VNET_ASSERT(exp, msg)
+
+#define	_CURVNET_SET_LPUSH(arg)						\
+	curvnet = arg;							\
+	curthread->td_vnet_lpush = __func__;
+#define	_CURVNET_SET(arg)						\
+	curvnet = arg;
+#define	_CURVNET_RESTORE_LPUSH()					\
+	curvnet = saved_vnet;						\
+	curthread->td_vnet_lpush = saved_vnet_lpush;
+#define	_CURVNET_RESTORE()						\
+	curvnet = saved_vnet;
+#endif
+
 #ifdef VNET_DEBUG
 void vnet_log_recursion(struct vnet *, const char *, int);
 
 #define	CURVNET_SET_QUIET(arg)						\
-	VNET_ASSERT((arg) != NULL && (arg)->vnet_magic_n == VNET_MAGIC_N, \
+	VNET_RUNTIME_ASSERT((arg) != NULL &&				\
+	    (arg)->vnet_magic_n == VNET_MAGIC_N,			\
 	    ("CURVNET_SET at %s:%d %s() curvnet=%p vnet=%p",		\
 	    __FILE__, __LINE__, __func__, curvnet, (arg)));		\
 	struct vnet *saved_vnet = curvnet;				\
 	const char *saved_vnet_lpush = curthread->td_vnet_lpush;	\
-	curvnet = arg;							\
-	curthread->td_vnet_lpush = __func__;
+	_CURVNET_SET_LPUSH(arg);
  
 #define	CURVNET_SET_VERBOSE(arg)					\
 	CURVNET_SET_QUIET(arg)						\
-	if (saved_vnet)							\
+	if (saved_vnet && vimage_configured)				\
 		vnet_log_recursion(saved_vnet, saved_vnet_lpush, __LINE__);
 
 #define	CURVNET_SET(arg)	CURVNET_SET_VERBOSE(arg)
  
 #define	CURVNET_RESTORE()						\
-	VNET_ASSERT(curvnet != NULL && (saved_vnet == NULL ||		\
+	VNET_RUNTIME_ASSERT(curvnet != NULL && (saved_vnet == NULL ||	\
 	    saved_vnet->vnet_magic_n == VNET_MAGIC_N),			\
 	    ("CURVNET_RESTORE at %s:%d %s() curvnet=%p saved_vnet=%p",	\
 	    __FILE__, __LINE__, __func__, curvnet, saved_vnet));	\
-	curvnet = saved_vnet;						\
-	curthread->td_vnet_lpush = saved_vnet_lpush;
+	_CURVNET_RESTORE_LPUSH();
+	if (vimage_configured) {					\
+		curvnet = saved_vnet;					\
+		curthread->td_vnet_lpush = saved_vnet_lpush;		\
+	}
 #else /* !VNET_DEBUG */
 
 #define	CURVNET_SET_QUIET(arg)						\
-	VNET_ASSERT((arg) != NULL && (arg)->vnet_magic_n == VNET_MAGIC_N, \
+	VNET_RUNTIME_ASSERT((arg) != NULL &&				\
+	    (arg)->vnet_magic_n == VNET_MAGIC_N,			\
 	    ("CURVNET_SET at %s:%d %s() curvnet=%p vnet=%p",		\
 	    __FILE__, __LINE__, __func__, curvnet, (arg)));		\
 	struct vnet *saved_vnet = curvnet;				\
-	curvnet = arg;	
+	_CURVNET_SET(arg);
  
 #define	CURVNET_SET_VERBOSE(arg)					\
 	CURVNET_SET_QUIET(arg)
@@ -229,15 +294,19 @@ void vnet_log_recursion(struct vnet *, const char *, int);
 #define	CURVNET_SET(arg)	CURVNET_SET_VERBOSE(arg)
  
 #define	CURVNET_RESTORE()						\
-	VNET_ASSERT(curvnet != NULL && (saved_vnet == NULL ||		\
+	VNET_RUNTIME_ASSERT(curvnet != NULL && (saved_vnet == NULL ||	\
 	    saved_vnet->vnet_magic_n == VNET_MAGIC_N),			\
 	    ("CURVNET_RESTORE at %s:%d %s() curvnet=%p saved_vnet=%p",	\
 	    __FILE__, __LINE__, __func__, curvnet, saved_vnet));	\
-	curvnet = saved_vnet;
+	_CURVNET_RESTORE();
 #endif /* VNET_DEBUG */
 
 extern struct vnet *vnet0;
+#ifdef VNET_DYNAMIC
+#define	IS_DEFAULT_VNET(arg)	(vimage_configured && (arg) == vnet0)
+#else
 #define	IS_DEFAULT_VNET(arg)	((arg) == vnet0)
+#endif
 
 #define	CRED_TO_VNET(cr)	(cr)->cr_prison->pr_vnet
 #define	TD_TO_VNET(td)		CRED_TO_VNET((td)->td_ucred)
@@ -253,16 +322,40 @@ extern struct vnet_list_head vnet_head;
 extern struct rwlock vnet_rwlock;
 extern struct sx vnet_sxlock;
 
+#ifdef VNET_DYNAMIC
+#define	VNET_LIST_RLOCK()		do {				\
+	if (vimage_configured)						\
+		sx_slock(&vnet_sxlock)					\
+} while(0);
+#define	VNET_LIST_RLOCK_NOSLEEP()		do {			\
+	if (vimage_configured)						\
+		rw_rlock(&vnet_rwlock)					\
+} while(0);
+#define	VNET_LIST_RUNLOCK()		do {				\
+	if (vimage_configured)						\
+		sx_sunlock(&vnet_sxlock)				\
+} while(0);
+#define	VNET_LIST_RUNLOCK_NOSLEEP()		do {			\
+	if (vimage_configured)						\
+		rw_runlock(&vnet_rwlock)				\
+} while(0);
+#else
 #define	VNET_LIST_RLOCK()		sx_slock(&vnet_sxlock)
 #define	VNET_LIST_RLOCK_NOSLEEP()	rw_rlock(&vnet_rwlock)
 #define	VNET_LIST_RUNLOCK()		sx_sunlock(&vnet_sxlock)
 #define	VNET_LIST_RUNLOCK_NOSLEEP()	rw_runlock(&vnet_rwlock)
+#endif
 
 /*
  * Iteration macros to walk the global list of virtual network stacks.
  */
 #define	VNET_ITERATOR_DECL(arg)	struct vnet *arg
+#ifdef VNET_DYNAMIC
+#define	VNET_FOREACH(arg)	if (vimage_configured)			\
+	LIST_FOREACH((arg), &vnet_head, vnet_le)
+#else
 #define	VNET_FOREACH(arg)	LIST_FOREACH((arg), &vnet_head, vnet_le)
+#endif
 
 /*
  * Virtual network stack memory allocator, which allows global variables to
@@ -295,8 +388,15 @@ extern struct sx vnet_sxlock;
 #define	VNET_VNET_PTR(vnet, n)		_VNET_PTR((vnet)->vnet_data_base, n)
 #define	VNET_VNET(vnet, n)		(*VNET_VNET_PTR((vnet), n))
 
+#ifdef VNET_DYNAMIC
+#define	VNET_PTR(n)	\
+	(vimage_supported ? VNET_VNET_PTR(curvnet, n) : &(n))
+#define	VNET(n)		\
+	(vimage_supported ? VNET_VNET(curvnet, n) : (n))
+#else
 #define	VNET_PTR(n)		VNET_VNET_PTR(curvnet, n)
 #define	VNET(n)			VNET_VNET(curvnet, n)
+#endif
 
 /*
  * Virtual network stack allocator interfaces from the kernel linker.
@@ -324,6 +424,23 @@ struct vnet_sysinit {
 	TAILQ_ENTRY(vnet_sysinit) link;
 };
 
+#ifdef VNET_DYNAMIC
+/*
+ * These are provided by vnet_support.c and determine if they should invoke
+ * the SYSINIT/SYSUNINIT callbacks directly or instead dispatch the request
+ * through to the underlying vnet_{,de}register_* versions.
+ */
+#define	_vnet_register_sysinit		vnet_dynamic_register_sysinit
+#define	_vnet_unregister_sysinit	vnet_dynamic_unregister_sysinit
+#define	_vnet_register_sysuninit	vnet_dynamic_register_sysuninit
+#define	_vnet_deregister_sysuninit	vnet_dynamic_deregister_sysuninit
+#else
+#define	_vnet_register_sysinit		vnet_register_sysinit
+#define	_vnet_deregister_sysinit	vnet_deregister_sysinit
+#define	_vnet_register_sysuninit	vnet_register_sysuninit
+#define	_vnet_deregister_sysuninit	vnet_deregister_sysuninit
+#endif
+
 #define	VNET_SYSINIT(ident, subsystem, order, func, arg)		\
 	static struct vnet_sysinit ident ## _vnet_init = {		\
 		subsystem,						\
@@ -332,9 +449,9 @@ struct vnet_sysinit {
 		(arg)							\
 	};								\
 	SYSINIT(vnet_init_ ## ident, subsystem, order,			\
-	    vnet_register_sysinit, &ident ## _vnet_init);		\
+	    _vnet_register_sysinit, &ident ## _vnet_init);		\
 	SYSUNINIT(vnet_init_ ## ident, subsystem, order,		\
-	    vnet_deregister_sysinit, &ident ## _vnet_init)
+	    _vnet_deregister_sysinit, &ident ## _vnet_init)
 
 #define	VNET_SYSUNINIT(ident, subsystem, order, func, arg)		\
 	static struct vnet_sysinit ident ## _vnet_uninit = {		\
@@ -344,9 +461,9 @@ struct vnet_sysinit {
 		(arg)							\
 	};								\
 	SYSINIT(vnet_uninit_ ## ident, subsystem, order,		\
-	    vnet_register_sysuninit, &ident ## _vnet_uninit);		\
+	    _vnet_register_sysuninit, &ident ## _vnet_uninit);		\
 	SYSUNINIT(vnet_uninit_ ## ident, subsystem, order,		\
-	    vnet_deregister_sysuninit, &ident ## _vnet_uninit)
+	    _vnet_deregister_sysuninit, &ident ## _vnet_uninit)
 
 /*
  * Run per-vnet sysinits or sysuninits during vnet creation/destruction.
@@ -362,6 +479,12 @@ void	vnet_register_sysuninit(void *arg);
 void	vnet_deregister_sysinit(void *arg);
 void	vnet_deregister_sysuninit(void *arg);
 
+/* vnet_support shims */
+void	vnet_dynamic_register_sysinit(void *arg);
+void	vnet_dynamic_register_sysuninit(void *arg);
+void	vnet_dynamic_deregister_sysinit(void *arg);
+void	vnet_dynamic_deregister_sysuninit(void *arg);
+
 /*
  * EVENTHANDLER(9) extensions.
  */
@@ -370,18 +493,24 @@ void	vnet_deregister_sysuninit(void *arg);
 void	vnet_global_eventhandler_iterator_func(void *, ...);
 #define VNET_GLOBAL_EVENTHANDLER_REGISTER_TAG(tag, name, func, arg, priority) \
 do {									\
-	if (IS_DEFAULT_VNET(curvnet)) {					\
+	if (vimage_configured && IS_DEFAULT_VNET(curvnet)) {		\
 		(tag) = vimage_eventhandler_register(NULL, #name, func,	\
 		    arg, priority,					\
 		    vnet_global_eventhandler_iterator_func);		\
+	} else if (!vimage_configured) {				\
+		(tag) = eventhandler_register(NULL, #name, func, arg,	\
+		    priority);						\
 	}								\
 } while(0)
+
 #define VNET_GLOBAL_EVENTHANDLER_REGISTER(name, func, arg, priority)	\
 do {									\
-	if (IS_DEFAULT_VNET(curvnet)) {					\
+	if (vimage_configured && IS_DEFAULT_VNET(curvnet)) {		\
 		vimage_eventhandler_register(NULL, #name, func,		\
 		    arg, priority,					\
 		    vnet_global_eventhandler_iterator_func);		\
+	} else if (!vimage_configured) {				\
+		eventhandler_register(NULL, #name, func, arg, priority); \
 	}								\
 } while(0)
 
