@@ -5,7 +5,7 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd February 1, 2019
+.Dd July 12, 2011
 .Dt RFORK 2
 .Os
 .Sh NAME
@@ -34,9 +34,7 @@ and open files.
 The
 .Fa flags
 argument
-is either
-.Dv RFSPAWN
-or the logical OR of some subset of:
+is the logical OR of some subset of:
 .Bl -tag -width ".Dv RFLINUXTHPN"
 .It Dv RFPROC
 If set a new process is created; otherwise changes affect the
@@ -105,14 +103,6 @@ This is intended to mimic certain Linux clone behaviour.
 File descriptors in a shared file descriptor table are kept
 open until either they are explicitly closed
 or all processes sharing the table exit.
-.Pp
-If
-.Dv RFSPAWN
-is passed,
-.Nm
-will use
-.Xr vfork 2
-semantics but reset all signal actions in the child to default.
 .Pp
 If
 .Dv RFPROC

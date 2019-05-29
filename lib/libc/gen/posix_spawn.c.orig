@@ -38,7 +38,6 @@ __FBSDID("$FreeBSD$");
 #include <sched.h>
 #include <spawn.h>
 #include <signal.h>
-#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -195,88 +194,42 @@ process_file_actions(const posix_spawn_file_actions_t fa)
 	return (0);
 }
 
-struct posix_spawn_info {
-	const char *path;
-	const posix_spawn_file_actions_t *fa;
-	const posix_spawnattr_t *sa;
-	char * const *argv;
-	char * const *envp;
-	bool use_env_path;
-
-	volatile int error;	/* OUT */
-};
-
-#define	PS_STACKSIZE	1024	/* 1k stack for child process */
-/* For capturing the error code on the way out of the child process */
-#define	PS_EXIT(psi, code)			\
-	do {					\
-		(psi)->error = code;		\
-		_exit(code);			\
-	} while(0)
-
-static int
-posix_spawn_impl(void *arg)
-{
-	struct posix_spawn_info *psi;
-	int error;
-
-	psi = (struct posix_spawn_info *)arg;
-	if (psi->sa != NULL) {
-		error = process_spawnattr(*psi->sa);
-		if (error)
-			PS_EXIT(psi, 127);
-	}
-	if (psi->fa != NULL) {
-		error = process_file_actions(*psi->fa);
-		if (error)
-			PS_EXIT(psi, 127);
-	}
-	if (psi->use_env_path)
-		_execvpe(psi->path, psi->argv, psi->envp != NULL ? psi->envp :
-		    environ);
-	else
-		_execve(psi->path, psi->argv, psi->envp != NULL ? psi->envp :
-		    environ);
-	PS_EXIT(psi, errno);
-}
-
 static int
 do_posix_spawn(pid_t *pid, const char *path,
     const posix_spawn_file_actions_t *fa,
     const posix_spawnattr_t *sa,
     char * const argv[], char * const envp[], int use_env_path)
 {
-	char stack[PS_STACKSIZE];
-	struct posix_spawn_info psi;
 	pid_t p;
+	volatile int error = 0;
 
-	/*
-	 * Passing RFSPAWN to rfork(2) gives us effectively a vfork that drops
-	 * non-ignored signal handlers.  We'll fall back to the slightly less
-	 * ideal vfork(2) if we get an EINVAL from rfork.
-	 */
-	psi.path = path;
-	psi.fa = fa;
-	psi.sa = sa;
-	psi.argv = argv;
-	psi.envp = envp;
-	psi.use_env_path = !!use_env_path;
-	psi.error = 0;
-	p = rfork_thread(RFSPAWN, stack, posix_spawn_impl, &psi);
-	if (p == -1 && errno == EINVAL)
-		p = vfork();
+	p = vfork();
 	switch (p) {
 	case -1:
 		return (errno);
 	case 0:
-		/* Must have vforked to get here; will not return */
-		posix_spawn_impl(&psi);
+		if (sa != NULL) {
+			error = process_spawnattr(*sa);
+			if (error)
+				_exit(127);
+		}
+		if (fa != NULL) {
+			error = process_file_actions(*fa);
+			if (error)
+				_exit(127);
+		}
+		if (use_env_path)
+			_execvpe(path, argv, envp != NULL ? envp : environ);
+		else
+			_execve(path, argv, envp != NULL ? envp : environ);
+		error = errno;
+		_exit(127);
 	default:
-		if (psi.error != 0)
+		if (error != 0)
 			_waitpid(p, NULL, WNOHANG);
 		else if (pid != NULL)
 			*pid = p;
-		return (psi.error);
+		return (error);
 	}
 }
 
