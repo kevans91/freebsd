@@ -77,7 +77,7 @@ static int netdev_sock = -1;
 static int netdev_opens;
 
 static int	net_init(void);
-static int	net_open(struct open_file *, ...);
+static int	net_open(struct open_file *, struct devdesc *);
 static int	net_close(struct open_file *);
 static void	net_cleanup(void);
 static int	net_strategy(void *, int, daddr_t, size_t, char *, size_t *);
@@ -115,20 +115,13 @@ net_init(void)
 /*
  * Called by devopen after it sets f->f_dev to our devsw entry.
  * This opens the low-level device and sets f->f_devdata.
- * This is declared with variable arguments...
  */
 static int
-net_open(struct open_file *f, ...)
+net_open(struct open_file *f, struct devdesc *dev)
 {
 	struct iodesc *d;
-	va_list args;
-	struct devdesc *dev;
 	const char *devname;	/* Device part of file name (or NULL). */
 	int error = 0;
-
-	va_start(args, f);
-	dev = va_arg(args, struct devdesc *);
-	va_end(args);
 
 	devname = dev->d_dev->dv_name;
 	/* Before opening another interface, close the previous one first. */

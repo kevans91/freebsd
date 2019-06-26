@@ -61,7 +61,7 @@ static struct {
 /* devsw I/F */
 static int md_init(void);
 static int md_strategy(void *, int, daddr_t, size_t, char *, size_t *);
-static int md_open(struct open_file *, ...);
+static int md_open(struct open_file *, struct devdesc *);
 static int md_close(struct open_file *);
 static int md_print(int);
 
@@ -120,14 +120,8 @@ md_strategy(void *devdata, int rw, daddr_t blk, size_t size,
 }
 
 static int
-md_open(struct open_file *f, ...)
+md_open(struct open_file *f, struct devdesc *dev)
 {
-	va_list ap;
-	struct devdesc *dev;
-
-	va_start(ap, f);
-	dev = va_arg(ap, struct devdesc *);
-	va_end(ap);
 
 	if (dev->d_unit != 0)
 		return (ENXIO);

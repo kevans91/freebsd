@@ -34,7 +34,7 @@ __FBSDID("$FreeBSD$");
 static int hostdisk_init(void);
 static int hostdisk_strategy(void *devdata, int flag, daddr_t dblk,
     size_t size, char *buf, size_t *rsize);
-static int hostdisk_open(struct open_file *f, ...);
+static int hostdisk_open(struct open_file *f, struct devdesc *);
 static int hostdisk_close(struct open_file *f);
 static int hostdisk_ioctl(struct open_file *f, u_long cmd, void *data);
 static int hostdisk_print(int verbose);
@@ -85,14 +85,8 @@ hostdisk_strategy(void *devdata, int flag, daddr_t dblk, size_t size,
 }
 
 static int
-hostdisk_open(struct open_file *f, ...)
+hostdisk_open(struct open_file *f, struct devdesc *desc)
 {
-	struct devdesc *desc;
-	va_list vl;
-
-	va_start(vl, f);
-	desc = va_arg(vl, struct devdesc *);
-	va_end(vl);
 
 	desc->d_unit = host_open(desc->d_opendata, O_RDONLY, 0);
 

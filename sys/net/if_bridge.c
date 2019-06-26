@@ -2311,6 +2311,18 @@ bridge_input(struct ifnet *ifp, struct mbuf *m)
 	uint16_t vlan;
 	int error;
 
+	/*
+	 * We need to see if this has a vlan tag on it other than 0 that may
+	 * have some if_vlan(4) configuration.  If so, and ifp is the trunk, we
+	 * should not be touching this traffic.
+	 */
+	if ((m->m_flags & M_VLANTAG) &&
+	    EVL_VLANOFTAG(m->m_pkthdr.ether_vtag) != 0 &&
+	    vlan_configured_p != NULL) {
+		if ((*vlan_configured_p)(ifp, m) == 0)
+			return (m);
+	}
+
 	if ((sc->sc_ifp->if_drv_flags & IFF_DRV_RUNNING) == 0)
 		return (m);
 

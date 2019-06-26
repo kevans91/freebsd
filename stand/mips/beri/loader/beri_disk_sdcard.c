@@ -42,7 +42,7 @@ __FBSDID("$FreeBSD$");
 #include <sdcard.h>
 
 static int	beri_sdcard_disk_init(void);
-static int	beri_sdcard_disk_open(struct open_file *, ...);
+static int	beri_sdcard_disk_open(struct open_file *, struct devdesc *);
 static int	beri_sdcard_disk_close(struct open_file *);
 static int	beri_sdcard_disk_strategy(void *, int, daddr_t, size_t,
 		    char *, size_t *);
@@ -89,24 +89,18 @@ beri_sdcard_disk_strategy(void *devdata, int flag, daddr_t dblk, size_t size,
 }
 
 static int
-beri_sdcard_disk_open(struct open_file *f, ...)
+beri_sdcard_disk_open(struct open_file *f, struct devdesc *dev)
 {
-	va_list ap;
-	struct disk_devdesc *dev;
-
-	va_start(ap, f);
-	dev = va_arg(ap, struct disk_devdesc *);
-	va_end(ap);
 
 	if (!(altera_sdcard_get_present())) {
 		printf("SD card not present or not supported\n");
 		return (ENXIO);
 	}
 
-	if (dev->dd.d_unit != 0)
+	if (dev->d_unit != 0)
 		return (EIO);
-	return (disk_open(dev, altera_sdcard_get_mediasize(),
-	    altera_sdcard_get_sectorsize()));
+	return (disk_open((struct disk_devdesc *)dev,
+	    altera_sdcard_get_mediasize(), altera_sdcard_get_sectorsize()));
 }
 
 static int

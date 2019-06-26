@@ -299,6 +299,9 @@ static	int vlan_config(struct ifvlan *ifv, struct ifnet *p, uint16_t tag);
 static	void vlan_link_state(struct ifnet *ifp);
 static	void vlan_capabilities(struct ifvlan *ifv);
 static	void vlan_trunk_capabilities(struct ifnet *ifp);
+struct	ifvlan *vlan_configured_internal(struct ifnet *ifp, struct mbuf **m,
+    uint16_t *otag, bool modify_mbuf);
+static	int vlan_configured(struct ifnet *ifp, struct mbuf *m);
 
 static	struct ifnet *vlan_clone_match_ethervid(const char *, int *);
 static	int vlan_clone_match(struct if_clone *, const char *);
@@ -840,6 +843,7 @@ vlan_modevent(module_t mod, int type, void *data)
 		if (iflladdr_tag == NULL)
 			return (ENOMEM);
 		VLAN_LOCKING_INIT();
+		vlan_configured_p = vlan_configured;
 		vlan_input_p = vlan_input;
 		vlan_link_state_p = vlan_link_state;
 		vlan_trunk_cap_p = vlan_trunk_capabilities;
@@ -869,6 +873,7 @@ vlan_modevent(module_t mod, int type, void *data)
 #endif
 		EVENTHANDLER_DEREGISTER(ifnet_departure_event, ifdetach_tag);
 		EVENTHANDLER_DEREGISTER(iflladdr_event, iflladdr_tag);
+		vlan_configured_p = NULL;
 		vlan_input_p = NULL;
 		vlan_link_state_p = NULL;
 		vlan_trunk_cap_p = NULL;
@@ -1216,30 +1221,30 @@ vlan_qflush(struct ifnet *ifp __unused)
 {
 }
 
-static void
-vlan_input(struct ifnet *ifp, struct mbuf *m)
+/*
+ * Caller should work out net epoch details.
+ */
+struct ifvlan *
+vlan_configured_internal(struct ifnet *ifp, struct mbuf **m, uint16_t *otag,
+    bool modify_mbuf)
 {
-	struct epoch_tracker et;
 	struct ifvlantrunk *trunk;
-	struct ifvlan *ifv;
-	struct m_tag *mtag;
-	uint16_t vid, tag;
+	struct mbuf *m0;
+	uint16_t tag;
 
-	NET_EPOCH_ENTER(et);
 	trunk = ifp->if_vlantrunk;
-	if (trunk == NULL) {
-		NET_EPOCH_EXIT(et);
-		m_freem(m);
-		return;
-	}
+	if (trunk == NULL)
+		return (NULL);
 
-	if (m->m_flags & M_VLANTAG) {
+	m0 = *m;
+	if (m0->m_flags & M_VLANTAG) {
 		/*
 		 * Packet is tagged, but m contains a normal
 		 * Ethernet frame; the tag is stored out-of-band.
 		 */
-		tag = m->m_pkthdr.ether_vtag;
-		m->m_flags &= ~M_VLANTAG;
+		tag = m0->m_pkthdr.ether_vtag;
+		if (modify_mbuf)
+		    m0->m_flags &= ~M_VLANTAG;
 	} else {
 		struct ether_vlan_header *evl;
 
@@ -1248,15 +1253,24 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 		 */
 		switch (ifp->if_type) {
 		case IFT_ETHER:
-			if (m->m_len < sizeof(*evl) &&
-			    (m = m_pullup(m, sizeof(*evl))) == NULL) {
-				if_printf(ifp, "cannot pullup VLAN header\n");
-				NET_EPOCH_EXIT(et);
-				return;
+			if (m0->m_len < sizeof(*evl)) {
+				if (modify_mbuf)
+					m0 = *m = m_pullup(m0, sizeof(*evl));
+				else
+					m0 = m_copyup(m0, sizeof(*evl), 0);
+				if (m0 == NULL) {
+					if_printf(ifp,
+					    "cannot pullup VLAN header\n");
+					return (NULL);
+				}
 			}
-			evl = mtod(m, struct ether_vlan_header *);
+			evl = mtod(m0, struct ether_vlan_header *);
 			tag = ntohs(evl->evl_tag);
 
+			if (!modify_mbuf) {
+				m_freem(m0);
+				break;
+			}
 			/*
 			 * Remove the 802.1q header by copying the Ethernet
 			 * addresses over it and adjusting the beginning of
@@ -1265,27 +1279,56 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 			 */
 			bcopy((char *)evl, (char *)evl + ETHER_VLAN_ENCAP_LEN,
 			      ETHER_HDR_LEN - ETHER_TYPE_LEN);
-			m_adj(m, ETHER_VLAN_ENCAP_LEN);
+			m_adj(m0, ETHER_VLAN_ENCAP_LEN);
 			break;
 
 		default:
 #ifdef INVARIANTS
-			panic("%s: %s has unsupported if_type %u",
-			      __func__, ifp->if_xname, ifp->if_type);
+			if (modify_mbuf)
+			    panic("%s: %s has unsupported if_type %u",
+				  __func__, ifp->if_xname, ifp->if_type);
 #endif
-			if_inc_counter(ifp, IFCOUNTER_NOPROTO, 1);
-			NET_EPOCH_EXIT(et);
-			m_freem(m);
-			return;
+			return (NULL);
 		}
 	}
 
-	vid = EVL_VLANOFTAG(tag);
+	if (otag != NULL)
+		*otag = tag;
 
-	ifv = vlan_gethash(trunk, vid);
+	return (vlan_gethash(trunk, EVL_VLANOFTAG(tag)));
+}
+
+/*
+ * Allows non-if_vlan(4) consumers to determine if an mbuf is both configured
+ * for a vlan, and if we have an if_vlan(4) interface configured for it.
+ */
+static int
+vlan_configured(struct ifnet *ifp, struct mbuf *m)
+{
+	struct epoch_tracker et;
+	struct ifvlan *ifv;
+
+	NET_EPOCH_ENTER(et);
+	ifv = vlan_configured_internal(ifp, &m, NULL, false);
+	NET_EPOCH_EXIT(et);
+
+	return (ifv != NULL ? 0 : 1);
+}
+
+static void
+vlan_input(struct ifnet *ifp, struct mbuf *m)
+{
+	struct epoch_tracker et;
+	struct ifvlan *ifv;
+	struct m_tag *mtag;
+	uint16_t tag;
+
+	NET_EPOCH_ENTER(et);
+	ifv = vlan_configured_internal(ifp, &m, &tag, true);
 	if (ifv == NULL || !UP_AND_RUNNING(ifv->ifv_ifp)) {
+		if (ifp->if_vlantrunk != NULL)
+			if_inc_counter(ifp, IFCOUNTER_NOPROTO, 1);
 		NET_EPOCH_EXIT(et);
-		if_inc_counter(ifp, IFCOUNTER_NOPROTO, 1);
 		m_freem(m);
 		return;
 	}

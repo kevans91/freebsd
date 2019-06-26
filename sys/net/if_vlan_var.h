@@ -143,6 +143,7 @@ struct	vlanreq {
 	((_ifp)->if_vlantrunk != NULL ? (*vlan_devat_p)((_ifp), (_vid)) : NULL)
 
 extern	void (*vlan_trunk_cap_p)(struct ifnet *);
+extern	int (*vlan_configured_p)(struct ifnet *, struct mbuf *);
 extern	struct ifnet *(*vlan_trunkdev_p)(struct ifnet *);
 extern	struct ifnet *(*vlan_devat_p)(struct ifnet *, uint16_t);
 extern	int (*vlan_tag_p)(struct ifnet *, uint16_t *);

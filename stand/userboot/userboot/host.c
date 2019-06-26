@@ -141,14 +141,8 @@ host_dev_print(int verbose)
  * 'Open' the host device.
  */
 static int
-host_dev_open(struct open_file *f, ...)
+host_dev_open(struct open_file *f, struct devdesc *dev)
 {
-	va_list		args;
-	struct devdesc	*dev;
-
-	va_start(args, f);
-	dev = va_arg(args, struct devdesc*);
-	va_end(args);
 
 	return (0);
 }

@@ -246,7 +246,7 @@ extract_currdev(void)
 		 * If we cannot auto-detect the partition type then
 		 * access the disk as a raw device.
 		 */
-		if (dev.dd.d_dev->dv_open(NULL, &dev)) {
+		if (dv_open(dev.dd.d_dev, NULL, (struct devdesc *)&dev)) {
 			dev.d_slice = D_SLICENONE;
 			dev.d_partition = D_PARTNONE;
 		}

@@ -42,7 +42,7 @@ __FBSDID("$FreeBSD$");
 #include <cfi.h>
 
 static int	beri_cfi_disk_init(void);
-static int	beri_cfi_disk_open(struct open_file *, ...);
+static int	beri_cfi_disk_open(struct open_file *, struct devdesc *);
 static int	beri_cfi_disk_close(struct open_file *);
 static int	beri_cfi_disk_strategy(void *, int, daddr_t, size_t,
 		    char *, size_t *);
@@ -89,18 +89,13 @@ beri_cfi_disk_strategy(void *devdata, int flag, daddr_t dblk, size_t size,
 }
 
 static int
-beri_cfi_disk_open(struct open_file *f, ...)
+beri_cfi_disk_open(struct open_file *f, struct devdesc *dev)
 {
-	va_list ap;
-	struct disk_devdesc *dev;
 
-	va_start(ap, f);
-	dev = va_arg(ap, struct disk_devdesc *);
-	va_end(ap);
-
-	if (dev->dd.d_unit != 0)
+	if (dev->d_unit != 0)
 		return (EIO);
-	return (disk_open(dev, cfi_get_mediasize(), cfi_get_sectorsize()));
+	return (disk_open((struct disk_devdesc *)dev, cfi_get_mediasize(),
+	    cfi_get_sectorsize()));
 }
 
 static int

@@ -145,6 +145,7 @@ SRCS+=	ufs.c nfs.c cd9660.c tftp.c gzipfs.c bzipfs.c
 SRCS+=	dosfs.c ext2fs.c
 SRCS+=	splitfs.c
 SRCS+=	pkgfs.c
+SRCS+=	conf.c
 
 # kernel ufs support
 .PATH: ${SRCTOP}/sys/ufs/ffs

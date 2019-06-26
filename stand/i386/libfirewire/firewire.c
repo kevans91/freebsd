@@ -68,7 +68,7 @@ struct crom_src_buf {
 static int	fw_init(void);
 static int	fw_strategy(void *devdata, int flag, daddr_t dblk,
 		    size_t size, char *buf, size_t *rsize);
-static int	fw_open(struct open_file *f, ...);
+static int	fw_open(struct open_file *f, struct devdesc *dev);
 static int	fw_close(struct open_file *f);
 static int	fw_print(int verbose);
 static void	fw_cleanup(void);
@@ -176,17 +176,13 @@ fw_print(int verbose)
 }
 
 static int 
-fw_open(struct open_file *f, ...)
+fw_open(struct open_file *f, struct devdesc *dev)
 {
 #if 0
     va_list			ap;
-    struct i386_devdesc		*dev;
     struct open_disk		*od;
     int				error;
 
-    va_start(ap, f);
-    dev = va_arg(ap, struct i386_devdesc *);
-    va_end(ap);
 #endif
 
     return (ENXIO);

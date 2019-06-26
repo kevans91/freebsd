@@ -2298,6 +2298,7 @@ if_route(struct ifnet *ifp, int flag, int fam)
 #endif
 }
 
+int	(*vlan_configured_p)(struct ifnet *, struct mbuf *);
 void	(*vlan_link_state_p)(struct ifnet *);	/* XXX: private from if_vlan */
 void	(*vlan_trunk_cap_p)(struct ifnet *);		/* XXX: private from if_vlan */
 struct ifnet *(*vlan_trunkdev_p)(struct ifnet *);
