@@ -895,9 +895,7 @@ main(int argc, CHAR16 *argv[])
 		    "failures\n", i);
 	}
 
-	for (i = 0; devsw[i] != NULL; i++)
-		if (devsw[i]->dv_init != NULL)
-			(devsw[i]->dv_init)();
+	devsw_init();
 
 	/*
 	 * Detect console settings two different ways: one via the command

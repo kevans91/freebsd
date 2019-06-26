@@ -492,11 +492,10 @@ main(int argc, char **argv)
 	/*
 	 * March through the device switch probing for things.
 	 */
-	for (i = 0; devsw[i] != NULL; i++) {
+	devsw_init();
 
-		if (devsw[i]->dv_init == NULL)
-			continue;
-		if ((devsw[i]->dv_init)() != 0)
+	for (i = 0; devsw[i] != NULL; i++) {
+		if (!devsw[i]->dv_inited)
 			continue;
 
 		printf("Found U-Boot device: %s\n", devsw[i]->dv_name);

@@ -105,7 +105,6 @@ struct bootinfo	boot2_bootinfo;
 int
 main(int argc, char *argv[], char *envv[], struct bootinfo *bootinfop)
 {
-	struct devsw **dp;
 
 	/* NB: Must be sure to bzero() before using any globals. */
 	bzero(&__bss_start, &__bss_end - &__bss_start);
@@ -138,10 +137,7 @@ main(int argc, char *argv[], char *envv[], struct bootinfo *bootinfop)
 	/*
 	 * Initialise devices.
 	 */
-	for (dp = devsw; *dp != NULL; dp++) {
-		if ((*dp)->dv_init != NULL)
-			(*dp)->dv_init();
-	}
+	devsw_init();
 	extract_currdev(bootinfop);
 
 	printf("\n%s", bootprog_info);

@@ -93,7 +93,6 @@ int
 main(int (*openfirm)(void *))
 {
 	phandle_t	root;
-	int		i;
 	char		bootpath[64];
 	char		*ch;
 	int		bargc;
@@ -125,9 +124,7 @@ main(int (*openfirm)(void *))
 	/*
 	 * March through the device switch probing for things.
 	 */
-	for (i = 0; devsw[i] != NULL; i++)
-		if (devsw[i]->dv_init != NULL)
-			(devsw[i]->dv_init)();
+	devsw_init();
 
 	printf("\n%s", bootprog_info);
 	printf("Memory: %lldKB\n", memsize() / 1024);

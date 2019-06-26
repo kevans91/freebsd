@@ -813,7 +813,6 @@ int
 main(int (*openfirm)(void *))
 {
 	char compatible[32];
-	struct devsw **dp;
 
 	/*
 	 * Tell the Open Firmware functions where they find the OFW gate.
@@ -853,9 +852,7 @@ main(int (*openfirm)(void *))
 	/*
 	 * Initialize devices.
 	 */
-	for (dp = devsw; *dp != NULL; dp++)
-		if ((*dp)->dv_init != 0)
-			(*dp)->dv_init();
+	devsw_init();
 
 #ifdef LOADER_ZFS_SUPPORT
 	if (zfs_currdev.pool_guid != 0) {

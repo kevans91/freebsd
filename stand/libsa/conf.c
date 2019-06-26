@@ -30,12 +30,33 @@ __FBSDID("$FreeBSD$");
 
 #include "stand.h"
 
+void
+devsw_init(void)
+{
+	struct devsw **dp, *dev;
+
+	for (dp = devsw; *dp != NULL; ++dp) {
+		dev = *dp;
+		/*
+		 * No init must mean that the devsw is usable without any
+		 * setup.
+		 */
+		if (dev->dv_init != NULL)
+			dev->dv_inited = (dev->dv_init() == 0);
+		else
+			dev->dv_inited = 1;
+	}
+}
+
 int
 dv_open(struct devsw *devsw, struct open_file *f, struct devdesc *dev)
 {
 
 	if (dev == NULL)
 		return (EINVAL);
+	/* Device not configured */
+	if (!devsw->dv_inited)
+		return (ENXIO);
 
 	return (devsw->dv_open(f, dev));
 }

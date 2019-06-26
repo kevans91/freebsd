@@ -89,7 +89,6 @@ static void *heap_bottom;
 int
 main(void)
 {
-    int			i;
 
     /* Pick up arguments */
     kargs = (void *)__args;
@@ -217,9 +216,7 @@ main(void)
     /*
      * March through the device switch probing for things.
      */
-    for (i = 0; devsw[i] != NULL; i++)
-	if (devsw[i]->dv_init != NULL)
-	    (devsw[i]->dv_init)();
+    devsw_init();
     printf("BIOS %dkB/%dkB available memory\n", bios_basemem / 1024, bios_extmem / 1024);
     if (initial_bootinfo != NULL) {
 	initial_bootinfo->bi_basemem = bios_basemem / 1024;

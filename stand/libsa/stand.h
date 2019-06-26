@@ -154,6 +154,7 @@ struct devsw {
     int		(*dv_ioctl)(struct open_file *f, u_long cmd, void *data);
     int		(*dv_print)(int verbose);	/* print device information */
     void	(*dv_cleanup)(void);
+    int		dv_inited;
 };
 
 /*
@@ -412,6 +413,7 @@ extern struct fs_ops	*file_system[];
 extern struct fs_ops	*exclusive_file_system;
 extern struct devsw	*devsw[];
 
+void devsw_init(void);
 int dv_open(struct devsw *devsw, struct open_file *f, struct devdesc *dev);
 
 /*

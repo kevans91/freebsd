@@ -192,9 +192,7 @@ loader_main(struct loader_callbacks *cb, void *arg, int version, int ndisks)
 	/*
 	 * March through the device switch probing for things.
 	 */
-	for (i = 0; devsw[i] != NULL; i++)
-		if (devsw[i]->dv_init != NULL)
-			(devsw[i]->dv_init)();
+	devsw_init();
 
 	extract_currdev();
 
