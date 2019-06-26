@@ -54,7 +54,7 @@ static int	userdisk_strategy(void *devdata, int flag, daddr_t dblk,
 		    size_t size, char *buf, size_t *rsize);
 static int	userdisk_realstrategy(void *devdata, int flag, daddr_t dblk,
 		    size_t size, char *buf, size_t *rsize);
-static int	userdisk_open(struct open_file *f, ...);
+static int	userdisk_open(struct open_file *f);
 static int	userdisk_close(struct open_file *f);
 static int	userdisk_ioctl(struct open_file *f, u_long cmd, void *data);
 static int	userdisk_print(int verbose);
@@ -154,22 +154,18 @@ userdisk_print(int verbose)
  * Attempt to open the disk described by (dev) for use by (f).
  */
 static int
-userdisk_open(struct open_file *f, ...)
+userdisk_open(struct open_file *f)
 {
-	va_list			ap;
-	struct disk_devdesc	*dev;
+	struct devdesc *dev;
 
-	va_start(ap, f);
-	dev = va_arg(ap, struct disk_devdesc *);
-	va_end(ap);
-
-	if (dev->dd.d_unit < 0 || dev->dd.d_unit >= userdisk_maxunit)
+	dev = f->f_devdata;
+	if (dev->d_unit < 0 || dev->d_unit >= userdisk_maxunit)
 		return (EIO);
-	ud_info[dev->dd.d_unit].ud_open++;
-	if (ud_info[dev->dd.d_unit].ud_bcache == NULL)
-		ud_info[dev->dd.d_unit].ud_bcache = bcache_allocate();
-	return (disk_open(dev, ud_info[dev->dd.d_unit].mediasize,
-	    ud_info[dev->dd.d_unit].sectorsize));
+	ud_info[dev->d_unit].ud_open++;
+	if (ud_info[dev->d_unit].ud_bcache == NULL)
+		ud_info[dev->d_unit].ud_bcache = bcache_allocate();
+	return (disk_open((struct disk_devdesc *)dev,
+	    ud_info[dev->d_unit].mediasize, ud_info[dev->d_unit].sectorsize));
 }
 
 static int

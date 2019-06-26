@@ -383,7 +383,7 @@ probe_disks(int devidx, int load_type, int load_unit, int load_slice,
 		for (currdev.dd.d_unit = 0; currdev.dd.d_unit < UB_MAX_DEV;
 		     currdev.dd.d_unit++) {
 			print_disk_probe_info();
-			open_result = devsw[devidx]->dv_open(&f, &currdev);
+			open_result = devsw[devidx]->dv_open(&f);
 			if (open_result == 0) {
 				printf(" good.\n");
 				return (0);
@@ -401,7 +401,7 @@ probe_disks(int devidx, int load_type, int load_unit, int load_slice,
 			if (currdev.dd.d_unit == -1)
 				break;
 			print_disk_probe_info();
-			open_result = devsw[devidx]->dv_open(&f, &currdev);
+			open_result = devsw[devidx]->dv_open(&f);
 			if (open_result == 0) {
 				printf(" good.\n");
 				return (0);
@@ -413,7 +413,7 @@ probe_disks(int devidx, int load_type, int load_unit, int load_slice,
 
 	if ((currdev.dd.d_unit = uboot_diskgetunit(load_type, load_unit)) != -1) {
 		print_disk_probe_info();
-		open_result = devsw[devidx]->dv_open(&f,&currdev);
+		open_result = devsw[devidx]->dv_open(&f);
 		if (open_result == 0) {
 			printf(" good.\n");
 			return (0);

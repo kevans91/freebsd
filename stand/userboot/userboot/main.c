@@ -245,15 +245,19 @@ extract_currdev(void)
 #endif
 
 	if (userboot_disk_maxunit > 0) {
+		struct open_file f = { 0 };
+
 		dev.dd.d_dev = &userboot_disk;
 		dev.dd.d_unit = 0;
 		dev.d_slice = D_SLICEWILD;
 		dev.d_partition = D_PARTWILD;
+		f.f_devdata = &dev;
+
 		/*
 		 * If we cannot auto-detect the partition type then
 		 * access the disk as a raw device.
 		 */
-		if (dev.dd.d_dev->dv_open(NULL, &dev)) {
+		if (dev.dd.d_dev->dv_open(&f)) {
 			dev.d_slice = D_SLICENONE;
 			dev.d_partition = D_PARTNONE;
 		}

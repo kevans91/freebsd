@@ -233,6 +233,10 @@ disk_open(struct disk_devdesc *dev, uint64_t mediasize, u_int sectorsize)
 	struct ptable_entry part;
 	int rc, slice, partition;
 
+	/*
+	 * XXX Audit callers, see if we have anything shifty going on or if we
+	 * can properly assert here that dev->dd.d_dev->dv_type == DEVT_DISK.
+	 */
 	if (sectorsize == 0) {
 		DPRINTF("unknown sector size");
 		return (ENXIO);

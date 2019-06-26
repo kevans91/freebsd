@@ -144,7 +144,7 @@ static int bd_strategy(void *devdata, int flag, daddr_t dblk, size_t size,
     char *buf, size_t *rsize);
 static int bd_realstrategy(void *devdata, int flag, daddr_t dblk, size_t size,
     char *buf, size_t *rsize);
-static int bd_open(struct open_file *f, ...);
+static int bd_open(struct open_file *f);
 static int bd_close(struct open_file *f);
 static int bd_ioctl(struct open_file *f, u_long cmd, void *data);
 static int bd_print(int verbose);
@@ -835,20 +835,16 @@ bd_disk_get_sectors(struct disk_devdesc *dev)
  *  slice before it?)
  */
 static int
-bd_open(struct open_file *f, ...)
+bd_open(struct open_file *f)
 {
+	struct devdesc *dev;
 	bdinfo_t *bd;
-	struct disk_devdesc *dev;
-	va_list ap;
 	int rc;
 
 	TSENTER();
 
-	va_start(ap, f);
-	dev = va_arg(ap, struct disk_devdesc *);
-	va_end(ap);
-
-	bd = bd_get_bdinfo(&dev->dd);
+	dev = f->f_devdata;
+	bd = bd_get_bdinfo(dev);
 	if (bd == NULL)
 		return (EIO);
 
@@ -862,13 +858,13 @@ bd_open(struct open_file *f, ...)
 	    bd->bd_bcache = bcache_allocate();
 
 	if (bd->bd_open == 0)
-		bd->bd_sectors = bd_disk_get_sectors(dev);
+		bd->bd_sectors = bd_disk_get_sectors((struct disk_devdesc *)dev);
 	bd->bd_open++;
 
 	rc = 0;
-	if (dev->dd.d_dev->dv_type == DEVT_DISK) {
-		rc = disk_open(dev, bd->bd_sectors * bd->bd_sectorsize,
-		    bd->bd_sectorsize);
+	if (dev->d_dev->dv_type == DEVT_DISK) {
+		rc = disk_open((struct disk_devdesc *)dev,
+		    bd->bd_sectors * bd->bd_sectorsize, bd->bd_sectorsize);
 		if (rc != 0) {
 			bd->bd_open--;
 			if (bd->bd_open == 0) {

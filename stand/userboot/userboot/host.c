@@ -130,7 +130,7 @@ host_dev_print(int verbose)
  * 'Open' the host device.
  */
 static int
-host_dev_open(struct open_file *f, ...)
+host_dev_open(struct open_file *f __unused)
 {
 
 	return (0);

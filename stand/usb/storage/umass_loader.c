@@ -43,7 +43,7 @@
 #include "umass_common.h"
 
 static int umass_disk_init(void);
-static int umass_disk_open(struct open_file *,...);
+static int umass_disk_open(struct open_file *);
 static int umass_disk_close(struct open_file *);
 static void umass_disk_cleanup(void);
 static int umass_disk_ioctl(struct open_file *, u_long, void *);
@@ -122,20 +122,16 @@ umass_disk_open_sub(struct disk_devdesc *dev)
 }
 
 static int
-umass_disk_open(struct open_file *f,...)
+umass_disk_open(struct open_file *f)
 {
-	va_list ap;
-	struct disk_devdesc *dev;
+	struct devdesc *dev;
 
-	va_start(ap, f);
-	dev = va_arg(ap, struct disk_devdesc *);
-	va_end(ap);
-
+	dev = f->f_devdata;
 	if (umass_uaa.device == NULL)
 		return (ENXIO);
 	if (dev->d_unit != 0)
 		return (EIO);
-	return (umass_disk_open_sub(dev));
+	return (umass_disk_open_sub((struct disk_devdesc *)dev));
 }
 
 static int

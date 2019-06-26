@@ -35,7 +35,7 @@
 
 static int vdisk_init(void);
 static int vdisk_strategy(void *, int, daddr_t, size_t, char *, size_t *);
-static int vdisk_open(struct open_file *, ...);
+static int vdisk_open(struct open_file *);
 static int vdisk_close(struct open_file *);
 static int vdisk_ioctl(struct open_file *, u_long, void *);
 static int vdisk_print(int);
@@ -290,24 +290,20 @@ vdisk_strategy(void *devdata, int rw, daddr_t blk, size_t size,
 }
 
 static int
-vdisk_open(struct open_file *f, ...)
+vdisk_open(struct open_file *f)
 {
-	va_list args;
-	struct disk_devdesc *dev;
+	struct devdesc *dev;
 	vdisk_info_t *vd;
 	int rc = 0;
 
-	va_start(args, f);
-	dev = va_arg(args, struct disk_devdesc *);
-	va_end(args);
-	if (dev == NULL)
-		return (EINVAL);
-	vd = vdisk_get_info((struct devdesc *)dev);
+	dev = f->f_devdata;
+	vd = vdisk_get_info(dev);
 	if (vd == NULL)
 		return (EINVAL);
 
-	if (dev->dd.d_dev->dv_type == DEVT_DISK) {
-		rc = disk_open(dev, vd->vdisk_size, vd->vdisk_sectorsz);
+	if (dev->d_dev->dv_type == DEVT_DISK) {
+		rc = disk_open((struct disk_devdesc *)dev, vd->vdisk_size,
+		    vd->vdisk_sectorsz);
 	}
 	if (rc == 0)
 		vd->vdisk_open++;

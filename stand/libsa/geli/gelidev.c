@@ -35,7 +35,7 @@
 
 static int  geli_dev_init(void);
 static int  geli_dev_strategy(void *, int, daddr_t, size_t, char *, size_t *);
-static int  geli_dev_open(struct open_file *f, ...);
+static int  geli_dev_open(struct open_file *f);
 static int  geli_dev_close(struct open_file *f);
 static int  geli_dev_ioctl(struct open_file *, u_long, void *);
 static int  geli_dev_print(int);
@@ -200,7 +200,7 @@ out:
 }
 
 static int
-geli_dev_open(struct open_file *f, ...)
+geli_dev_open(struct open_file *f __unused)
 {
 
 	/*

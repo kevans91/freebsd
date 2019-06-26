@@ -1538,18 +1538,14 @@ zfs_dev_print(int verbose)
  * Attempt to open the pool described by (dev) for use by (f).
  */
 static int
-zfs_dev_open(struct open_file *f, ...)
+zfs_dev_open(struct open_file *f)
 {
-	va_list		args;
 	struct zfs_devdesc	*dev;
 	struct zfsmount	*mount;
 	spa_t		*spa;
 	int		rv;
 
-	va_start(args, f);
-	dev = va_arg(args, struct zfs_devdesc *);
-	va_end(args);
-
+	dev = (struct zfs_devdesc *)f->f_devdata;
 	if ((spa = spa_find_by_dev(dev)) == NULL)
 		return (ENXIO);
 

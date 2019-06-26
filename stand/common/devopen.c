@@ -46,7 +46,7 @@ devopen(struct open_file *f, const char *fname, const char **file)
 	/* point to device-specific data so that device open can use it */
 	f->f_dev = dev->d_dev;
 	f->f_devdata = dev;
-	result = dev->d_dev->dv_open(f, dev);
+	result = dev->d_dev->dv_open(f);
 	if (result != 0) {
 		f->f_devdata = NULL;
 		f->f_dev = NULL;

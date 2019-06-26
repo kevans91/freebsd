@@ -152,7 +152,7 @@ struct devsw {
     int		(*dv_init)(void);	/* early probe call */
     int		(*dv_strategy)(void *devdata, int rw, daddr_t blk,
 			size_t size, char *buf, size_t *rsize);
-    int		(*dv_open)(struct open_file *f, ...);
+    int		(*dv_open)(struct open_file *f);
     int		(*dv_close)(struct open_file *f);
     int		(*dv_ioctl)(struct open_file *f, u_long cmd, void *data);
     int		(*dv_print)(int verbose);	/* print device information */
@@ -181,8 +181,13 @@ extern const char *zero_region;
  * though what's passed into the open routine may differ from what's present
  * after the open on some configurations.
  */
+/*
+ * XXX We do enough casts to disk_devdesc that a dev2disk would likely be a good
+ * idea.
+ */
 struct devdesc {
     struct devsw	*d_dev;
+    size_t		d_size;
     int			d_unit;
     void		*d_opendata;
 };

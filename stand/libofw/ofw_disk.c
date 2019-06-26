@@ -42,7 +42,7 @@
 static int	ofwd_init(void);
 static int	ofwd_strategy(void *devdata, int flag, daddr_t dblk,
 		    size_t size, char *buf, size_t *rsize);
-static int	ofwd_open(struct open_file *f, ...);
+static int	ofwd_open(struct open_file *f);
 static int	ofwd_close(struct open_file *f);
 static int	ofwd_ioctl(struct open_file *f, u_long cmd, void *data);
 static int	ofwd_print(int verbose);
@@ -120,15 +120,11 @@ ofwd_strategy(void *devdata, int flag __unused, daddr_t dblk, size_t size,
 }
 
 static int
-ofwd_open(struct open_file *f, ...)
+ofwd_open(struct open_file *f)
 {
 	struct ofw_devdesc *dp;
-	va_list vl;
 
-	va_start(vl, f);
-	dp = va_arg(vl, struct ofw_devdesc *);
-	va_end(vl);
-
+	dp = (struct ofw_devdesc *)f->f_devdata;
 	if (dp != kdp) {
 		if (kdp != NULL) {
 			OF_close(kdp->d_handle);

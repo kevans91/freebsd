@@ -50,7 +50,7 @@ static void efipart_cdinfo_add(pdinfo_t *);
 static int efipart_strategy(void *, int, daddr_t, size_t, char *, size_t *);
 static int efipart_realstrategy(void *, int, daddr_t, size_t, char *, size_t *);
 
-static int efipart_open(struct open_file *, ...);
+static int efipart_open(struct open_file *);
 static int efipart_close(struct open_file *);
 static int efipart_ioctl(struct open_file *, u_long, void *);
 
@@ -879,21 +879,15 @@ efipart_printhd(int verbose)
 }
 
 static int
-efipart_open(struct open_file *f, ...)
+efipart_open(struct open_file *f)
 {
-	va_list args;
-	struct disk_devdesc *dev;
+	struct devdesc *dev;
 	pdinfo_t *pd;
 	EFI_BLOCK_IO *blkio;
 	EFI_STATUS status;
 
-	va_start(args, f);
-	dev = va_arg(args, struct disk_devdesc *);
-	va_end(args);
-	if (dev == NULL)
-		return (EINVAL);
-
-	pd = efiblk_get_pdinfo((struct devdesc *)dev);
+	dev = f->f_devdata;
+	pd = efiblk_get_pdinfo(dev);
 	if (pd == NULL)
 		return (EIO);
 
@@ -912,10 +906,10 @@ efipart_open(struct open_file *f, ...)
 	if (pd->pd_bcache == NULL)
 		pd->pd_bcache = bcache_allocate();
 
-	if (dev->dd.d_dev->dv_type == DEVT_DISK) {
+	if (dev->d_dev->dv_type == DEVT_DISK) {
 		int rc;
 
-		rc = disk_open(dev,
+		rc = disk_open((struct disk_devdesc *)dev,
 		    blkio->Media->BlockSize * (blkio->Media->LastBlock + 1),
 		    blkio->Media->BlockSize);
 		if (rc != 0) {

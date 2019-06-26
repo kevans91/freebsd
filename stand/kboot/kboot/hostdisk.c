@@ -39,7 +39,7 @@
 static int hostdisk_init(void);
 static int hostdisk_strategy(void *devdata, int flag, daddr_t dblk,
     size_t size, char *buf, size_t *rsize);
-static int hostdisk_open(struct open_file *f, ...);
+static int hostdisk_open(struct open_file *f);
 static int hostdisk_close(struct open_file *f);
 static int hostdisk_ioctl(struct open_file *f, u_long cmd, void *data);
 static int hostdisk_print(int verbose);
@@ -329,16 +329,13 @@ hostdisk_strategy(void *devdata, int flag, daddr_t dblk, size_t size,
 }
 
 static int
-hostdisk_open(struct open_file *f, ...)
+hostdisk_open(struct open_file *f)
 {
 	struct devdesc *desc;
 	const char *fn;
-	va_list vl;
 
-	va_start(vl, f);
-	desc = va_arg(vl, struct devdesc *);
-	va_end(vl);
 
+	desc = f->f_devdata;
 	fn = dev2hd(desc)->hd_dev;
 	desc->d_unit = host_open(fn, O_RDWR, 0);
 	if (desc->d_unit <= 0) {

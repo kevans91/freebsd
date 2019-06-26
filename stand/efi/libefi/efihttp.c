@@ -53,7 +53,7 @@ static bool efihttp_init_done = false;
 static int efihttp_dev_init(void);
 static int efihttp_dev_strategy(void *devdata, int rw, daddr_t blk, size_t size,
     char *buf, size_t *rsize);
-static int efihttp_dev_open(struct open_file *f, ...);
+static int efihttp_dev_open(struct open_file *f);
 static int efihttp_dev_close(struct open_file *f);
 
 static int efihttp_fs_open(const char *path, struct open_file *f);
@@ -223,8 +223,9 @@ efihttp_dev_strategy(void *devdata __unused, int rw __unused,
 }
 
 static int
-efihttp_dev_open(struct open_file *f, ...)
+efihttp_dev_open(struct open_file *f)
 {
+	struct devdesc *dev;
 	EFI_HTTP_CONFIG_DATA config;
 	EFI_HTTPv4_ACCESS_POINT config_access;
 	DNS_DEVICE_PATH *dns;
@@ -233,13 +234,13 @@ efihttp_dev_open(struct open_file *f, ...)
 	IPv4_DEVICE_PATH *ipv4;
 	MAC_ADDR_DEVICE_PATH *mac;
 	URI_DEVICE_PATH *uri;
-	struct devdesc *dev;
 	struct open_efihttp *oh;
 	char *c;
 	EFI_HANDLE handle;
 	EFI_STATUS status;
 	int err, len;
 
+	dev = f->f_devdata;
 	if (!efihttp_init_done)
 		return (ENXIO);
 
@@ -287,7 +288,6 @@ efihttp_dev_open(struct open_file *f, ...)
 	if (!oh)
 		return (ENOMEM);
 	oh->dev_handle = handle;
-	dev = (struct devdesc *)f->f_devdata;
 	dev->d_opendata = oh;
 
 	status = BS->OpenProtocol(handle, &httpsb_guid, (void **)&sb, IH, NULL,
