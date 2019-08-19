@@ -29,12 +29,14 @@
 #define	HAVE_CTORS
 #define	CTORS_CONSTRUCTORS
 #ifdef __mips_o32
+/* The .cprestore is bogus, as we do elsewhere */
 #define	INIT_CALL_SEQ(func)						\
     ".set noreorder		\n"					\
     "bal	1f		\n"					\
     "nop			\n"					\
     "1:				\n"					\
     ".cpload $ra		\n"					\
+    ".cprestore 12		\n"					\
     ".set reorder		\n"					\
     ".local	" __STRING(func) "\n"					\
     "jal	" __STRING(func)
