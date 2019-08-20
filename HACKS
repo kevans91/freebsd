@@ -1,0 +1,8 @@
+# Seems to choke on fusefs tests... further testing required
+WITHOUT_TESTS=YES
+
+GDB!
+- break reloc.c:496 if where == ${address}
+- set startup-with-shell off
+- set environment LD_LIBRARY_PATH=/good
+- run
