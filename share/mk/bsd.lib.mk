@@ -281,13 +281,29 @@ CLEANFILES+=	${SOBJS}
 .if defined(SHLIB_NAME)
 _LIBS+=		${SHLIB_NAME}
 
+.if ${MACHINE_CPUARCH:Mmips} == ""
+# Sabotage non-MIPS usage; these shouldn't crop up.
+.undef ALLOW_SHARED_TEXTREL
+.elif ${MACHINE_CPUARCH:Mmips} && !defined(ALLOW_SHARED_TEXTREL)
+# Check if we should be defining ALLOW_SHARED_TEXTREL... basically, C++
+# or -fexceptions in CFLAGS on MIPS.  This works around clang/lld attempting
+# to generate text relocations in read-only .eh_frame
+.if ${CFLAGS:M-fexceptions} || defined(SHLIB_CXX) || defined(LIB_CXX)
+ALLOW_SHARED_TEXTREL=	yes
+.endif
+.endif
+
 SOLINKOPTS+=	-shared -Wl,-x
+.if !defined(ALLOW_SHARED_TEXTREL)
 .if defined(LD_FATAL_WARNINGS) && ${LD_FATAL_WARNINGS} == "no"
 SOLINKOPTS+=	-Wl,--no-fatal-warnings
 .else
 SOLINKOPTS+=	-Wl,--fatal-warnings
 .endif
 SOLINKOPTS+=	-Wl,--warn-shared-textrel
+.elif ${ALLOW_SHARED_TEXTREL} != "no"
+SOLINKOPTS+=	-Wl,-z,notext
+.endif
 
 .if target(beforelinking)
 beforelinking: ${SOBJS}

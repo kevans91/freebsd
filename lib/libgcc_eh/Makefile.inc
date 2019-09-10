@@ -6,6 +6,8 @@ UNWINDSRCDIR=	${SRCTOP}/contrib/libunwind/src
 
 STATIC_CFLAGS+=${PICFLAG} -fvisibility=hidden -DVISIBILITY_HIDDEN
 
+ALLOW_SHARED_TEXTREL=yes
+
 .PATH: ${COMPILERRTDIR}/lib/builtins
 .PATH: ${UNWINDSRCDIR}
 SRCS_EXC+=	gcc_personality_v0.c

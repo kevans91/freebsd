@@ -11,6 +11,8 @@ CXXINCLUDEDIR=	${INCLUDEDIR}/c++/v${SHLIB_MAJOR}
 STATIC_CXXFLAGS+= -mlong-calls
 .endif
 
+ALLOW_SHARED_TEXTREL=	yes
+
 .PATH: ${SRCDIR}
 
 LIB=		c++

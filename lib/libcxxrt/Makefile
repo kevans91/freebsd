@@ -5,6 +5,7 @@ SRCDIR=		${SRCTOP}/contrib/libcxxrt
 
 SHLIB_MAJOR=	1
 SHLIBDIR?=	/lib
+ALLOW_SHARED_TEXTREL=	yes
 
 .PATH: ${SRCDIR}
 
