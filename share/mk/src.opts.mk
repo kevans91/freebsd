@@ -108,7 +108,6 @@ __DEFAULT_YES_OPTIONS = \
     GDB \
     GNU_DIFF \
     GNU_GREP \
-    GOOGLETEST \
     GPIO \
     HAST \
     HTML \
@@ -258,6 +257,12 @@ __T=${MACHINE_ARCH}
 __TT=${TARGET}
 .else
 __TT=${MACHINE}
+.endif
+
+.if ${__TT} != "mips"
+__DEFAULT_YES_OPTIONS+=	GOOGLETEST
+.else
+__DEFAULT_NO_OPTIONS+=	GOOGLETEST
 .endif
 
 # All supported backends for LLVM_TARGET_XXX
