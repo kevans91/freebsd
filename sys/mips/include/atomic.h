@@ -36,6 +36,8 @@
 #error this file needs sys/cdefs.h as a prerequisite
 #endif
 
+#include <machine/endian.h>
+
 #include <sys/atomic_common.h>
 
 /*
@@ -71,15 +73,173 @@ mips_sync(void)
  * of interrupts and SMP safe.
  */
 
-void atomic_set_8(__volatile uint8_t *, uint8_t);
-void atomic_clear_8(__volatile uint8_t *, uint8_t);
-void atomic_add_8(__volatile uint8_t *, uint8_t);
-void atomic_subtract_8(__volatile uint8_t *, uint8_t);
+static __inline void
+atomic_set_8(__volatile uint8_t *p, uint8_t v)
+{
+	uint32_t tempw, templ, temps;
 
-void atomic_set_16(__volatile uint16_t *, uint16_t);
-void atomic_clear_16(__volatile uint16_t *, uint16_t);
-void atomic_add_16(__volatile uint16_t *, uint16_t);
-void atomic_subtract_16(__volatile uint16_t *, uint16_t);
+	__asm __volatile (
+		"1:\tll %0, %5\n\t"		/* Load old value */
+		"sll	%3, %0, 8\n\t"		/* Save higher 24-bits */
+		"srl	%3, %3, 8\n\t"
+		"srl	%2, %0, 24\n\t"		/* Grab lower 16-bits */
+		"or	%2, %2, %4\n\t"		/* Calculate new value */
+		"sll	%0, %2, 24\n\t"		/* Push to tempw */
+		"or	%0, %0, %3\n\t"		/* Restore higher bits */
+		"sc	%0, %1\n\t"		/* Attempt to store */
+		"beqz   %0, 1b\n\t"		/* Spin if failed */
+		: "=&r" (tempw), "=m" (*p), "=&r" (templ), "=&r" (temps)
+		: "r" (v), "m" (*p)
+		: "memory");
+}
+
+static __inline void
+atomic_clear_8(__volatile uint8_t *p, uint8_t v)
+{
+	uint32_t tempw, templ, temps;
+
+	v = ~v;
+	__asm __volatile (
+		"1:\tll %0, %5\n\t"		/* load old value */
+		"sll	%3, %0, 8\n\t"		/* Save higher 16-bits */
+		"srl	%3, %3, 8\n\t"
+		"srl	%2, %0, 24\n\t"		/* Grab lower 16-bits */
+		"and	%2, %2, %4\n\t"		/* Calculate new value */
+		"sll	%0, %2, 24\n\t"		/* push */
+		"or	%0, %0, %3\n\t"		/* Restore higher bits */
+		"sc	%0, %1\n\t"		/* Attempt to store */
+		"beqz	%0, 1b\n\t"		/* Spin if failed */
+		: "=&r" (tempw), "=m" (*p), "=&r" (templ), "=&r" (temps)
+		: "r" (v), "m" (*p)
+		: "memory");
+}
+
+static __inline void
+atomic_add_8(__volatile uint8_t *p, uint8_t v)
+{
+	uint32_t tempw, templ, temps, shiftval;
+
+	/* Shift it into the upper 8-bits so we can detect overflow */
+	shiftval = v << 24;
+	__asm __volatile (
+		"1:\tll %0, %5\n\t"		/* load old value */
+		"sll	%3, %0, 8\n\t"		/* Save higher 16-bits */
+		"srl	%3, %3, 8\n\t"
+		"srl	%2, %0, 24\n\t"		/* Grab lower 16-bits */
+		"sll	%2, %2, 24\n\t"		/* For overflow reasons */
+		"addu	%2, %2, %4\n\t"		/* Calculate new value */
+		"move	%0, %2\n\t"		/* push */
+		"or	%0, %0, %3\n\t"		/* Restore higher bits */
+		"sc	%0, %1\n\t"		/* Attempt to store */
+		"beqz	%0, 1b\n\t"		/* Spin if failed */
+		: "=&r" (tempw), "=m" (*p), "=&r" (templ), "=&r" (temps)
+		: "r" (shiftval), "m" (*p)
+		: "memory");
+}
+
+static __inline void
+atomic_subtract_8(__volatile uint8_t *p, uint8_t v)
+{
+	uint32_t tempw, templ, temps;
+
+	__asm __volatile (
+		"1:\tll %0, %5\n\t"		/* load old value */
+		"sll	%3, %0, 8\n\t"		/* Save higher 16-bits */
+		"srl	%3, %3, 8\n\t"
+		"srl	%2, %0, 24\n\t"		/* Grab lower 16-bits */
+		"subu	%2, %2, %4\n\t"		/* Calculate new value */
+		"sll	%0, %2, 24\n\t"		/* push */
+		"or	%0, %0, %3\n\t"		/* Restore higher bits */
+		"sc	%0, %1\n\t"		/* Attempt to store */
+		"beqz	%0, 1b\n\t"		/* Spin if failed */
+		: "=&r" (tempw), "=m" (*p), "=&r" (templ), "=&r" (temps)
+		: "r" (v), "m" (*p)
+		: "memory");
+}
+
+static __inline void
+atomic_set_16(__volatile uint16_t *p, uint16_t v)
+{
+	uint32_t tempw, templ, temps;
+
+	__asm __volatile (
+		"1:\tll %0, %5\n\t"		/* Load old value */
+		"sll	%3, %0, 16\n\t"		/* Save higher 16-bits */
+		"srl	%3, %3, 16\n\t"
+		"srl	%2, %0, 16\n\t"		/* Grab lower 16-bits */
+		"or	%2, %2, %4\n\t"		/* Calculate new value */
+		"sll	%0, %2, 16\n\t"		/* Push to tempw */
+		"or	%0, %0, %3\n\t"		/* Restore higher bits */
+		"sc	%0, %1\n\t"		/* Attempt to store */
+		"beqz   %0, 1b\n\t"		/* Spin if failed */
+		: "=&r" (tempw), "=m" (*p), "=&r" (templ), "=&r" (temps)
+		: "r" (v), "m" (*p)
+		: "memory");
+}
+
+static __inline void
+atomic_clear_16(__volatile uint16_t *p, uint16_t v)
+{
+	uint32_t tempw, templ, temps;
+
+	v = ~v;
+	__asm __volatile (
+		"1:\tll %0, %5\n\t"		/* load old value */
+		"sll	%3, %0, 16\n\t"		/* Save higher 16-bits */
+		"srl	%3, %3, 16\n\t"
+		"srl	%2, %0, 16\n\t"		/* Grab lower 16-bits */
+		"and	%2, %2, %4\n\t"		/* Calculate new value */
+		"sll	%0, %2, 16\n\t"		/* push */
+		"or	%0, %0, %3\n\t"		/* Restore higher bits */
+		"sc	%0, %1\n\t"		/* Attempt to store */
+		"beqz	%0, 1b\n\t"		/* Spin if failed */
+		: "=&r" (tempw), "=m" (*p), "=&r" (templ), "=&r" (temps)
+		: "r" (v), "m" (*p)
+		: "memory");
+}
+
+static __inline void
+atomic_add_16(__volatile uint16_t *p, uint16_t v)
+{
+	uint32_t tempw, templ, temps, shiftval;
+
+	/* Shift it into the upper 16-bits so we can detect overflow */
+	shiftval = v << 16;
+	__asm __volatile (
+		"1:\tll %0, %5\n\t"		/* load old value */
+		"sll	%3, %0, 16\n\t"		/* Save higher 16-bits */
+		"srl	%3, %3, 16\n\t"
+		"srl	%2, %0, 16\n\t"		/* Grab lower 16-bits */
+		"sll	%2, %2, 16\n\t"		/* For overflow reasons */
+		"addu	%2, %2, %4\n\t"		/* Calculate new value */
+		"move	%0, %2\n\t"		/* push */
+		"or	%0, %0, %3\n\t"		/* Restore higher bits */
+		"sc	%0, %1\n\t"		/* Attempt to store */
+		"beqz	%0, 1b\n\t"		/* Spin if failed */
+		: "=&r" (tempw), "=m" (*p), "=&r" (templ), "=&r" (temps)
+		: "r" (shiftval), "m" (*p)
+		: "memory");
+}
+
+static __inline void
+atomic_subtract_16(__volatile uint16_t *p, uint16_t v)
+{
+	uint32_t tempw, templ, temps;
+
+	__asm __volatile (
+		"1:\tll %0, %5\n\t"		/* load old value */
+		"sll	%3, %0, 16\n\t"		/* Save higher 16-bits */
+		"srl	%3, %3, 16\n\t"
+		"srl	%2, %0, 16\n\t"		/* Grab lower 16-bits */
+		"subu	%2, %2, %4\n\t"		/* Calculate new value */
+		"sll	%0, %2, 16\n\t"		/* push */
+		"or	%0, %0, %3\n\t"		/* Restore higher bits */
+		"sc	%0, %1\n\t"		/* Attempt to store */
+		"beqz	%0, 1b\n\t"		/* Spin if failed */
+		: "=&r" (tempw), "=m" (*p), "=&r" (templ), "=&r" (temps)
+		: "r" (v), "m" (*p)
+		: "memory");
+}
 
 static __inline void
 atomic_set_32(__volatile uint32_t *p, uint32_t v)
@@ -349,6 +509,60 @@ ATOMIC_STORE_LOAD(64)
  * zero if the compare failed, nonzero otherwise.
  */
 static __inline int
+atomic_cmpset_8(__volatile uint8_t *p, uint8_t cmpval, uint8_t newval)
+{
+	uint32_t templ, temps;
+	int ret;
+
+	__asm __volatile (
+		"1:\tll %0, %6\n\t"     /* Load old value */
+		"sll	%3, %0, 8\n\t" /* Save higher 16-bits */
+		"srl	%3, %3, 8\n\t"
+		"srl	%2, %0, 24\n\t" /* Grab lower-16 bits to operate on */
+		"bne	%2, %4, 2f\n\t" /* Compare */
+		"move	%2, %5\n\t"     /* Push newval over */
+		"sll	%0, %2, 24\n\t" /* Restore lower bits */
+		"or	%0, %0, %3\n\t" /* Restore higher bits */
+		"sc	%0, %1\n\t"     /* Attempt to store */
+		"beqz	%0, 1b\n\t"     /* Spin if failed */
+		"j	3f\n\t"		/* Don't clobber up return value */
+		"2:\n\t"		/* Failure */
+		"li	%0, 0\n\t"	/* Set ret=0 */
+		"3:\n"			/* Exit (success) */
+		: "=&r" (ret), "=m" (*p), "=&r" (templ), "=&r" (temps)
+		: "r" (cmpval), "r" (newval), "m" (*p)
+		: "memory");
+	return (ret);
+}
+
+static __inline int
+atomic_cmpset_16(__volatile uint16_t *p, uint16_t cmpval, uint16_t newval)
+{
+	uint32_t templ, temps;
+	int ret;
+
+	__asm __volatile (
+		"1:\tll %0, %6\n\t"     /* Load old value */
+		"sll	%3, %0, 16\n\t" /* Save higher 16-bits */
+		"srl	%3, %3, 16\n\t"
+		"srl	%2, %0, 16\n\t" /* Grab lower-16 bits to operate on */
+		"bne	%2, %4, 2f\n\t" /* Compare */
+		"move	%2, %5\n\t"     /* Push newval over */
+		"sll	%0, %2, 16\n\t" /* Restore lower bits */
+		"or	%0, %0, %3\n\t" /* Restore higher bits */
+		"sc	%0, %1\n\t"     /* Attempt to store */
+		"beqz	%0, 1b\n\t"     /* Spin if failed */
+		"j	3f\n\t"		/* Don't clobber up return value */
+		"2:\n\t"		/* Failure */
+		"li	%0, 0\n\t"	/* Set ret=0 */
+		"3:\n"			/* Exit (success) */
+		: "=&r" (ret), "=m" (*p), "=&r" (templ), "=&r" (temps)
+		: "r" (cmpval), "r" (newval), "m" (*p)
+		: "memory");
+	return (ret);
+}
+
+static __inline int
 atomic_cmpset_32(__volatile uint32_t *p, uint32_t cmpval, uint32_t newval)
 {
 	int ret;
@@ -370,27 +584,64 @@ atomic_cmpset_32(__volatile uint32_t *p, uint32_t cmpval, uint32_t newval)
 	return ret;
 }
 
-/*
- * Atomically compare the value stored at *p with cmpval and if the
- * two values are equal, update the value of *p with newval. Returns
- * zero if the compare failed, nonzero otherwise.
- */
 static __inline int
-atomic_cmpset_acq_32(__volatile uint32_t *p, uint32_t cmpval, uint32_t newval)
+atomic_fcmpset_8(__volatile uint8_t *p, uint8_t *cmpval, uint8_t newval)
 {
-	int retval;
+	uint32_t templ, temps;
+	int ret;
 
-	retval = atomic_cmpset_32(p, cmpval, newval);
-	mips_sync();
-	return (retval);
+	__asm __volatile (
+		"1:\tll	%0, %7\n\t"	/* Load old value */
+		"sll	%3, %0, 8\n\t"	/* Save higher 16-bits */
+		"srl	%3, %3, 8\n\t"
+		"srl	%2, %0, 24\n\t"	/* Grab lower-16 bits to operate on */
+		"bne	%2, %5, 2f\n\t"	/* Compare */
+		"move	%2, %6\n\t"	/* Push newval over */
+		"sll	%0, %2, 24\n\t"	/* Restore lower bits */
+		"or	%0, %0, %3\n\t"	/* Restore higher bits */
+		"sc	%0, %1\n\t"	/* Attempt to store */
+		"beqz	%0, 1b\n\t"	/* Spin if failed */
+		"j	3f\n\t"		/* Don't screw up return value */
+		"2:\n\t"		/* Failure */
+		"sll	%2, %2, 24\n\t"	/* Do it */
+		"sw	%2, %4\n\t"
+		"li	%0, 0\n\t"	/* Set ret=0 */
+		"3:\n"			/* Exit (success) */
+		: "=&r" (ret), "=m" (*p), "=&r" (templ), "=&r" (temps), "=m" (*cmpval)
+		: "r" (*cmpval), "r" (newval), "m" (*p)
+		: "memory");
+	return (ret);
 }
 
 static __inline int
-atomic_cmpset_rel_32(__volatile uint32_t *p, uint32_t cmpval, uint32_t newval)
+atomic_fcmpset_16(__volatile uint16_t *p, uint16_t *cmpval, uint16_t newval)
 {
-	mips_sync();
-	return (atomic_cmpset_32(p, cmpval, newval));
+	uint32_t templ, temps;
+	int ret;
+
+	__asm __volatile (
+		"1:\tll	%0, %7\n\t"	/* Load old value */
+		"sll	%3, %0, 16\n\t"	/* Save higher 16-bits */
+		"srl	%3, %3, 16\n\t"
+		"srl	%2, %0, 16\n\t"	/* Grab lower-16 bits to operate on */
+		"bne	%2, %5, 2f\n\t"	/* Compare */
+		"move	%2, %6\n\t"	/* Push newval over */
+		"sll	%0, %2, 16\n\t"	/* Restore lower bits */
+		"or	%0, %0, %3\n\t"	/* Restore higher bits */
+		"sc	%0, %1\n\t"	/* Attempt to store */
+		"beqz	%0, 1b\n\t"	/* Spin if failed */
+		"j	3f\n\t"		/* Don't screw up return value */
+		"2:\n\t"		/* Failure */
+		"sll	%2, %2, 16\n\t"	/* Do it */
+		"sw	%2, %4\n\t"
+		"li	%0, 0\n\t"	/* Set ret=0 */
+		"3:\n"			/* Exit (success) */
+		: "=&r" (ret), "=m" (*p), "=&r" (templ), "=&r" (temps), "=m" (*cmpval)
+		: "r" (*cmpval), "r" (newval), "m" (*p)
+		: "memory");
+	return (ret);
 }
+
 
 static __inline int
 atomic_fcmpset_32(__volatile uint32_t *p, uint32_t *cmpval, uint32_t newval)
@@ -415,22 +666,37 @@ atomic_fcmpset_32(__volatile uint32_t *p, uint32_t *cmpval, uint32_t newval)
 	return ret;
 }
 
-static __inline int
-atomic_fcmpset_acq_32(__volatile uint32_t *p, uint32_t *cmpval, uint32_t newval)
-{
-	int retval;
-
-	retval = atomic_fcmpset_32(p, cmpval, newval);
-	mips_sync();
-	return (retval);
+#define	ATOMIC_XCMPSET_ACQ_REL(NAME, WIDTH)				\
+static __inline  int							\
+atomic_##NAME##_acq_##WIDTH(__volatile uint##WIDTH##_t *p,		\
+    uint##WIDTH##_t cmpval, uint##WIDTH##_t newval)			\
+{									\
+	int retval;							\
+									\
+	retval = atomic_##NAME##_##WIDTH(p, cmpval, newval);		\
+	mips_sync();							\
+	return (retval);						\
+}									\
+									\
+static __inline  int							\
+atomic_##NAME##_rel_##WIDTH(__volatile uint##WIDTH##_t *p,		\
+    uint##WIDTH##_t cmpval, uint##WIDTH##_t newval)			\
+{									\
+	mips_sync();							\
+	return (atomic_##NAME##_##WIDTH(p, cmpval, newval));		\
 }
 
-static __inline int
-atomic_fcmpset_rel_32(__volatile uint32_t *p, uint32_t *cmpval, uint32_t newval)
-{
-	mips_sync();
-	return (atomic_fcmpset_32(p, cmpval, newval));
-}
+/*
+ * Atomically compare the value stored at *p with cmpval and if the
+ * two values are equal, update the value of *p with newval. Returns
+ * zero if the compare failed, nonzero otherwise.
+ */
+ATOMIC_XCMPSET_ACQ_REL(cmpset, 8);
+ATOMIC_XCMPSET_ACQ_REL(cmpset, 16);
+ATOMIC_XCMPSET_ACQ_REL(cmpset, 32);
+ATOMIC_XCMPSET_ACQ_REL(fcmpset, 8);
+ATOMIC_XCMPSET_ACQ_REL(fcmpset, 16);
+ATOMIC_XCMPSET_ACQ_REL(fcmpset, 32);
 
 /*
  * Atomically add the value of v to the integer pointed to by p and return
@@ -480,28 +746,6 @@ atomic_cmpset_64(__volatile uint64_t *p, uint64_t cmpval, uint64_t newval)
 	return ret;
 }
 
-/*
- * Atomically compare the value stored at *p with cmpval and if the
- * two values are equal, update the value of *p with newval. Returns
- * zero if the compare failed, nonzero otherwise.
- */
-static __inline int
-atomic_cmpset_acq_64(__volatile uint64_t *p, uint64_t cmpval, uint64_t newval)
-{
-	int retval;
-
-	retval = atomic_cmpset_64(p, cmpval, newval);
-	mips_sync();
-	return (retval);
-}
-
-static __inline int
-atomic_cmpset_rel_64(__volatile uint64_t *p, uint64_t cmpval, uint64_t newval)
-{
-	mips_sync();
-	return (atomic_cmpset_64(p, cmpval, newval));
-}
-
 static __inline int
 atomic_fcmpset_64(__volatile uint64_t *p, uint64_t *cmpval, uint64_t newval)
 {
@@ -526,22 +770,13 @@ atomic_fcmpset_64(__volatile uint64_t *p, uint64_t *cmpval, uint64_t newval)
 	return ret;
 }
 
-static __inline int
-atomic_fcmpset_acq_64(__volatile uint64_t *p, uint64_t *cmpval, uint64_t newval)
-{
-	int retval;
-
-	retval = atomic_fcmpset_64(p, cmpval, newval);
-	mips_sync();
-	return (retval);
-}
-
-static __inline int
-atomic_fcmpset_rel_64(__volatile uint64_t *p, uint64_t *cmpval, uint64_t newval)
-{
-	mips_sync();
-	return (atomic_fcmpset_64(p, cmpval, newval));
-}
+/*
+ * Atomically compare the value stored at *p with cmpval and if the
+ * two values are equal, update the value of *p with newval. Returns
+ * zero if the compare failed, nonzero otherwise.
+ */
+ATOMIC_XCMPSET_ACQ_REL(cmpset, 64);
+ATOMIC_XCMPSET_ACQ_REL(fcmpset, 64);
 
 /*
  * Atomically add the value of v to the integer pointed to by p and return
@@ -563,6 +798,8 @@ atomic_fetchadd_64(__volatile uint64_t *p, uint64_t v)
 	return (value);
 }
 #endif
+
+#undef ATOMIC_XCMPSET_ACQ_REL
 
 static __inline void
 atomic_thread_fence_acq(void)
@@ -605,6 +842,12 @@ atomic_thread_fence_seq_cst(void)
 #define	atomic_subtract_char	atomic_subtract_8
 #define	atomic_subtract_acq_char	atomic_subtract_acq_8
 #define	atomic_subtract_rel_char	atomic_subtract_rel_8
+#define	atomic_cmpset_char	atomic_cmpset_8
+#define	atomic_cmpset_acq_char	atomic_cmpset_acq_8
+#define	atomic_cmpset_rel_char	atomic_cmpset_rel_8
+#define	atomic_fcmpset_char	atomic_fcmpset_8
+#define	atomic_fcmpset_acq_char	atomic_fcmpset_acq_8
+#define	atomic_fcmpset_rel_char	atomic_fcmpset_rel_8
 
 /* Operations on shorts. */
 #define	atomic_set_short	atomic_set_16
@@ -619,6 +862,12 @@ atomic_thread_fence_seq_cst(void)
 #define	atomic_subtract_short	atomic_subtract_16
 #define	atomic_subtract_acq_short	atomic_subtract_acq_16
 #define	atomic_subtract_rel_short	atomic_subtract_rel_16
+#define	atomic_cmpset_short	atomic_cmpset_16
+#define	atomic_cmpset_acq_short	atomic_cmpset_acq_16
+#define	atomic_cmpset_rel_short	atomic_cmpset_rel_16
+#define	atomic_fcmpset_short	atomic_fcmpset_16
+#define	atomic_fcmpset_acq_short	atomic_fcmpset_acq_16
+#define	atomic_fcmpset_rel_short	atomic_fcmpset_rel_16
 
 /* Operations on ints. */
 #define	atomic_set_int		atomic_set_32
