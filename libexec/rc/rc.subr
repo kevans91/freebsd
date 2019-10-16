@@ -285,6 +285,40 @@ check_pidfile()
 }
 
 #
+# maintain_pidfile pidfile user group
+#	Creates the named pidfile as needed, setting ownership to user:group
+#	as needed.  Automatic maintenance of pidfiles is defaulted globally by
+#	${rc_maintain_pidfiles}, and may be forced on or off in each rc script
+#	with ${name}_maintain_pidfile.
+#
+maintain_pidfile()
+{
+	_pidfile=$1
+	_user=$2
+	_group=$3
+
+	if [ -z "$_pidfile" -o -z "$_user" -o -z "$_group"]; then
+		err 3 'USAGE: maintain_pidfile pidfile user group'
+	fi
+
+	# We don't currently try to touch pidfiles in subdirectories of
+	# /var/run, because those are either externally managed or assumed to be
+	# managed by the service.  Likewise, we won't mess with pidfiles outside
+	# of /var/run.
+	case $_pidfile in
+	/var/run/*/*)
+		;;
+	/var/run/*)
+		if [ ! -f "$_pidfile" ]; then
+			touch $_pidfile
+		fi
+
+		chown "$_user:$_group" $_pidfile
+		;;
+	esac
+}
+
+#
 # check_process procname [interpreter]
 #	Ensures that a process (or processes) named procname is running.
 #	Prints a list of matching PIDs.
@@ -768,6 +802,11 @@ check_startmsgs()
 #	${name}_chdir	n	Directory to cd to before running ${command}
 #				(if not using ${name}_chroot).
 #
+#	${name}_maintain_pidfile n	Create the pidfile before running
+#				${command} as needed, also forcing ownership to
+#				${name}_user:${name}_group.
+#				(defaults to ${rc_maintain_pidfiles})
+#
 #	${name}_flags	n	Arguments to call ${command} with.
 #				NOTE:	$flags from the parent environment
 #					can be used to override this.
@@ -980,7 +1019,8 @@ run_rc_command()
 	    _fib=\$${name}_fib		_env=\$${name}_env \
 	    _prepend=\$${name}_prepend	_login_class=\${${name}_login_class:-daemon} \
 	    _limits=\$${name}_limits    _oomprotect=\$${name}_oomprotect \
-	    _env_file=\$${name}_env_file
+	    _env_file=\$${name}_env_file \
+	    _maintain_pidfile=\${${name}_maintain_pidfile:-${rc_maintain_pidfiles}}
 
 	if [ -n "$_env_file" ] && [ -r "${_env_file}" ]; then	# load env from file
 		set -a
@@ -1097,6 +1137,11 @@ run_rc_command()
 			if [ ! -x "${_chroot}${_chroot:+/}${command}" ]; then
 				warn "run_rc_command: cannot run $command"
 				return 1
+			fi
+
+			if [ -n "$pidfile" ] && checkyesno _maintain_pidfile;
+			then
+				maintain_pidfile $pidfile $_user $_group
 			fi
 
 			if ! _run_rc_precmd; then
