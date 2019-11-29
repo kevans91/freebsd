@@ -135,14 +135,12 @@ struct pps_kcbind_args {
 
 #ifdef _KERNEL
 
-struct mtx;
-
 #define	KCMODE_EDGEMASK		0x03
 #define	KCMODE_ABIFLAG		0x80000000 /* Internal use: abi-aware driver. */
 
 #define	PPS_ABI_VERSION		1
 
-#define	PPSFLAG_MTX_SPIN	0x01	/* Driver mtx is MTX_SPIN type. */
+#define	PPSFLAG_MTX_SPIN	0x01	/* Driver lock is MTX_SPIN type. */
 
 struct pps_state {
 	/* Capture information. */
@@ -164,7 +162,7 @@ struct pps_state {
 	 */
 	uint16_t	driver_abi;	/* Driver sets before pps_init_abi(). */
 	uint16_t	kernel_abi;	/* Kernel sets during pps_init_abi(). */
-	struct mtx	*driver_mtx;	/* Optional, valid if non-NULL. */
+	void		*driver_lock;	/* Optional, valid if non-NULL. */
 	uint32_t	flags;
 };
 

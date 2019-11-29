@@ -29,6 +29,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/limits.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
+#include <sys/sx.h>
 #include <sys/proc.h>
 #include <sys/sbuf.h>
 #include <sys/sleepqueue.h>
@@ -1607,13 +1608,14 @@ pps_fetch(struct pps_fetch_args *fapi, struct pps_state *pps)
 		cseq = atomic_load_int(&pps->ppsinfo.clear_sequence);
 		while (aseq == atomic_load_int(&pps->ppsinfo.assert_sequence) &&
 		    cseq == atomic_load_int(&pps->ppsinfo.clear_sequence)) {
-			if (abi_aware(pps, 1) && pps->driver_mtx != NULL) {
+			if (abi_aware(pps, 1) && pps->driver_lock != NULL) {
 				if (pps->flags & PPSFLAG_MTX_SPIN) {
-					err = msleep_spin(pps, pps->driver_mtx,
+					err = msleep_spin(pps, pps->driver_lock,
 					    "ppsfch", timo);
 				} else {
-					err = msleep(pps, pps->driver_mtx, PCATCH,
-					    "ppsfch", timo);
+					err = sx_sleep(pps,
+					    (struct sx *)pps->driver_lock,
+					    PCATCH, "ppsfch", timo);
 				}
 			} else {
 				err = tsleep(pps, PCATCH, "ppsfch", timo);

@@ -174,7 +174,7 @@ ptsdev_read(struct file *fp, struct uio *uio, struct ucred *active_cred,
 			error = EWOULDBLOCK;
 			break;
 		}
-		error = cv_wait_sig(&psc->pts_outwait, tp->t_mtx);
+		error = cv_wait_sig(&psc->pts_outwait, tp->t_sx);
 		if (error != 0)
 			break;
 	}
@@ -236,7 +236,7 @@ ptsdev_write(struct file *fp, struct uio *uio, struct ucred *active_cred,
 
 			/* Wake up users on the slave side. */
 			ttydisc_rint_done(tp);
-			error = cv_wait_sig(&psc->pts_inwait, tp->t_mtx);
+			error = cv_wait_sig(&psc->pts_inwait, tp->t_sx);
 			if (error != 0)
 				goto done;
 		} while (iblen > 0);
@@ -776,8 +776,8 @@ pts_alloc(int fflags, struct thread *td, struct file *fp)
 	psc->pts_cred = crhold(cred);
 
 	tp = tty_alloc(&pts_class, psc);
-	knlist_init_mtx(&psc->pts_inpoll.si_note, tp->t_mtx);
-	knlist_init_mtx(&psc->pts_outpoll.si_note, tp->t_mtx);
+	tty_knlist_init(tp, &psc->pts_inpoll.si_note);
+	tty_knlist_init(tp, &psc->pts_outpoll.si_note);
 
 	/* Expose the slave device as well. */
 	tty_makedev(tp, td->td_ucred, "pts/%u", psc->pts_unit);
@@ -823,8 +823,8 @@ pts_alloc_external(int fflags, struct thread *td, struct file *fp,
 	psc->pts_cred = crhold(cred);
 
 	tp = tty_alloc(&pts_class, psc);
-	knlist_init_mtx(&psc->pts_inpoll.si_note, tp->t_mtx);
-	knlist_init_mtx(&psc->pts_outpoll.si_note, tp->t_mtx);
+	tty_knlist_init(tp, &psc->pts_inpoll.si_note);
+	tty_knlist_init(tp, &psc->pts_outpoll.si_note);
 
 	/* Expose the slave device as well. */
 	tty_makedev(tp, td->td_ucred, "%s", name);

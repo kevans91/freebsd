@@ -96,7 +96,7 @@ struct nmdmpart {
 struct nmdmsoftc {
 	struct nmdmpart	ns_part1;
 	struct nmdmpart	ns_part2;
-	struct mtx	ns_mtx;
+	struct sx	ns_lock;
 };
 
 static int nmdm_count = 0;
@@ -140,16 +140,16 @@ nmdm_free(void *softc)
 
 	/*
 	 * The function is called on both parts simultaneously.  We serialize
-	 * with help of ns_mtx.  The first invocation should return and
+	 * with help of ns_lock.  The first invocation should return and
 	 * delegate freeing of resources to the second.
 	 */
-	mtx_lock(&ns->ns_mtx);
+	sx_xlock(&ns->ns_lock);
 	if (np->np_other != NULL) {
 		np->np_other->np_other = NULL;
-		mtx_unlock(&ns->ns_mtx);
+		sx_xunlock(&ns->ns_lock);
 		return;
 	}
-	mtx_destroy(&ns->ns_mtx);
+	sx_destroy(&ns->ns_lock);
 	free(ns, M_NMDM);
 	atomic_subtract_int(&nmdm_count, 1);
 }
@@ -178,40 +178,40 @@ nmdm_clone(void *arg, struct ucred *cred, char *name, int nameen,
 		return;
 
 	ns = malloc(sizeof(*ns), M_NMDM, M_WAITOK | M_ZERO);
-	mtx_init(&ns->ns_mtx, "nmdm", NULL, MTX_DEF);
+	sx_init(&ns->ns_lock, "nmdm");
 
 	/* Hook the pairs together. */
 	ns->ns_part1.np_pair = ns;
 	ns->ns_part1.np_other = &ns->ns_part2;
 	TASK_INIT(&ns->ns_part1.np_task, 0, nmdm_task_tty, &ns->ns_part1);
-	callout_init_mtx(&ns->ns_part1.np_callout, &ns->ns_mtx, 0);
+	callout_init_mtx(&ns->ns_part1.np_callout, &ns->ns_lock, 0);
 
 	ns->ns_part2.np_pair = ns;
 	ns->ns_part2.np_other = &ns->ns_part1;
 	TASK_INIT(&ns->ns_part2.np_task, 0, nmdm_task_tty, &ns->ns_part2);
-	callout_init_mtx(&ns->ns_part2.np_callout, &ns->ns_mtx, 0);
+	callout_init_mtx(&ns->ns_part2.np_callout, &ns->ns_lock, 0);
 
 	/* Create device nodes. */
-	tp = ns->ns_part1.np_tty = tty_alloc_mutex(&nmdm_class, &ns->ns_part1,
-	    &ns->ns_mtx);
+	tp = ns->ns_part1.np_tty = tty_alloc_lock(&nmdm_class, &ns->ns_part1,
+	    &ns->ns_lock);
 	*end = 'A';
 	error = tty_makedevf(tp, NULL, endc == 'A' ? TTYMK_CLONING : 0,
 	    "%s", name);
 	if (error) {
 		*end = endc;
-		mtx_destroy(&ns->ns_mtx);
+		sx_destroy(&ns->ns_lock);
 		free(ns, M_NMDM);
 		return;
 	}
 
-	tp = ns->ns_part2.np_tty = tty_alloc_mutex(&nmdm_class, &ns->ns_part2,
-	    &ns->ns_mtx);
+	tp = ns->ns_part2.np_tty = tty_alloc_lock(&nmdm_class, &ns->ns_part2,
+	    &ns->ns_lock);
 	*end = 'B';
 	error = tty_makedevf(tp, NULL, endc == 'B' ? TTYMK_CLONING : 0,
 	    "%s", name);
 	if (error) {
 		*end = endc;
-		mtx_lock(&ns->ns_mtx);
+		sx_xlock(&ns->ns_lock);
 		/* see nmdm_free() */
 		ns->ns_part1.np_other = NULL;
 		atomic_add_int(&nmdm_count, 1);

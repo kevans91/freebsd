@@ -418,7 +418,7 @@ ucom_attach_tty(struct ucom_super_softc *ssc, struct ucom_softc *sc)
 	struct tty *tp;
 	char buf[32];			/* temporary TTY device name buffer */
 
-	tp = tty_alloc_mutex(&ucom_class, sc, sc->sc_mtx);
+	tp = tty_alloc(&ucom_class, sc);
 	if (tp == NULL)
 		return (ENOMEM);
 
@@ -446,7 +446,7 @@ ucom_attach_tty(struct ucom_super_softc *ssc, struct ucom_softc *sc)
 
 	sc->sc_pps.ppscap = PPS_CAPTUREBOTH;
 	sc->sc_pps.driver_abi = PPS_ABI_VERSION;
-	sc->sc_pps.driver_mtx = sc->sc_mtx;
+	sc->sc_pps.driver_lock = tty_getlock(tp);
 	pps_init_abi(&sc->sc_pps);
 
 	DPRINTF("ttycreate: %s\n", buf);
@@ -748,13 +748,15 @@ ucom_open(struct tty *tp)
 	struct ucom_softc *sc = tty_softc(tp);
 	int error;
 
-	UCOM_MTX_ASSERT(sc, MA_OWNED);
+	UCOM_MTX_LOCK(sc);
 
 	if (sc->sc_flag & UCOM_FLAG_GONE) {
+		UCOM_MTX_UNLOCK(sc);
 		return (ENXIO);
 	}
 	if (sc->sc_flag & UCOM_FLAG_HL_READY) {
 		/* already opened */
+		UCOM_MTX_UNLOCK(sc);
 		return (0);
 	}
 	DPRINTF("tp = %p\n", tp);
@@ -766,6 +768,7 @@ ucom_open(struct tty *tp)
 		 */
 		error = (sc->sc_callback->ucom_pre_open) (sc);
 		if (error) {
+			UCOM_MTX_UNLOCK(sc);
 			return (error);
 		}
 	}
@@ -805,6 +808,7 @@ ucom_open(struct tty *tp)
 
 	ucom_status_change(sc);
 
+	UCOM_MTX_UNLOCK(sc);
 	return (0);
 }
 
@@ -861,13 +865,14 @@ ucom_inwakeup(struct tty *tp)
 	if (sc == NULL)
 		return;
 
-	UCOM_MTX_ASSERT(sc, MA_OWNED);
+	UCOM_MTX_LOCK(sc);
 
 	DPRINTF("tp=%p\n", tp);
 
 	if (ttydisc_can_bypass(tp) != 0 || 
 	    (sc->sc_flag & UCOM_FLAG_HL_READY) == 0 ||
 	    (sc->sc_flag & UCOM_FLAG_INWAKEUP) != 0) {
+		UCOM_MTX_UNLOCK(sc);
 		return;
 	}
 
@@ -896,6 +901,7 @@ ucom_inwakeup(struct tty *tp)
 		ucom_rts(sc, 0);
 
 	sc->sc_flag &= ~UCOM_FLAG_INWAKEUP;
+	UCOM_MTX_UNLOCK(sc);
 }
 
 static int
@@ -904,9 +910,10 @@ ucom_ioctl(struct tty *tp, u_long cmd, caddr_t data, struct thread *td)
 	struct ucom_softc *sc = tty_softc(tp);
 	int error;
 
-	UCOM_MTX_ASSERT(sc, MA_OWNED);
+	UCOM_MTX_LOCK(sc);
 
 	if (!(sc->sc_flag & UCOM_FLAG_HL_READY)) {
+		UCOM_MTX_UNLOCK(sc);
 		return (EIO);
 	}
 	DPRINTF("cmd = 0x%08lx\n", cmd);
@@ -941,6 +948,7 @@ ucom_ioctl(struct tty *tp, u_long cmd, caddr_t data, struct thread *td)
 			error = pps_ioctl(cmd, data, &sc->sc_pps);
 		break;
 	}
+	UCOM_MTX_UNLOCK(sc);
 	return (error);
 }
 
@@ -950,9 +958,10 @@ ucom_modem(struct tty *tp, int sigon, int sigoff)
 	struct ucom_softc *sc = tty_softc(tp);
 	uint8_t onoff;
 
-	UCOM_MTX_ASSERT(sc, MA_OWNED);
+	UCOM_MTX_LOCK(sc);
 
 	if (!(sc->sc_flag & UCOM_FLAG_HL_READY)) {
+		UCOM_MTX_UNLOCK(sc);
 		return (0);
 	}
 	if ((sigon == 0) && (sigoff == 0)) {
@@ -995,6 +1004,7 @@ ucom_modem(struct tty *tp, int sigon, int sigoff)
 	onoff = (sc->sc_mcr & SER_RTS) ? 1 : 0;
 	ucom_rts(sc, onoff);
 
+	UCOM_MTX_UNLOCK(sc);
 	return (0);
 }
 
@@ -1087,6 +1097,7 @@ ucom_line_state(struct ucom_softc *sc,
 	ucom_queue_command(sc, ucom_cfg_line_state, NULL,
 	    &sc->sc_line_state_task[0].hdr, 
 	    &sc->sc_line_state_task[1].hdr);
+	UCOM_MTX_UNLOCK(sc);
 }
 
 static void
@@ -1278,7 +1289,7 @@ ucom_param(struct tty *tp, struct termios *t)
 	uint8_t opened;
 	int error;
 
-	UCOM_MTX_ASSERT(sc, MA_OWNED);
+	UCOM_MTX_LOCK(sc);
 
 	opened = 0;
 	error = 0;
@@ -1342,6 +1353,7 @@ done:
 			ucom_close(tp);
 		}
 	}
+	UCOM_MTX_UNLOCK(sc);
 	return (error);
 }
 
@@ -1350,15 +1362,17 @@ ucom_outwakeup(struct tty *tp)
 {
 	struct ucom_softc *sc = tty_softc(tp);
 
-	UCOM_MTX_ASSERT(sc, MA_OWNED);
+	UCOM_MTX_LOCK(sc);
 
 	DPRINTF("sc = %p\n", sc);
 
 	if (!(sc->sc_flag & UCOM_FLAG_HL_READY)) {
 		/* The higher layer is not ready */
+		UCOM_MTX_UNLOCK(sc);
 		return;
 	}
 	ucom_start_transfers(sc);
+	UCOM_MTX_UNLOCK(sc);
 }
 
 static bool
@@ -1367,7 +1381,7 @@ ucom_busy(struct tty *tp)
 	struct ucom_softc *sc = tty_softc(tp);
 	const uint8_t txidle = ULSR_TXRDY | ULSR_TSRE;
 
-	UCOM_MTX_ASSERT(sc, MA_OWNED);
+	UCOM_MTX_LOCK(sc);
 
 	DPRINTFN(3, "sc = %p lsr 0x%02x\n", sc, sc->sc_lsr);
 
@@ -1376,10 +1390,13 @@ ucom_busy(struct tty *tp)
 	 * determine whether the transmitter is busy or idle.  Otherwise we have
 	 * to assume it is idle to avoid hanging forever on tcdrain(3).
 	 */
-	if (sc->sc_flag & UCOM_FLAG_LSRTXIDLE)
+	if (sc->sc_flag & UCOM_FLAG_LSRTXIDLE) {
+		UCOM_MTX_UNLOCK(sc);
 		return ((sc->sc_lsr & txidle) != txidle);
-	else
+	} else {
+		UCOM_MTX_UNLOCK(sc);
 		return (false);
+	}
 }
 
 /*------------------------------------------------------------------------*
@@ -1586,6 +1603,7 @@ ucom_free(void *xsc)
 {
 	struct ucom_softc *sc = xsc;
 
+	UCOM_MTX_LOCK(sc);
 	if (sc->sc_callback->ucom_free != NULL)
 		sc->sc_callback->ucom_free(sc);
 	else
@@ -1594,6 +1612,7 @@ ucom_free(void *xsc)
 	mtx_lock(&ucom_mtx);
 	ucom_close_refs--;
 	mtx_unlock(&ucom_mtx);
+	UCOM_MTX_UNLOCK(sc);
 }
 
 CONSOLE_DRIVER(ucom);

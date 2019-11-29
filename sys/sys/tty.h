@@ -37,7 +37,7 @@
 #include <sys/param.h>
 #include <sys/queue.h>
 #include <sys/lock.h>
-#include <sys/mutex.h>
+#include <sys/sx.h>
 #include <sys/condvar.h>
 #include <sys/selinfo.h>
 #include <sys/_termios.h>
@@ -56,13 +56,13 @@ struct ttydevsw;
  * Per-TTY structure, containing buffers, etc.
  *
  * List of locks
- * (t)	locked by t_mtx
+ * (t)	locked by t_sx
  * (l)	locked by tty_list_sx
  * (c)	const until freeing
  */
 struct tty {
-	struct mtx	*t_mtx;		/* TTY lock. */
-	struct mtx	t_mtxobj;	/* Per-TTY lock (when not borrowing). */
+	struct sx	*t_sx;		/* TTY lock. */
+	struct sx	t_sxobj;	/* Per-TTY lock (when not borrowing). */
 	TAILQ_ENTRY(tty) t_list;	/* (l) TTY list entry. */
 	int		t_drainwait;	/* (t) TIOCDRAIN timeout seconds. */
 	unsigned int	t_flags;	/* (t) Terminal option flags. */
@@ -164,17 +164,18 @@ struct xtty {
 #define	TTYUNIT_CALLOUT		0x4
 
 /* Allocation and deallocation. */
+void	tty_knlist_init(struct tty *tp, struct knlist *knl);
 struct tty *tty_alloc(struct ttydevsw *tsw, void *softc);
-struct tty *tty_alloc_mutex(struct ttydevsw *tsw, void *softc, struct mtx *mtx);
+struct tty *tty_alloc_lock(struct ttydevsw *tsw, void *softc, struct sx *sx);
 void	tty_rel_pgrp(struct tty *tp, struct pgrp *pgrp);
 void	tty_rel_sess(struct tty *tp, struct session *sess);
 void	tty_rel_gone(struct tty *tp);
 
-#define	tty_lock(tp)		mtx_lock((tp)->t_mtx)
-#define	tty_unlock(tp)		mtx_unlock((tp)->t_mtx)
-#define	tty_lock_owned(tp)	mtx_owned((tp)->t_mtx)
-#define	tty_lock_assert(tp,ma)	mtx_assert((tp)->t_mtx, (ma))
-#define	tty_getlock(tp)		((tp)->t_mtx)
+#define	tty_lock(tp)		sx_xlock((tp)->t_sx)
+#define	tty_unlock(tp)		sx_xunlock((tp)->t_sx)
+#define	tty_lock_owned(tp)	sx_xlocked((tp)->t_sx)
+#define	tty_lock_assert(tp,ma)	sx_assert((tp)->t_sx, (ma))
+#define	tty_getlock(tp)		((tp)->t_sx)
 
 /* Device node creation. */
 int	tty_makedevf(struct tty *tp, struct ucred *cred, int flags,

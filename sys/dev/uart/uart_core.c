@@ -223,7 +223,7 @@ uart_pps_init(struct uart_softc *sc)
 	}
 
 	sc->sc_pps.ppscap = PPS_CAPTUREBOTH;
-	sc->sc_pps.driver_mtx = uart_tty_getlock(sc);
+	sc->sc_pps.driver_lock = uart_tty_getlock(sc);
 	sc->sc_pps.driver_abi = PPS_ABI_VERSION;
 	pps_init_abi(&sc->sc_pps);
 }

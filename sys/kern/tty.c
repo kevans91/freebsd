@@ -228,7 +228,7 @@ static void
 ttydev_leave(struct tty *tp)
 {
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	if (tty_opened(tp) || tp->t_flags & TF_OPENCLOSE) {
 		/* Device is still opened somewhere. */
@@ -413,7 +413,7 @@ static __inline int
 tty_is_ctty(struct tty *tp, struct proc *p)
 {
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	return (p->p_session == tp->t_session && p->p_flag & P_CONTROLT);
 }
@@ -427,7 +427,7 @@ tty_wait_background(struct tty *tp, struct thread *td, int sig)
 	int error;
 
 	MPASS(sig == SIGTTIN || sig == SIGTTOU);
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	for (;;) {
 		PROC_LOCK(p);
@@ -697,7 +697,7 @@ tty_kqops_read_event(struct knote *kn, long hint __unused)
 {
 	struct tty *tp = kn->kn_hook;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	if (tty_gone(tp) || tp->t_flags & TF_ZOMBIE) {
 		kn->kn_flags |= EV_EOF;
@@ -721,7 +721,7 @@ tty_kqops_write_event(struct knote *kn, long hint __unused)
 {
 	struct tty *tp = kn->kn_hook;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	if (tty_gone(tp)) {
 		kn->kn_flags |= EV_EOF;
@@ -1019,6 +1019,50 @@ ttydevsw_defbusy(struct tty *tp __unused)
 	return (FALSE);
 }
 
+static void
+tty_lock_lock(void *lock)
+{
+	struct sx *sx;
+
+	sx = lock;
+	sx_xlock(lock);
+}
+
+static void
+tty_lock_unlock(void *lock)
+{
+	struct sx *sx;
+
+	sx = lock;
+	sx_xunlock(lock);
+}
+
+static void
+tty_lock_assert_locked(void *lock)
+{
+	struct sx *sx;
+
+	sx = lock;
+	sx_assert(sx, SA_XLOCKED);
+}
+
+static void
+tty_lock_assert_unlocked(void *lock)
+{
+	struct sx *sx;
+
+	sx = lock;
+	sx_assert(sx, SA_UNLOCKED);
+}
+
+void
+tty_knlist_init(struct tty *tp, struct knlist *knl)
+{
+
+	knlist_init(knl, tp->t_sx, tty_lock_lock, tty_lock_unlock,
+	    tty_lock_assert_locked, tty_lock_assert_unlocked);
+}
+
 /*
  * TTY allocation and deallocation. TTY devices can be deallocated when
  * the driver doesn't use it anymore, when the TTY isn't a session's
@@ -1029,11 +1073,11 @@ struct tty *
 tty_alloc(struct ttydevsw *tsw, void *sc)
 {
 
-	return (tty_alloc_mutex(tsw, sc, NULL));
+	return (tty_alloc_lock(tsw, sc, NULL));
 }
 
 struct tty *
-tty_alloc_mutex(struct ttydevsw *tsw, void *sc, struct mtx *mutex)
+tty_alloc_lock(struct ttydevsw *tsw, void *sc, struct sx *sx)
 {
 	struct tty *tp;
 
@@ -1073,15 +1117,15 @@ tty_alloc_mutex(struct ttydevsw *tsw, void *sc, struct mtx *mutex)
 	cv_init(&tp->t_dcdwait, "ttydcd");
 
 	/* Allow drivers to use a custom mutex to lock the TTY. */
-	if (mutex != NULL) {
-		tp->t_mtx = mutex;
+	if (sx != NULL) {
+		tp->t_sx = sx;
 	} else {
-		tp->t_mtx = &tp->t_mtxobj;
-		mtx_init(&tp->t_mtxobj, "ttymtx", NULL, MTX_DEF);
+		tp->t_sx = &tp->t_sxobj;
+		sx_init(&tp->t_sxobj, "ttylock");
 	}
 
-	knlist_init_mtx(&tp->t_inpoll.si_note, tp->t_mtx);
-	knlist_init_mtx(&tp->t_outpoll.si_note, tp->t_mtx);
+	tty_knlist_init(tp, &tp->t_inpoll.si_note);
+	tty_knlist_init(tp, &tp->t_outpoll.si_note);
 
 	return (tp);
 }
@@ -1111,8 +1155,8 @@ tty_dealloc(void *arg)
 	cv_destroy(&tp->t_dcdwait);
 	cv_destroy(&tp->t_outserwait);
 
-	if (tp->t_mtx == &tp->t_mtxobj)
-		mtx_destroy(&tp->t_mtxobj);
+	if (tp->t_sx == &tp->t_sxobj)
+		sx_destroy(&tp->t_sxobj);
 	ttydevsw_free(tp);
 	free(tp, M_TTY);
 }
@@ -1122,7 +1166,7 @@ tty_rel_free(struct tty *tp)
 {
 	struct cdev *dev;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 #define	TF_ACTIVITY	(TF_GONE|TF_OPENED|TF_HOOK|TF_OPENCLOSE)
 	if (tp->t_sessioncnt != 0 || (tp->t_flags & TF_ACTIVITY) != TF_GONE) {
@@ -1153,7 +1197,7 @@ tty_rel_pgrp(struct tty *tp, struct pgrp *pg)
 {
 
 	MPASS(tp->t_sessioncnt > 0);
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	if (tp->t_pgrp == pg)
 		tp->t_pgrp = NULL;
@@ -1267,7 +1311,7 @@ static void
 tty_to_xtty(struct tty *tp, struct xtty *xt)
 {
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	xt->xt_size = sizeof(struct xtty);
 	xt->xt_insize = ttyinq_getsize(&tp->t_inq);
@@ -1459,7 +1503,7 @@ tty_signal_sessleader(struct tty *tp, int sig)
 {
 	struct proc *p;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	MPASS(sig >= 1 && sig < NSIG);
 
 	/* Make signals start output again. */
@@ -1478,7 +1522,7 @@ tty_signal_pgrp(struct tty *tp, int sig)
 {
 	ksiginfo_t ksi;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	MPASS(sig >= 1 && sig < NSIG);
 
 	/* Make signals start output again. */
@@ -1521,10 +1565,10 @@ tty_wait(struct tty *tp, struct cv *cv)
 	int error;
 	int revokecnt = tp->t_revokecnt;
 
-	tty_lock_assert(tp, MA_OWNED|MA_NOTRECURSED);
+	tty_lock_assert(tp, SA_XLOCKED|SA_NOTRECURSED);
 	MPASS(!tty_gone(tp));
 
-	error = cv_wait_sig(cv, tp->t_mtx);
+	error = cv_wait_sig(cv, tp->t_sx);
 
 	/* Bail out when the device slipped away. */
 	if (tty_gone(tp))
@@ -1543,10 +1587,10 @@ tty_timedwait(struct tty *tp, struct cv *cv, int hz)
 	int error;
 	int revokecnt = tp->t_revokecnt;
 
-	tty_lock_assert(tp, MA_OWNED|MA_NOTRECURSED);
+	tty_lock_assert(tp, SA_XLOCKED|SA_NOTRECURSED);
 	MPASS(!tty_gone(tp));
 
-	error = cv_timedwait_sig(cv, tp->t_mtx, hz);
+	error = cv_timedwait_sig(cv, tp->t_sx, hz);
 
 	/* Bail out when the device slipped away. */
 	if (tty_gone(tp))
@@ -1956,7 +2000,7 @@ tty_ioctl(struct tty *tp, u_long cmd, void *data, int fflag, struct thread *td)
 {
 	int error;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	if (tty_gone(tp))
 		return (ENXIO);
@@ -2123,7 +2167,7 @@ void
 ttyhook_unregister(struct tty *tp)
 {
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	MPASS(tp->t_flags & TF_HOOK);
 
 	/* Disconnect the hook. */
@@ -2333,7 +2377,7 @@ DB_SHOW_COMMAND(tty, db_show_tty)
 	tp = (struct tty *)addr;
 
 	db_printf("%p: %s\n", tp, tty_devname(tp));
-	db_printf("\tmtx: %p\n", tp->t_mtx);
+	db_printf("\tmtx: %p\n", tp->t_sx);
 	db_printf("\tflags: 0x%b\n", tp->t_flags, TTY_FLAG_BITS);
 	db_printf("\trevokecnt: %u\n", tp->t_revokecnt);
 

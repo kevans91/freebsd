@@ -60,7 +60,7 @@ struct pps_softc {
 	int		 irid;
 	struct cdev     *pps_cdev;
 	struct pps_state pps_state;
-	struct mtx       pps_mtx;
+	struct sx	 pps_lock;
 	bool		 falling_edge;
 };
 
@@ -72,11 +72,11 @@ gpiopps_open(struct cdev *dev, int flags, int fmt, struct thread *td)
 	struct pps_softc *sc = dev->si_drv1;
 
 	/* We can't be unloaded while open, so mark ourselves BUSY. */
-	mtx_lock(&sc->pps_mtx);
+	sx_xlock(&sc->pps_lock);
 	if (device_get_state(sc->dev) < DS_BUSY) {
 		device_busy(sc->dev);
 	}
-	mtx_unlock(&sc->pps_mtx);
+	sx_xunlock(&sc->pps_lock);
 
 	return 0;
 }
@@ -90,9 +90,9 @@ gpiopps_close(struct cdev *dev, int flags, int fmt, struct thread *td)
 	 * Un-busy on last close. We rely on the vfs counting stuff to only call
 	 * this routine on last-close, so we don't need any open-count logic.
 	 */
-	mtx_lock(&sc->pps_mtx);
+	sx_xlock(&sc->pps_lock);
 	device_unbusy(sc->dev);
-	mtx_unlock(&sc->pps_mtx);
+	sx_xunlock(&sc->pps_lock);
 
 	return 0;
 }
@@ -104,9 +104,9 @@ gpiopps_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int flags, struct thre
 	int err;
 
 	/* Let the kernel do the heavy lifting for ioctl. */
-	mtx_lock(&sc->pps_mtx);
+	sx_xlock(&sc->pps_lock);
 	err = pps_ioctl(cmd, data, &sc->pps_state);
-	mtx_unlock(&sc->pps_mtx);
+	sx_xunlock(&sc->pps_lock);
 
 	return err;
 }
@@ -153,9 +153,9 @@ gpiopps_ithrd(void *arg)
 	 * pps_state structure, and the ioctl() code could be accessing that
 	 * data right now in a non-interrupt context, so we need an interlock.
 	 */
-	mtx_lock(&sc->pps_mtx);
+	sx_xlock(&sc->pps_lock);
 	pps_event(&sc->pps_state, PPS_CAPTUREASSERT);
-	mtx_unlock(&sc->pps_mtx);
+	sx_xunlock(&sc->pps_lock);
 }
 
 static int
@@ -187,12 +187,12 @@ gpiopps_fdt_attach(device_t dev)
 	sc = device_get_softc(dev);
 	sc->dev = dev;
 
-	mtx_init(&sc->pps_mtx, device_get_nameunit(dev), NULL, MTX_DEF);
+	mtx_init(&sc->pps_lock, device_get_nameunit(dev), NULL, MTX_DEF);
 
 	/* Initialize the pps_state struct. */
 	sc->pps_state.ppscap = PPS_CAPTUREASSERT | PPS_CAPTURECLEAR;
 	sc->pps_state.driver_abi = PPS_ABI_VERSION;
-	sc->pps_state.driver_mtx = &sc->pps_mtx;
+	sc->pps_state.driver_lock = &sc->pps_lock;
 	pps_init_abi(&sc->pps_state);
 
 	/* Check which edge we're configured to capture (default is rising). */

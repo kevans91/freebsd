@@ -488,7 +488,7 @@ dmtpps_attach(device_t dev)
 	sc->pps_state.flags = PPSFLAG_MTX_SPIN;
 	sc->pps_state.ppscap = PPS_CAPTUREASSERT;
 	sc->pps_state.driver_abi = PPS_ABI_VERSION;
-	sc->pps_state.driver_mtx = &sc->pps_mtx;
+	sc->pps_state.driver_lock = &sc->pps_mtx;
 	pps_init_abi(&sc->pps_state);
 
 	/* Create the PPS cdev. */

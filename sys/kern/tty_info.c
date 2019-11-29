@@ -266,7 +266,7 @@ tty_info(struct tty *tp)
 	char comm[MAXCOMLEN + 1];
 	struct rusage ru;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	if (tty_checkoutq(tp) == 0)
 		return;

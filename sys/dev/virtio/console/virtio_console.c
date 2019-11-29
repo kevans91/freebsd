@@ -39,6 +39,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/sglist.h>
+#include <sys/sx.h>
 #include <sys/sysctl.h>
 #include <sys/taskqueue.h>
 #include <sys/queue.h>
@@ -76,7 +77,7 @@ struct vtcon_softc;
 struct vtcon_softc_port;
 
 struct vtcon_port {
-	struct mtx			 vtcport_mtx;
+	struct sx			 vtcport_lock;
 	struct vtcon_softc		*vtcport_sc;
 	struct vtcon_softc_port		*vtcport_scport;
 	struct tty			*vtcport_tty;
@@ -93,8 +94,8 @@ struct vtcon_port {
 #endif
 };
 
-#define VTCON_PORT_LOCK(_port)		mtx_lock(&(_port)->vtcport_mtx)
-#define VTCON_PORT_UNLOCK(_port)	mtx_unlock(&(_port)->vtcport_mtx)
+#define VTCON_PORT_LOCK(_port)		sx_xlock(&(_port)->vtcport_lock)
+#define VTCON_PORT_UNLOCK(_port)	sx_xunlock(&(_port)->vtcport_lock)
 
 struct vtcon_softc_port {
 	struct vtcon_softc	*vcsp_sc;
@@ -105,7 +106,7 @@ struct vtcon_softc_port {
 
 struct vtcon_softc {
 	device_t		 vtcon_dev;
-	struct mtx		 vtcon_mtx;
+	struct sx		 vtcon_lock;
 	uint64_t		 vtcon_features;
 	uint32_t		 vtcon_max_ports;
 	uint32_t		 vtcon_flags;
@@ -126,12 +127,12 @@ struct vtcon_softc {
 	struct mtx		 vtcon_ctrl_tx_mtx;
 };
 
-#define VTCON_LOCK(_sc)			mtx_lock(&(_sc)->vtcon_mtx)
-#define VTCON_UNLOCK(_sc)		mtx_unlock(&(_sc)->vtcon_mtx)
+#define VTCON_LOCK(_sc)			sx_xlock(&(_sc)->vtcon_lock)
+#define VTCON_UNLOCK(_sc)		sx_xunlock(&(_sc)->vtcon_lock)
 #define VTCON_LOCK_ASSERT(_sc)		\
-    mtx_assert(&(_sc)->vtcon_mtx, MA_OWNED)
+    sx_assert(&(_sc)->vtcon_lock, SA_XLOCKED)
 #define VTCON_LOCK_ASSERT_NOTOWNED(_sc)	\
-    mtx_assert(&(_sc)->vtcon_mtx, MA_NOTOWNED)
+    sx_assert(&(_sc)->vtcon_lock, SA_UNOWNED)
 
 #define VTCON_CTRL_TX_LOCK(_sc)		mtx_lock(&(_sc)->vtcon_ctrl_tx_mtx)
 #define VTCON_CTRL_TX_UNLOCK(_sc)	mtx_unlock(&(_sc)->vtcon_ctrl_tx_mtx)
@@ -322,7 +323,7 @@ vtcon_attach(device_t dev)
 	sc = device_get_softc(dev);
 	sc->vtcon_dev = dev;
 
-	mtx_init(&sc->vtcon_mtx, "vtconmtx", NULL, MTX_DEF);
+	sx_init(&sc->vtcon_lock, "vtconmtx");
 	mtx_init(&sc->vtcon_ctrl_tx_mtx, "vtconctrlmtx", NULL, MTX_DEF);
 
 	virtio_set_feature_desc(dev, vtcon_feature_desc);
@@ -393,7 +394,7 @@ vtcon_detach(device_t dev)
 	}
 
 	vtcon_destroy_ports(sc);
-	mtx_destroy(&sc->vtcon_mtx);
+	sx_destroy(&sc->vtcon_lock);
 	mtx_destroy(&sc->vtcon_ctrl_tx_mtx);
 
 	return (0);
@@ -1069,7 +1070,7 @@ vtcon_port_destroy(struct vtcon_port *port)
 	port->vtcport_invq = NULL;
 	port->vtcport_outvq = NULL;
 	port->vtcport_id = -1;
-	mtx_destroy(&port->vtcport_mtx);
+	sx_destroy(&port->vtcport_lock);
 	free(port, M_DEVBUF);
 }
 
@@ -1124,9 +1125,9 @@ vtcon_port_create(struct vtcon_softc *sc, int id)
 	port->vtcport_sc = sc;
 	port->vtcport_scport = scport;
 	port->vtcport_id = id;
-	mtx_init(&port->vtcport_mtx, "vtcpmtx", NULL, MTX_DEF);
-	port->vtcport_tty = tty_alloc_mutex(&vtcon_tty_class, port,
-	    &port->vtcport_mtx);
+	sx_init(&port->vtcport_lock, "vtcpmtx");
+	port->vtcport_tty = tty_alloc_lock(&vtcon_tty_class, port,
+	    &port->vtcport_lock);
 
 	error = vtcon_port_init_vqs(port);
 	if (error) {

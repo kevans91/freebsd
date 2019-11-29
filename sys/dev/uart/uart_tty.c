@@ -444,7 +444,7 @@ uart_tty_detach(struct uart_softc *sc)
 	return (0);
 }
 
-struct mtx *
+struct sx *
 uart_tty_getlock(struct uart_softc *sc)
 {
 
