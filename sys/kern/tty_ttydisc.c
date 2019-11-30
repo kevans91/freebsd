@@ -571,18 +571,11 @@ ttydisc_write(struct tty *tp, struct uio *uio, int ioflag)
 		obstart = ob;
 		nlen = MIN(uio->uio_resid, sizeof ob);
 		ttydisc_unlock(tp);
-		tty_unlock(tp);
 		error = uiomove(ob, nlen, uio);
-		tty_lock(tp);
 		ttydisc_lock(tp);
 		if (error != 0)
 			break;
 		oblen = nlen;
-
-		if (tty_gone(tp)) {
-			error = ENXIO;
-			break;
-		}
 
 		MPASS(oblen > 0);
 

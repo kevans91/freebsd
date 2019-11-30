@@ -300,6 +300,7 @@ nmdm_task_tty(void *arg, int pending __unused)
 	}
 
 	ttydisc_rint_done(otp);
+
 	ttydisc_unlock(tp);
 }
 
@@ -397,12 +398,14 @@ nmdm_modem(struct tty *tp, int sigon, int sigoff)
 			np->np_other->np_dcd = 0;
 
 		ttydisc_modem(np->np_other->np_tty, np->np_other->np_dcd);
+
 		return (0);
 	} else {
 		if (np->np_dcd)
 			i |= SER_DCD;
 		if (np->np_other->np_dcd)
 			i |= SER_DTR;
+
 		return (i);
 	}
 }

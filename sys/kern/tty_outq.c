@@ -102,22 +102,12 @@ ttyoutq_setsize(struct ttyoutq *to, struct tty *tp, size_t size)
 		 * List is getting bigger.
 		 * Add new blocks to the tail of the list.
 		 *
-		 * We must unlock the TTY temporarily, because we need
-		 * to allocate memory. This won't be a problem, because
-		 * in the worst case, another thread ends up here, which
-		 * may cause us to allocate too many blocks, but this
-		 * will be caught by the loop below.
+		 * We must unlock the ttydisc, but we're still holding on to
+		 * the tty lock so we should avoid problems.
 		 */
 		ttydisc_unlock(tp);
-		tty_unlock(tp);
 		tob = uma_zalloc(ttyoutq_zone, M_WAITOK);
-		tty_lock(tp);
 		ttydisc_lock(tp);
-
-		if (tty_gone(tp)) {
-			uma_zfree(ttyoutq_zone, tob);
-			return (ENXIO);
-		}
 
 		TTYOUTQ_INSERT_TAIL(to, tob);
 	}
@@ -204,10 +194,7 @@ ttyoutq_read(struct ttyoutq *to, void *buf, size_t len)
 int
 ttyoutq_read_uio(struct ttyoutq *to, struct tty *tp, struct uio *uio)
 {
-	int locktty;
 
-	/* XXX Can go away when the tty lock becomes sleepable. */
-	locktty = tty_lock_owned(tp);
 	ttydisc_assert_locked(tp);
 	while (uio->uio_resid > 0) {
 		int error;
@@ -253,11 +240,7 @@ ttyoutq_read_uio(struct ttyoutq *to, struct tty *tp, struct uio *uio)
 
 			/* Temporary unlock and copy the data to userspace. */
 			ttydisc_unlock(tp);
-			if (locktty)
-				tty_unlock(tp);
 			error = uiomove(tob->tob_data + cbegin, clen, uio);
-			if (locktty)
-				tty_lock(tp);
 			ttydisc_lock(tp);
 
 			/* Block can now be readded to the list. */
@@ -274,11 +257,7 @@ ttyoutq_read_uio(struct ttyoutq *to, struct tty *tp, struct uio *uio)
 
 			/* Temporary unlock and copy the data to userspace. */
 			ttydisc_unlock(tp);
-			if (locktty)
-				tty_unlock(tp);
 			error = uiomove(ob, clen, uio);
-			if (locktty)
-				tty_lock(tp);
 			ttydisc_lock(tp);
 		}
 

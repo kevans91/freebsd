@@ -1402,11 +1402,13 @@ vtcon_tty_open(struct tty *tp)
 	/* Effectively VTCON_PORT_LOCK. */
 	ttydisc_assert_locked(tp);
 	port = tty_softc(tp);
+
 	if (port->vtcport_flags & VTCON_PORT_FLAG_GONE) {
 		return (ENXIO);
 	}
 
 	vtcon_port_submit_event(port, VIRTIO_CONSOLE_PORT_OPEN, 1);
+
 	return (0);
 }
 
@@ -1418,6 +1420,7 @@ vtcon_tty_close(struct tty *tp)
 	/* Effectively VTCON_PORT_LOCK. */
 	ttydisc_assert_locked(tp);
 	port = tty_softc(tp);
+
 	if (port->vtcport_flags & VTCON_PORT_FLAG_GONE)
 		return;
 

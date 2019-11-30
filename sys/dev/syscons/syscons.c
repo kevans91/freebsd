@@ -889,6 +889,7 @@ sckbdevent(keyboard_t *thiskbd, int event, void *arg)
 		ttydisc_rint_done(cur_tty);
 		ttydisc_unlock(cur_tty);
 	}
+
 	sc->cur_scp->status |= MOUSE_HIDDEN;
 
 done:

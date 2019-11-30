@@ -36,6 +36,7 @@
 #include <sys/queue.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
+#include <sys/sx.h>
 #include <sys/condvar.h>
 #include <sys/selinfo.h>
 #include <sys/_termios.h>
@@ -53,21 +54,37 @@ struct ttydevsw;
 /*
  * Per-TTY structure, containing buffers, etc.
  *
+ * Under the new locking model, the ttylock is mostly internal to ^/sys/kern.
+ * It must be acquired when calling tty_rel_gone(), but for the most part
+ * drivers will not touch it.  It is especially wrong for a driver to drop the
+ * tty lock when entered via ttydevsw methods; it is sleepable so that drivers
+ * do not need to drop it, keeping entry to tty methods from userland properly
+ * blocked while the driver is operating.
+ *
+ * The lock that drivers may supply is now called the ttydisc lock, which
+ * replaces most traditional usage of the ttylock in drivers.  As the name
+ * implies, it must be held when calling ttydisc_* methods.  The exception is
+ * when &Giant is passed to tty_alloc_mutex(); this is currently a special hack
+ * put in place so that syscons can continue operating without the tty layer
+ * attempting to acquire this sx before Giant.  syscons will become properly
+ * locked in due time, but this is a more complicated feat.
+ *
  * List of locks
  * (t)	locked by ttylock
  * (d)	locked by ttydisc lock
  * (l)	locked by tty_list_sx
  * (c)	const until freeing
+ * (d+t) both locks must be held to write
  *
- * locking for tf_flags is more complex.  It is generally locked by the
- * discipline lock, but both locks must be held to mark some flags so that we
- * can do some unlocked reads safely with just the TTY lock.  Those flags are
- * annotated as such.
- */
+ * (d*) locking for tf_flags is more complex.  It is generally locked by the
+ * ttydisc lock, but both locks must be held to mark some flags so that we
+ * can do some unlocked reads safely with just one or the other.  Those flags
+ * are annotated with a (t) to indicate that they require the ttylock as well.
+*/
 struct tty {
-	struct mtx	*t_mtx;		/* TTY lock. */
-	struct mtx	t_mtxobj;	/* Per-TTY lock (when not borrowing). */
-	struct mtx	*t_discmtx;	/* TTY discipline lock. */
+	struct mtx	*t_mtx;		/* Deprecated TTY lock (Giant). */
+	struct sx	t_sxobj;	/* TTY lock (when not borrowing). */
+	struct mtx	*t_discmtx;
 	/* Per-TTY discipline lock (when not borrowing). */
 	struct mtx	t_discmtxobj;
 	TAILQ_ENTRY(tty) t_list;	/* (l) TTY list entry. */
@@ -183,11 +200,69 @@ void	tty_rel_pgrp(struct tty *tp, struct pgrp *pgrp);
 void	tty_rel_sess(struct tty *tp, struct session *sess);
 void	tty_rel_gone(struct tty *tp);
 
-#define	tty_lock(tp)		mtx_lock((tp)->t_mtx)
-#define	tty_unlock(tp)		mtx_unlock((tp)->t_mtx)
-#define	tty_lock_owned(tp)	mtx_owned((tp)->t_mtx)
-#define	tty_assert_locked(tp)	mtx_assert((tp)->t_mtx, MA_OWNED)
-#define	tty_getlock(tp)		((tp)->t_mtx)
+/*
+ * These will get turned back into macros after the syscons/Giant locking
+ * situation is resolved.  For now, we have to support both kinds of tty lock
+ * for this one case.
+ */
+static __inline void
+_tty_lock(struct tty *tp)
+{
+
+	if (tp->t_mtx != NULL)
+		mtx_lock(tp->t_mtx);
+	else
+		sx_xlock(&tp->t_sxobj);
+}
+
+static __inline void
+_tty_unlock(struct tty *tp)
+{
+
+	if (tp->t_mtx != NULL)
+		mtx_unlock(tp->t_mtx);
+	else
+		sx_xunlock(&tp->t_sxobj);
+}
+
+static __inline int
+_tty_lock_owned(struct tty *tp)
+{
+
+	if (tp->t_mtx != NULL)
+		return (mtx_owned(tp->t_mtx));
+	else
+		return (sx_xlocked(&tp->t_sxobj));
+}
+
+#if defined(INVARIANTS) || defined(INVARIANTS_SUPPORT)
+/* XXX This should go away when the Giant special-case is removed. */
+static __inline void
+tty_assert_locked(struct tty *tp)
+{
+
+	if (tp->t_mtx != NULL)
+		mtx_assert(tp->t_mtx, MA_OWNED);
+	else
+		sx_assert(&tp->t_sxobj, SA_XLOCKED);
+}
+
+#else
+
+#define	tty_assert_locked(tp)
+
+#endif /* defined(INVARIANTS) || defined(INVARIANTS_SUPPORT */
+
+#define	tty_lock(tp)		_tty_lock(tp)
+#define	tty_unlock(tp)		_tty_unlock(tp)
+#define	tty_lock_owned(tp)	_tty_lock_owned(tp)
+
+/*
+ * XXX This one is technically wrong as long as syscons is still Giant-locked.
+ * However, neither the internal tty infrastructure nor syscons will attempt to
+ * tty_getlock, so we leave it as-is.
+ */
+#define	tty_getlock(tp)			(&(tp)->t_sxobj)
 
 #define	ttydisc_lock(tp)		mtx_lock((tp)->t_discmtx)
 #define	ttydisc_unlock(tp)		mtx_unlock((tp)->t_discmtx)
@@ -195,6 +270,9 @@ void	tty_rel_gone(struct tty *tp);
 #define	ttydisc_assert_locked(tp)	mtx_assert((tp)->t_discmtx, MA_OWNED)
 #define	ttydisc_assert_unlocked(tp)	mtx_assert((tp)->t_discmtx, MA_NOTOWNED)
 #define	ttydisc_getlock(tp)		((tp)->t_discmtx)
+
+/* Internal to tty, preferably... */
+#define	ttydisc_lock_assert(tp, ma)	mtx_assert((tp)->t_discmtx, (ma))
 
 /* Device node creation. */
 int	tty_makedevf(struct tty *tp, struct ucred *cred, int flags,

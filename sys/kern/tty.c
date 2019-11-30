@@ -247,6 +247,7 @@ ttydev_leave(struct tty *tp)
 		tty_unlock(tp);
 		return;
 	}
+
 	if (!ttydisc_lock_owned(tp))
 		ttydisc_lock(tp);
 	tp->t_flags |= TF_OPENCLOSE;
@@ -269,18 +270,8 @@ ttydev_leave(struct tty *tp)
 	ttyoutq_free(&tp->t_outq);
 	tp->t_outlow = 0;
 
-	if (!tty_gone(tp)) {
-		/*
-		 * XXX TTY driver may drop both locks as long as the tty lock
-		 * isn't sleepable, giving it a chance to go away.  This was
-		 * still true before separating out the ttydisc lock, so not
-		 * much has changed.  We'll just make sure they picked up both
-		 * locks when we return.
-		 */
+	if (!tty_gone(tp))
 		ttydevsw_close(tp);
-		tty_assert_locked(tp);
-		ttydisc_assert_locked(tp);
-	}
 
 	tp->t_flags &= ~TF_OPENCLOSE;
 	cv_broadcast(&tp->t_dcdwait);
@@ -1161,8 +1152,7 @@ tty_alloc_mutex(struct ttydevsw *tsw, void *sc, struct mtx *discmtx)
 		tp->t_mtx = discmtx;
 		discmtx = NULL;
 	} else {
-		tp->t_mtx = &tp->t_mtxobj;
-		mtx_init(&tp->t_mtxobj, "ttymtx", NULL, MTX_DEF);
+		sx_init(&tp->t_sxobj, "ttysx");
 	}
 
 	if (discmtx != NULL) {
@@ -1205,9 +1195,9 @@ tty_dealloc(void *arg)
 	cv_destroy(&tp->t_dcdwait);
 	cv_destroy(&tp->t_outserwait);
 
-	if (tp->t_mtx == &tp->t_mtxobj)
-		mtx_destroy(&tp->t_mtxobj);
-
+	/* We didn't bother initializing the sx if we were given Giant. */
+	if (tp->t_mtx == NULL)
+		sx_destroy(&tp->t_sxobj);
 	if (tp->t_discmtx == &tp->t_discmtxobj)
 		mtx_destroy(&tp->t_discmtxobj);
 	ttydevsw_free(tp);
@@ -1659,7 +1649,7 @@ tty_wait(struct tty *tp, struct cv *cv)
 	int revokecnt = tp->t_revokecnt;
 	bool locktty;
 
-	ttydisc_assert_locked(tp);
+	ttydisc_lock_assert(tp, MA_OWNED | MA_NOTRECURSED);
 	MPASS(!tty_gone(tp));
 
 	locktty = tty_lock_owned(tp);
@@ -1691,7 +1681,7 @@ tty_timedwait(struct tty *tp, struct cv *cv, int hz)
 	int revokecnt = tp->t_revokecnt;
 	bool locktty;
 
-	ttydisc_assert_locked(tp);
+	ttydisc_lock_assert(tp, MA_OWNED | MA_NOTRECURSED);
 	MPASS(!tty_gone(tp));
 
 	locktty = tty_lock_owned(tp);
