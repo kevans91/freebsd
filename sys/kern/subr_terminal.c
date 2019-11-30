@@ -321,7 +321,7 @@ terminal_input_char(struct terminal *tm, term_char_t c)
 		return;
 	c = TCHAR_CHARACTER(c);
 
-	tty_lock(tp);
+	ttydisc_lock(tp);
 	/*
 	 * Conversion to UTF-8.
 	 */
@@ -353,7 +353,7 @@ terminal_input_char(struct terminal *tm, term_char_t c)
 		ttydisc_rint_simple(tp, str, sizeof str);
 	}
 	ttydisc_rint_done(tp);
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 }
 
 void
@@ -365,10 +365,10 @@ terminal_input_raw(struct terminal *tm, char c)
 	if (tp == NULL)
 		return;
 
-	tty_lock(tp);
+	ttydisc_lock(tp);
 	ttydisc_rint(tp, c, 0);
 	ttydisc_rint_done(tp);
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 }
 
 void
@@ -385,10 +385,10 @@ terminal_input_special(struct terminal *tm, unsigned int k)
 	if (str == NULL)
 		return;
 
-	tty_lock(tp);
+	ttydisc_lock(tp);
 	ttydisc_rint_simple(tp, str, strlen(str));
 	ttydisc_rint_done(tp);
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 }
 
 /*
@@ -420,6 +420,7 @@ termtty_outwakeup(struct tty *tp)
 	size_t olen;
 	unsigned int flags = 0;
 
+	ttydisc_lock_assert(tp, MA_OWNED);
 	while ((olen = ttydisc_getc(tp, obuf, sizeof obuf)) > 0) {
 		TERMINAL_LOCK_TTY(tm);
 		if (!(tm->tm_flags & TF_MUTE)) {
@@ -478,8 +479,10 @@ termtty_ioctl(struct tty *tp, u_long cmd, caddr_t data, struct thread *td)
 	 * the TTY when handling ioctls.
 	 */
 	tty_unlock(tp);
+	ttydisc_unlock(tp);
 	error = tm->tm_class->tc_ioctl(tm, cmd, data, td);
 	tty_lock(tp);
+	ttydisc_lock(tp);
 	return (error);
 }
 

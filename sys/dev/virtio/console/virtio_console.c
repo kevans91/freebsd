@@ -95,6 +95,7 @@ struct vtcon_port {
 
 #define VTCON_PORT_LOCK(_port)		mtx_lock(&(_port)->vtcport_mtx)
 #define VTCON_PORT_UNLOCK(_port)	mtx_unlock(&(_port)->vtcport_mtx)
+#define VTCON_PORT_ASSERT(_port, ma)	mtx_assert(&(_port)->vtcport_mtx, (ma))
 
 struct vtcon_softc_port {
 	struct vtcon_softc	*vcsp_sc;
@@ -1125,7 +1126,7 @@ vtcon_port_create(struct vtcon_softc *sc, int id)
 	port->vtcport_scport = scport;
 	port->vtcport_id = id;
 	mtx_init(&port->vtcport_mtx, "vtcpmtx", NULL, MTX_DEF);
-	port->vtcport_tty = tty_alloc_mutex(&vtcon_tty_class, port,
+	port->vtcport_tty = tty_alloc_locks(&vtcon_tty_class, port, NULL,
 	    &port->vtcport_mtx);
 
 	error = vtcon_port_init_vqs(port);
@@ -1293,6 +1294,8 @@ vtcon_port_in(struct vtcon_port *port)
 	uint32_t len;
 	int i, deq;
 
+	/* Effectively the ttydisc lock. */
+	VTCON_PORT_ASSERT(port, MA_OWNED);
 	tp = port->vtcport_tty;
 	vq = port->vtcport_invq;
 
@@ -1383,13 +1386,14 @@ vtcon_tty_open(struct tty *tp)
 {
 	struct vtcon_port *port;
 
+	/* Effectively VTCON_PORT_LOCK. */
+	ttydisc_lock_assert(tp, MA_OWNED);
 	port = tty_softc(tp);
-
-	if (port->vtcport_flags & VTCON_PORT_FLAG_GONE)
+	if (port->vtcport_flags & VTCON_PORT_FLAG_GONE) {
 		return (ENXIO);
+	}
 
 	vtcon_port_submit_event(port, VIRTIO_CONSOLE_PORT_OPEN, 1);
-
 	return (0);
 }
 
@@ -1398,8 +1402,9 @@ vtcon_tty_close(struct tty *tp)
 {
 	struct vtcon_port *port;
 
+	/* Effectively VTCON_PORT_LOCK. */
+	ttydisc_lock_assert(tp, MA_OWNED);
 	port = tty_softc(tp);
-
 	if (port->vtcport_flags & VTCON_PORT_FLAG_GONE)
 		return;
 
@@ -1413,6 +1418,8 @@ vtcon_tty_outwakeup(struct tty *tp)
 	char buf[VTCON_BULK_BUFSZ];
 	int len;
 
+	/* Effectively VTCON_PORT_LOCK. */
+	ttydisc_lock_assert(tp, MA_OWNED);
 	port = tty_softc(tp);
 
 	if (port->vtcport_flags & VTCON_PORT_FLAG_GONE)

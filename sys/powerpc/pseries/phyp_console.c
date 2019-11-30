@@ -444,11 +444,11 @@ uart_phyp_intr(void *v)
 	unsigned char c;
 	int len;
 
-	tty_lock(tp);
+	ttydisc_lock(tp);
 	while ((len = uart_phyp_get(sc, &c, 1)) > 0)
 		ttydisc_rint(tp, c, 0);
 	ttydisc_rint_done(tp);
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 
 	if (sc->irqres == NULL)
 		callout_reset(&sc->callout, sc->polltime, uart_phyp_intr, sc);

@@ -861,10 +861,10 @@ killjobc(void)
 		 */
 
 		if (tp != NULL) {
-			tty_lock(tp);
+			ttydisc_lock(tp);
 			if (tp->t_session == sp)
 				tty_signal_pgrp(tp, SIGHUP);
-			tty_unlock(tp);
+			ttydisc_unlock(tp);
 		}
 
 		if (ttyvp != NULL) {

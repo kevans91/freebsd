@@ -605,17 +605,17 @@ constty_timeout(void *arg)
 	int c;
 
 	if (constty != NULL) {
-		tty_lock(constty);
+		ttydisc_lock(constty);
 		while ((c = msgbuf_getchar(&consmsgbuf)) != -1) {
 			if (tty_putchar(constty, c) < 0) {
-				tty_unlock(constty);
+				ttydisc_unlock(constty);
 				constty = NULL;
 				break;
 			}
 		}
 
 		if (constty != NULL)
-			tty_unlock(constty);
+			ttydisc_unlock(constty);
 	}
 	if (constty != NULL) {
 		callout_reset(&conscallout, hz / constty_wakeups_per_second,

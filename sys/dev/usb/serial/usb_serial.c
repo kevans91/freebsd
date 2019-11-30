@@ -418,7 +418,7 @@ ucom_attach_tty(struct ucom_super_softc *ssc, struct ucom_softc *sc)
 	struct tty *tp;
 	char buf[32];			/* temporary TTY device name buffer */
 
-	tp = tty_alloc_mutex(&ucom_class, sc, sc->sc_mtx);
+	tp = tty_alloc_locks(&ucom_class, sc, NULL, sc->sc_mtx);
 	if (tp == NULL)
 		return (ENOMEM);
 
@@ -631,8 +631,14 @@ ucom_queue_command(struct ucom_softc *sc,
 	/*
 	 * Closing the device should be synchronous.
 	 */
-	if (fn == ucom_cfg_close)
+	if (fn == ucom_cfg_close) {
+		/* XXX Ugly ugly ugly, goes away with sleepable tty lock. */
+		tty_unlock(sc->sc_tty);
 		usb_proc_mwait(&ssc->sc_tq, t0, t1);
+		ttydisc_unlock(sc->sc_tty);
+		tty_lock(sc->sc_tty);
+		ttydisc_lock(sc->sc_tty);
+	}
 
 	/*
 	 * In case of multiple configure requests,
@@ -906,7 +912,7 @@ ucom_ioctl(struct tty *tp, u_long cmd, caddr_t data, struct thread *td)
 
 	UCOM_MTX_ASSERT(sc, MA_OWNED);
 
-	if (!(sc->sc_flag & UCOM_FLAG_HL_READY)) {
+	if(!(sc->sc_flag & UCOM_FLAG_HL_READY)) {
 		return (EIO);
 	}
 	DPRINTF("cmd = 0x%08lx\n", cmd);

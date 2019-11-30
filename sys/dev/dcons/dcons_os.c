@@ -234,13 +234,13 @@ dcons_timeout(void *v)
 		dc = &sc[i];
 		tp = dc->tty;
 
-		tty_lock(tp);
+		ttydisc_lock(tp);
 		while ((c = dcons_os_checkc_nopoll(dc)) != -1) {
 			ttydisc_rint(tp, c, 0);
 			poll_idle = 0;
 		}
 		ttydisc_rint_done(tp);
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 	}
 	poll_idle++;
 	polltime = hz;

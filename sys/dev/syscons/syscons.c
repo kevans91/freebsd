@@ -400,6 +400,7 @@ sctty_outwakeup(struct tty *tp)
     u_char buf[PCBURST];
     scr_stat *scp = sc_get_stat(tp);
 
+    ttydisc_lock_assert(tp, MA_OWNED);
     if (scp->status & SLKED ||
 	(scp == scp->sc->cur_scp && scp->sc->blink_in_progress))
 	return;
@@ -848,6 +849,7 @@ sckbdevent(keyboard_t *thiskbd, int event, void *arg)
 	if ((*sc->cur_scp->tsw->te_input)(sc->cur_scp, c, cur_tty))
 	    continue;
 
+	ttydisc_lock(cur_tty);
 	switch (KEYFLAGS(c)) {
 	case 0x0000: /* normal key */
 	    ttydisc_rint(cur_tty, KEYCHAR(c), 0);
@@ -872,6 +874,7 @@ sckbdevent(keyboard_t *thiskbd, int event, void *arg)
 	}
 
 	ttydisc_rint_done(cur_tty);
+	ttydisc_unlock(cur_tty);
     }
 
     sc->cur_scp->status |= MOUSE_HIDDEN;
@@ -4143,10 +4146,12 @@ sc_paste(scr_stat *scp, const u_char *p, int count)
     tp = SC_DEV(scp->sc, scp->sc->cur_scp->index);
     if (!tty_opened_ns(tp))
 	return;
+    ttydisc_lock(tp);
     rmap = scp->sc->scr_rmap;
     for (; count > 0; --count)
 	ttydisc_rint(tp, rmap[*p++], 0);
     ttydisc_rint_done(tp);
+    ttydisc_unlock(tp);
 }
 
 void
@@ -4157,11 +4162,13 @@ sc_respond(scr_stat *scp, const u_char *p, int count, int wakeup)
     tp = SC_DEV(scp->sc, scp->sc->cur_scp->index);
     if (!tty_opened_ns(tp))
 	return;
+    ttydisc_lock(tp);
     ttydisc_rint_simple(tp, p, count);
     if (wakeup) {
 	/* XXX: we can't always call ttydisc_rint_done() here! */
 	ttydisc_rint_done(tp);
     }
+    ttydisc_unlock(tp);
 }
 
 void

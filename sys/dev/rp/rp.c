@@ -596,7 +596,7 @@ static void rp_do_receive(struct rp_port *rp, struct tty *tp,
 	FIFO one word at a time, pulling apart the character and
 	the status. Update error counters depending on status.
 */
-	tty_lock(tp);
+	ttydisc_lock(tp);
 	if(ChanStatus & STATMODE) {
 		while(ToRecv) {
 			CharNStat = rp_readch2(cp,sGetTxRxDataIO(cp));
@@ -630,7 +630,7 @@ static void rp_do_receive(struct rp_port *rp, struct tty *tp,
 		}
 	}
         ttydisc_rint_done(tp);
-        tty_unlock(tp);
+        ttydisc_unlock(tp);
 }
 
 static void rp_handle_port(struct rp_port *rp)
@@ -674,7 +674,7 @@ static void rp_do_poll(void *arg)
 
 	rp = arg;
 	tp = rp->rp_tty;
-	tty_lock_assert(tp, MA_OWNED);
+	ttydisc_lock_assert(tp, MA_OWNED);
 	ctl = rp->rp_ctlp;
 	CtlMask = ctl->ctlmask(ctl);
 	if (CtlMask & (1 << rp->rp_aiop)) {
@@ -742,7 +742,7 @@ rp_attachcommon(CONTROLLER_T *ctlp, int num_aiops, int num_ports)
 		num_chan = sGetAiopNumChan(ctlp, aiop);
 		for(chan=0; chan < num_chan; chan++, port++, rp++) {
 			rp->rp_tty = tp = tty_alloc(&rp_tty_class, rp);
-			callout_init_mtx(&rp->rp_timer, tty_getlock(tp), 0);
+			callout_init_mtx(&rp->rp_timer, ttydisc_getlock(tp), 0);
 			rp->rp_port = port;
 			rp->rp_ctlp = ctlp;
 			rp->rp_unit = unit;
@@ -848,7 +848,9 @@ rpopen(struct tty *tp)
 	IntMask = IntMask & rp->rp_intmask;
 	ChanStatus = sGetChanStatus(&rp->rp_channel);
 
+	ttydisc_lock(tp);
 	callout_reset(&rp->rp_timer, POLL_INTERVAL, rp_do_poll, rp);
+	ttydisc_unlock(tp);
 
 	device_busy(rp->rp_ctlp->dev);
 	return(0);
@@ -860,6 +862,7 @@ rpclose(struct tty *tp)
 	struct	rp_port	*rp;
 
 	rp = tty_softc(tp);
+	ttydisc_lock_assert(tp, MA_OWNED);
 	callout_stop(&rp->rp_timer);
 	rphardclose(tp);
 	device_unbusy(rp->rp_ctlp->dev);

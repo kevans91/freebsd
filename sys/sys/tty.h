@@ -57,45 +57,54 @@ struct ttydevsw;
  *
  * List of locks
  * (t)	locked by t_mtx
+ * (d)  locked by t_discmtx
  * (l)	locked by tty_list_sx
  * (c)	const until freeing
+ *
+ * locking for tf_flags is more complex.  It is generally locked by the
+ * discipline lock, but both locks must be held to mark some flags so that we
+ * can do some unlocked reads safely with just the TTY lock.  Those flags are
+ * annotated as such.
  */
 struct tty {
 	struct mtx	*t_mtx;		/* TTY lock. */
 	struct mtx	t_mtxobj;	/* Per-TTY lock (when not borrowing). */
+	struct mtx	*t_discmtx;	/* TTY discipline lock. */
+	/* Per-TTY discipline lock (when not borrowing). */
+	struct mtx	t_discmtxobj;
 	TAILQ_ENTRY(tty) t_list;	/* (l) TTY list entry. */
 	int		t_drainwait;	/* (t) TIOCDRAIN timeout seconds. */
-	unsigned int	t_flags;	/* (t) Terminal option flags. */
+	unsigned int	t_flags;	/* (d*) Terminal option flags. */
 /* Keep flags in sync with db_show_tty and pstat(8). */
 #define	TF_NOPREFIX	0x00001	/* Don't prepend "tty" to device name. */
 #define	TF_INITLOCK	0x00002	/* Create init/lock state devices. */
 #define	TF_CALLOUT	0x00004	/* Create "cua" devices. */
-#define	TF_OPENED_IN	0x00008	/* "tty" node is in use. */
-#define	TF_OPENED_OUT	0x00010	/* "cua" node is in use. */
-#define	TF_OPENED_CONS	0x00020 /* Device in use as console. */
+#define	TF_OPENED_IN	0x00008	/* (t) "tty" node is in use. */
+#define	TF_OPENED_OUT	0x00010	/* (t) "cua" node is in use. */
+#define	TF_OPENED_CONS	0x00020 /* (t) Device in use as console. */
 #define	TF_OPENED	(TF_OPENED_IN|TF_OPENED_OUT|TF_OPENED_CONS)
-#define	TF_GONE		0x00040	/* Device node is gone. */
-#define	TF_OPENCLOSE	0x00080	/* Device is in open()/close(). */
-#define	TF_ASYNC	0x00100	/* Asynchronous I/O enabled. */
+#define	TF_GONE		0x00040	/* (t) Device node is gone. */
+#define	TF_OPENCLOSE	0x00080	/* (t) Device is in open()/close(). */
+#define	TF_ASYNC	0x00100	/* (t) Asynchronous I/O enabled. */
 #define	TF_LITERAL	0x00200	/* Accept the next character literally. */
 #define	TF_HIWAT_IN	0x00400	/* We've reached the input watermark. */
 #define	TF_HIWAT_OUT	0x00800	/* We've reached the output watermark. */
 #define	TF_HIWAT	(TF_HIWAT_IN|TF_HIWAT_OUT)
 #define	TF_STOPPED	0x01000	/* Output flow control - stopped. */
-#define	TF_EXCLUDE	0x02000	/* Exclusive access. */
+#define	TF_EXCLUDE	0x02000	/* (t) Exclusive access. */
 #define	TF_BYPASS	0x04000	/* Optimized input path. */
 #define	TF_ZOMBIE	0x08000	/* Modem disconnect received. */
-#define	TF_HOOK		0x10000	/* TTY has hook attached. */
-#define	TF_BUSY_IN	0x20000	/* Process busy in read() -- not supported. */
-#define	TF_BUSY_OUT	0x40000	/* Process busy in write(). */
+#define	TF_HOOK		0x10000	/* (t) TTY has hook attached. */
+#define	TF_BUSY_IN	0x20000	/* (t) Process busy in read(); not supported. */
+#define	TF_BUSY_OUT	0x40000	/* (Process busy in write(). */
 #define	TF_BUSY		(TF_BUSY_IN|TF_BUSY_OUT)
-	unsigned int	t_revokecnt;	/* (t) revoke() count. */
+	unsigned int	t_revokecnt;	/* (d+t) revoke() count. */
 
 	/* Buffering mechanisms. */
-	struct ttyinq	t_inq;		/* (t) Input queue. */
-	size_t		t_inlow;	/* (t) Input low watermark. */
-	struct ttyoutq	t_outq;		/* (t) Output queue. */
-	size_t		t_outlow;	/* (t) Output low watermark. */
+	struct ttyinq	t_inq;		/* (d) Input queue. */
+	size_t		t_inlow;	/* (d) Input low watermark. */
+	struct ttyoutq	t_outq;		/* (d) Output queue. */
+	size_t		t_outlow;	/* (d) Output low watermark. */
 
 	/* Sleeping mechanisms. */
 	struct cv	t_inwait;	/* (t) Input wait queue. */
@@ -109,10 +118,10 @@ struct tty {
 	struct selinfo	t_outpoll;	/* (t) Output poll queue. */
 	struct sigio	*t_sigio;	/* (t) Asynchronous I/O. */
 
-	struct termios	t_termios;	/* (t) I/O processing flags. */
+	struct termios	t_termios;	/* (d+t) I/O processing flags. */
 	struct winsize	t_winsize;	/* (t) Window size. */
-	unsigned int	t_column;	/* (t) Current cursor position. */
-	unsigned int	t_writepos;	/* (t) Where input was interrupted. */
+	unsigned int	t_column;	/* (d) Current cursor position. */
+	unsigned int	t_writepos;	/* (d) Where input was interrupted. */
 	int		t_compatflags;	/* (t) COMPAT_43TTY flags. */
 
 	/* Init/lock-state devices. */
@@ -125,16 +134,16 @@ struct tty {
 	struct ttyhook	*t_hook;	/* (t) Capture/inject hook. */
 
 	/* Process signal delivery. */
-	struct pgrp	*t_pgrp;	/* (t) Foreground process group. */
-	struct session	*t_session;	/* (t) Associated session. */
-	unsigned int	t_sessioncnt;	/* (t) Backpointing sessions. */
+	struct pgrp	*t_pgrp;	/* (d+t) Foreground process group. */
+	struct session	*t_session;	/* (d+t) Associated session. */
+	unsigned int	t_sessioncnt;	/* (d+t) Backpointing sessions. */
 
 	void		*t_devswsoftc;	/* (c) Soft config, for drivers. */
 	void		*t_hooksoftc;	/* (t) Soft config, for hooks. */
 	struct cdev	*t_dev;		/* (c) Primary character device. */
 
-	size_t		t_prbufsz;	/* (t) SIGINFO buffer size. */
-	char		t_prbuf[];	/* (t) SIGINFO buffer. */
+	size_t		t_prbufsz;	/* (d) SIGINFO buffer size. */
+	char		t_prbuf[];	/* (d) SIGINFO buffer. */
 };
 
 /*
@@ -164,8 +173,17 @@ struct xtty {
 #define	TTYUNIT_CALLOUT		0x4
 
 /* Allocation and deallocation. */
+/*
+ * - tty_alloc: allocate a TTY with internal TTY/discipline locks
+ * - tty_alloc_mutex: allocate a TTY with given TTY lock, internal discipline
+ *     lock.
+ * - tty_alloc_locks: allocate a TTY with given TTY/discipline locks; NULL for
+ *     either means "use internal."
+ */
 struct tty *tty_alloc(struct ttydevsw *tsw, void *softc);
 struct tty *tty_alloc_mutex(struct ttydevsw *tsw, void *softc, struct mtx *mtx);
+struct tty *tty_alloc_locks(struct ttydevsw *tsw, void *softc, struct mtx *mtx,
+    struct mtx *discmtx);
 void	tty_rel_pgrp(struct tty *tp, struct pgrp *pgrp);
 void	tty_rel_sess(struct tty *tp, struct session *sess);
 void	tty_rel_gone(struct tty *tp);
@@ -175,6 +193,12 @@ void	tty_rel_gone(struct tty *tp);
 #define	tty_lock_owned(tp)	mtx_owned((tp)->t_mtx)
 #define	tty_lock_assert(tp,ma)	mtx_assert((tp)->t_mtx, (ma))
 #define	tty_getlock(tp)		((tp)->t_mtx)
+
+#define	ttydisc_lock(tp)		mtx_lock((tp)->t_discmtx)
+#define	ttydisc_unlock(tp)		mtx_unlock((tp)->t_discmtx)
+#define	ttydisc_lock_owned(tp)		mtx_owned((tp)->t_discmtx)
+#define	ttydisc_lock_assert(tp,ma)	mtx_assert((tp)->t_discmtx, (ma))
+#define	ttydisc_getlock(tp)		((tp)->t_discmtx)
 
 /* Device node creation. */
 int	tty_makedevf(struct tty *tp, struct ucred *cred, int flags,

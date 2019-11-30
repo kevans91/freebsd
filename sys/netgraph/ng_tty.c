@@ -338,8 +338,10 @@ ngt_rcvdata(hook_p hook, item_p item)
 
 	/* notify the TTY that data is ready */
 	tty_lock(tp);
+	ttydisc_lock(tp);
 	if (!tty_gone(tp))
 		ttydevsw_outwakeup(tp);
+	ttydisc_unlock(tp);
 	tty_unlock(tp);
 
 	return (0);
@@ -412,7 +414,7 @@ ngt_rint_bypass(struct tty *tp, const void *buf, size_t len)
 	size_t total = 0;
 	int error = 0, length;
 
-	tty_lock_assert(tp, MA_OWNED);
+	ttydisc_lock_assert(tp, MA_OWNED);
 
 	if (sc->hook == NULL)
 		return (0);
@@ -460,7 +462,7 @@ ngt_rint(struct tty *tp, char c, int flags)
 	struct mbuf *m;
 	int error = 0;
 
-	tty_lock_assert(tp, MA_OWNED);
+	ttydisc_lock_assert(tp, MA_OWNED);
 
 	if (sc->hook == NULL)
 		return (0);

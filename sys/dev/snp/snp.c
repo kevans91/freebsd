@@ -164,10 +164,14 @@ snp_read(struct cdev *dev, struct uio *uio, int flag)
 		return (error);
 
 	tp = ss->snp_tty;
-	if (tp == NULL || tty_gone(tp))
+	if (tp == NULL)
 		return (EIO);
+	ttydisc_lock(tp);
+	if (tty_gone(tp)) {
+		ttydisc_unlock(tp);
+		return (EIO);
+	}
 
-	tty_lock(tp);
 	for (;;) {
 		error = ttyoutq_read_uio(&ss->snp_outq, tp, uio);
 		if (error != 0 || uio->uio_resid != oresid)
@@ -178,7 +182,7 @@ snp_read(struct cdev *dev, struct uio *uio, int flag)
 			error = EWOULDBLOCK;
 			break;
 		}
-		error = cv_wait_sig(&ss->snp_outwait, tty_getlock(tp));
+		error = cv_wait_sig(&ss->snp_outwait, ttydisc_getlock(tp));
 		if (error != 0)
 			break;
 		if (tty_gone(tp)) {
@@ -186,7 +190,7 @@ snp_read(struct cdev *dev, struct uio *uio, int flag)
 			break;
 		}
 	}
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 
 	return (error);
 }

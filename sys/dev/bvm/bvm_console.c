@@ -110,7 +110,7 @@ cn_drvinit(void *unused)
 
 	if (bvm_consdev.cn_pri != CN_DEAD) {
 		tp = tty_alloc(&bvm_ttydevsw, NULL);
-		callout_init_mtx(&bvm_timer, tty_getlock(tp), 0);
+		callout_init_mtx(&bvm_timer, ttydisc_getlock(tp), 0);
 		tty_makedev(tp, NULL, "bvmcons");
 	}
 }
@@ -118,11 +118,12 @@ cn_drvinit(void *unused)
 static int
 bvm_tty_open(struct tty *tp)
 {
+
+	ttydisc_lock_assert(tp, MA_OWNED);
 	polltime = hz / BVMCONS_POLL_HZ;
 	if (polltime < 1)
 		polltime = 1;
 	callout_reset(&bvm_timer, polltime, bvm_timeout, tp);
-
 	return (0);
 }
 
@@ -130,7 +131,7 @@ static void
 bvm_tty_close(struct tty *tp)
 {
 
-	tty_lock_assert(tp, MA_OWNED);
+	ttydisc_lock_assert(tp, MA_OWNED);
 	callout_stop(&bvm_timer);
 }
 
@@ -159,7 +160,7 @@ bvm_timeout(void *v)
 
 	tp = (struct tty *)v;
 
-	tty_lock_assert(tp, MA_OWNED);
+	ttydisc_lock_assert(tp, MA_OWNED);
 	while ((c = bvm_cngetc(NULL)) != -1)
 		ttydisc_rint(tp, c, 0);
 	ttydisc_rint_done(tp);

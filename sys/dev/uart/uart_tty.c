@@ -330,7 +330,7 @@ uart_tty_intr(void *arg)
 		return;
 
 	tp = sc->sc_u.u_tty.tp;
-	tty_lock(tp);
+	ttydisc_lock(tp);
 
 	if (pend & SER_INT_RXREADY) {
 		while (!uart_rx_empty(sc) && !sc->sc_isquelch) {
@@ -366,7 +366,7 @@ uart_tty_intr(void *arg)
 	if (pend & SER_INT_TXIDLE)
 		uart_tty_outwakeup(tp);
 	ttydisc_rint_done(tp);
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 }
 
 static void
@@ -449,7 +449,7 @@ uart_tty_getlock(struct uart_softc *sc)
 {
 
 	if (sc->sc_u.u_tty.tp != NULL)
-		return (tty_getlock(sc->sc_u.u_tty.tp));
+		return (ttydisc_getlock(sc->sc_u.u_tty.tp));
 	else
 		return (NULL);
 }

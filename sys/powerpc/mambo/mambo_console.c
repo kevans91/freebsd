@@ -91,8 +91,10 @@ cn_drvinit(void *unused)
 
 		polltime = 1;
 
-		callout_init(&mambo_callout, 1);
+		callout_init_mtx(&mambo_callout, ttydisc_getlock(tp), 0);
+		ttydisc_lock(tp);
 		callout_reset(&mambo_callout, polltime, mambo_timeout, NULL);
+		ttydisc_unlock(tp);
 	}
 }
 
@@ -117,11 +119,9 @@ mambo_timeout(void *v)
 {
 	int 	c;
 
-	tty_lock(tp);
 	while ((c = mambo_cngetc(NULL)) != -1)
 		ttydisc_rint(tp, c, 0);
 	ttydisc_rint_done(tp);
-	tty_unlock(tp);
 
 	callout_reset(&mambo_callout, polltime, mambo_timeout, NULL);
 }

@@ -281,10 +281,11 @@ gxemul_cons_ttyinit(void *unused)
 	tp = tty_alloc(&gxemul_cons_ttydevsw, NULL);
 	tty_init_console(tp, 0);
 	tty_makedev(tp, NULL, "%s", "ttyu0");
-	callout_init(&gxemul_cons_callout, 1);
+	callout_init_mtx(&gxemul_cons_callout, ttydisc_getlock(tp), 0);
+	ttydisc_lock(tp);
 	callout_reset(&gxemul_cons_callout, gxemul_cons_polltime,
 	    gxemul_cons_timeout, tp);
-
+	ttydisc_unlock(tp);
 }
 SYSINIT(gxemul_cons_ttyinit, SI_SUB_CONFIGURE, SI_ORDER_MIDDLE,
     gxemul_cons_ttyinit, NULL);
@@ -316,7 +317,7 @@ gxemul_cons_timeout(void *v)
 	int c;
 
 	tp = v;
-	tty_lock(tp);
+	ttydisc_lock(tp);
 	GC_LOCK();
 	while (gxemul_cons_readable()) {
 		c = gxemul_cons_read();
@@ -329,7 +330,7 @@ gxemul_cons_timeout(void *v)
 	}
 	GC_UNLOCK();
 	ttydisc_rint_done(tp);
-	tty_unlock(tp);
 	callout_reset(&gxemul_cons_callout, gxemul_cons_polltime,
 	    gxemul_cons_timeout, tp);
+	ttydisc_unlock(tp);
 }

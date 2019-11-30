@@ -90,7 +90,7 @@ cn_drvinit(void *unused)
 	if (cfe_consdev.cn_pri != CN_DEAD &&
 	    cfe_consdev.cn_name[0] != '\0') {
 		tp = tty_alloc(&cfe_ttydevsw, NULL);
-		callout_init_mtx(&cfe_timer, tty_getlock(tp), 0);
+		callout_init_mtx(&cfe_timer, ttydisc_getlock(tp), 0);
 		tty_makedev(tp, NULL, "cfecons");
 	}
 }
@@ -98,6 +98,8 @@ cn_drvinit(void *unused)
 static int
 cfe_tty_open(struct tty *tp)
 {
+
+	ttydisc_lock_assert(tp, MA_OWNED);
 	polltime = hz / CFECONS_POLL_HZ;
 	if (polltime < 1)
 		polltime = 1;
@@ -110,6 +112,7 @@ static void
 cfe_tty_close(struct tty *tp)
 {
 
+	ttydisc_lock_assert(tp, MA_OWNED);
 	callout_stop(&cfe_timer);
 }
 
@@ -142,7 +145,7 @@ cfe_timeout(void *v)
 
 	tp = (struct tty *)v;
 
-	tty_lock_assert(tp, MA_OWNED);
+	ttydisc_lock_assert(tp, MA_OWNED);
 	while ((c = cfe_cngetc(NULL)) != -1)
 		ttydisc_rint(tp, c, 0);
 	ttydisc_rint_done(tp);

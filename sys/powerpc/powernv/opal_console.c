@@ -489,11 +489,11 @@ uart_opal_intr(void *v)
 	struct tty *tp = sc->tp;
 	int c;
 
-	tty_lock(tp);
+	ttydisc_lock(tp);
 	while ((c = uart_opal_getc(sc)) > 0)
 		ttydisc_rint(tp, c, 0);
 	ttydisc_rint_done(tp);
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 
 	opal_call(OPAL_POLL_EVENTS, NULL);
 
