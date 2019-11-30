@@ -125,7 +125,7 @@ tty_watermarks(struct tty *tp)
 	size_t bs = 0;
 	int error;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	ttydisc_lock_assert(tp, MA_OWNED);
 	/* Provide an input buffer for 2 seconds of data. */
 	if (tp->t_termios.c_cflag & CREAD)
@@ -237,7 +237,7 @@ ttydev_leave(struct tty *tp)
 	 * that will be corrected when the tty lock gets converted to a
 	 * sleepable lock.
 	 */
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	if (tty_opened(tp) || tp->t_flags & TF_OPENCLOSE) {
 		/* Device is still opened somewhere. */
@@ -271,18 +271,8 @@ ttydev_leave(struct tty *tp)
 
 	knlist_clear(&tp->t_inpoll.si_note, 1);
 	knlist_clear(&tp->t_outpoll.si_note, 1);
-	if (!tty_gone(tp)) {
-		/*
-		 * XXX TTY driver may drop both locks as long as the tty lock
-		 * isn't sleepable, giving it a chance to go away.  This was
-		 * still true before separating out the ttydisc lock, so not
-		 * much has changed.  We'll just make sure they picked up both
-		 * locks when we return.
-		 */
+	if (!tty_gone(tp))
 		ttydevsw_close(tp);
-		tty_lock_assert(tp, MA_OWNED);
-		ttydisc_lock_assert(tp, MA_OWNED);
-	}
 
 	tp->t_flags &= ~TF_OPENCLOSE;
 	ttydisc_unlock(tp);
@@ -1086,12 +1076,23 @@ tty_alloc(struct ttydevsw *tsw, void *sc)
 struct tty *
 tty_alloc_mutex(struct ttydevsw *tsw, void *sc, struct mtx *mutex)
 {
+	struct tty *tp;
 
-	return (tty_alloc_locks(tsw, sc, mutex, NULL));
+	/*
+	 * This can throw nice false positives, but we don't really want people
+	 * using this KPI anymore.  They should really switch to
+	 * tty_alloc_locks, because it'd be preferable to not have to support
+	 * mutexes at all anymore.
+	 */
+	KASSERT(mutex == &Giant,
+	    ("Non-Giant mtx locked tty no longer supported; sx only"));
+	tp = tty_alloc_locks(tsw, sc, NULL, NULL);
+	tp->t_mtx = mutex;
+	return (tp);
 }
 
 struct tty *
-tty_alloc_locks(struct ttydevsw *tsw, void *sc, struct mtx *mutex,
+tty_alloc_locks(struct ttydevsw *tsw, void *sc, struct sx *sx,
     struct mtx *discmtx)
 {
 	struct tty *tp;
@@ -1132,11 +1133,11 @@ tty_alloc_locks(struct ttydevsw *tsw, void *sc, struct mtx *mutex,
 	cv_init(&tp->t_dcdwait, "ttydcd");
 
 	/* Allow drivers to use a custom mutex to lock the TTY. */
-	if (mutex != NULL) {
-		tp->t_mtx = mutex;
+	if (sx != NULL) {
+		tp->t_sx = sx;
 	} else {
-		tp->t_mtx = &tp->t_mtxobj;
-		mtx_init(&tp->t_mtxobj, "ttymtx", NULL, MTX_DEF);
+		tp->t_sx = &tp->t_sxobj;
+		sx_init(&tp->t_sxobj, "ttysx");
 	}
 
 	if (discmtx != NULL) {
@@ -1177,8 +1178,8 @@ tty_dealloc(void *arg)
 	cv_destroy(&tp->t_dcdwait);
 	cv_destroy(&tp->t_outserwait);
 
-	if (tp->t_mtx == &tp->t_mtxobj)
-		mtx_destroy(&tp->t_mtxobj);
+	if (tp->t_sx == &tp->t_sxobj)
+		sx_destroy(&tp->t_sxobj);
 	if (tp->t_discmtx == &tp->t_discmtxobj)
 		mtx_destroy(&tp->t_discmtxobj);
 	ttydevsw_free(tp);
@@ -1190,7 +1191,7 @@ tty_rel_free(struct tty *tp)
 {
 	struct cdev *dev;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 #define	TF_ACTIVITY	(TF_GONE|TF_OPENED|TF_HOOK|TF_OPENCLOSE)
 	if (tp->t_sessioncnt != 0 || (tp->t_flags & TF_ACTIVITY) != TF_GONE) {
@@ -1220,7 +1221,7 @@ void
 tty_rel_pgrp(struct tty *tp, struct pgrp *pg)
 {
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	MPASS(tp->t_sessioncnt > 0);
 
 	ttydisc_lock(tp);
@@ -1235,7 +1236,7 @@ void
 tty_rel_sess(struct tty *tp, struct session *sess)
 {
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	MPASS(tp->t_sessioncnt > 0);
 
 	ttydisc_lock(tp);
@@ -1253,7 +1254,7 @@ void
 tty_rel_gone(struct tty *tp)
 {
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	MPASS(!tty_gone(tp));
 
 	if (!ttydisc_lock_owned(tp))
@@ -1346,7 +1347,7 @@ static void
 tty_to_xtty(struct tty *tp, struct xtty *xt)
 {
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	xt->xt_size = sizeof(struct xtty);
 	xt->xt_insize = ttyinq_getsize(&tp->t_inq);
@@ -1595,24 +1596,35 @@ tty_wakeup(struct tty *tp, int flags)
 	}
 }
 
+/* TWAITS_MTX should go away with syscons/Giant... */
 #define	TWAITS_MTX	0x0001
-#define	TWAITS_DISCMTX	0x0002
-
+#define	TWAITS_SX	0x0002
+#define	TWAITS_DISCMTX	0x0004
 int
 tty_wait(struct tty *tp, struct cv *cv)
 {
 	int error;
 	int revokecnt = tp->t_revokecnt;
 	int lockchoice, lockstate;
+	struct mtx *mtx;
 
 	lockchoice = lockstate = 0;
+	mtx = NULL;
 	if (tty_lock_owned(tp)) {
-		lockchoice = TWAITS_MTX;
-		lockstate |= TWAITS_MTX;
+		if (tp->t_mtx != NULL) {
+			mtx = tp->t_mtx;
+			lockchoice = TWAITS_MTX;
+			lockstate |= TWAITS_MTX;
+		} else {
+			lockchoice = TWAITS_SX;
+			lockstate |= TWAITS_SX;
+		}
 	}
 	if (ttydisc_lock_owned(tp)) {
-		if (lockchoice == 0)
+		if (lockchoice == 0) {
+			mtx = ttydisc_getlock(tp);
 			lockchoice = TWAITS_DISCMTX;
+		}
 		lockstate |= TWAITS_DISCMTX;
 	}
 	KASSERT(lockstate != 0, ("neither ttymtx nor ttydiscmtx owned"));
@@ -1624,8 +1636,10 @@ tty_wait(struct tty *tp, struct cv *cv)
 	 */
 	if ((lockstate & TWAITS_DISCMTX) != 0 && lockstate != TWAITS_DISCMTX)
 		ttydisc_unlock(tp);
-	error = cv_wait_sig(cv,
-	    (lockchoice == TWAITS_DISCMTX ? tp->t_discmtx : tp->t_mtx));
+	if (lockchoice == TWAITS_SX)
+		error = cv_wait_sig(cv, tp->t_sx);
+	else
+		error = cv_wait_sig(cv, mtx);
 	if ((lockstate & TWAITS_DISCMTX) != 0 && lockstate != TWAITS_DISCMTX)
 		ttydisc_lock(tp);
 
@@ -1645,13 +1659,27 @@ tty_timedwait(struct tty *tp, struct cv *cv, int hz)
 {
 	int error;
 	int revokecnt = tp->t_revokecnt;
-	int lockchoice;
-	int lockstate;
+	int lockchoice, lockstate;
+	struct mtx *mtx;
 
 	lockchoice = lockstate = 0;
+	mtx = NULL;
 	if (tty_lock_owned(tp)) {
-		lockchoice = TWAITS_MTX;
-		lockstate |= TWAITS_MTX;
+		if (tp->t_mtx != NULL) {
+			mtx = tp->t_mtx;
+			lockchoice = TWAITS_MTX;
+			lockstate |= TWAITS_MTX;
+		} else {
+			lockchoice = TWAITS_SX;
+			lockstate |= TWAITS_SX;
+		}
+	}
+	if (ttydisc_lock_owned(tp)) {
+		if (lockchoice == 0) {
+			mtx = ttydisc_getlock(tp);
+			lockchoice = TWAITS_DISCMTX;
+		}
+		lockstate |= TWAITS_DISCMTX;
 	}
 	if (ttydisc_lock_owned(tp)) {
 		if (lockchoice == 0)
@@ -1667,8 +1695,10 @@ tty_timedwait(struct tty *tp, struct cv *cv, int hz)
 	 */
 	if ((lockstate & TWAITS_DISCMTX) != 0 && lockstate != TWAITS_DISCMTX)
 		ttydisc_unlock(tp);
-	error = cv_timedwait_sig(cv,
-	    (lockchoice == TWAITS_DISCMTX ? tp->t_discmtx : tp->t_mtx), hz);
+	if (lockchoice == TWAITS_SX)
+		error = cv_timedwait_sig(cv, tp->t_sx, hz);
+	else
+		error = cv_timedwait_sig(cv, mtx, hz);
 	if ((lockstate & TWAITS_DISCMTX) != 0 && lockstate != TWAITS_DISCMTX)
 		ttydisc_lock(tp);
 
@@ -1713,7 +1743,7 @@ tty_set_winsize(struct tty *tp, const struct winsize *wsz)
 {
 
 	ttydisc_lock_assert(tp, MA_NOTOWNED);
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	if (memcmp(&tp->t_winsize, wsz, sizeof(*wsz)) == 0)
 		return;
 	tp->t_winsize = *wsz;
@@ -2126,7 +2156,7 @@ tty_ioctl(struct tty *tp, u_long cmd, void *data, int fflag, struct thread *td)
 {
 	int error;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 
 	if (tty_gone(tp))
 		return (ENXIO);
@@ -2301,7 +2331,7 @@ void
 ttyhook_unregister(struct tty *tp)
 {
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	MPASS(tp->t_flags & TF_HOOK);
 
 	/* Disconnect the hook. */

@@ -119,7 +119,7 @@ ttyinq_setsize(struct ttyinq *ti, struct tty *tp, size_t size)
 {
 	struct ttyinq_block *tib;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	ttydisc_lock_assert(tp, MA_OWNED);
 	ti->ti_quota = howmany(size, TTYINQ_DATASIZE);
 
@@ -128,16 +128,11 @@ ttyinq_setsize(struct ttyinq *ti, struct tty *tp, size_t size)
 		 * List is getting bigger.
 		 * Add new blocks to the tail of the list.
 		 *
-		 * We must unlock the TTY temporarily, because we need
-		 * to allocate memory. This won't be a problem, because
-		 * in the worst case, another thread ends up here, which
-		 * may cause us to allocate too many blocks, but this
-		 * will be caught by the loop below.
+		 * We must unlock the ttydisc, but we're still holding on to
+		 * the tty lock so we should avoid problems.
 		 */
 		ttydisc_unlock(tp);
-		tty_unlock(tp);
 		tib = uma_zalloc(ttyinq_zone, M_WAITOK);
-		tty_lock(tp);
 		ttydisc_lock(tp);
 
 		if (tty_gone(tp)) {
@@ -170,10 +165,7 @@ int
 ttyinq_read_uio(struct ttyinq *ti, struct tty *tp, struct uio *uio,
     size_t rlen, size_t flen)
 {
-	int locktty;
 
-	/* XXX Can go away when the tty lock becomes sleepable. */
-	locktty = tty_lock_owned(tp);
 	ttydisc_lock_assert(tp, MA_OWNED);
 	MPASS(rlen <= uio->uio_resid);
 
@@ -238,12 +230,8 @@ ttyinq_read_uio(struct ttyinq *ti, struct tty *tp, struct uio *uio,
 			 * bytes, like EOF characters.
 			 */
 			ttydisc_unlock(tp);
-			if (locktty)
-				tty_unlock(tp);
 			error = uiomove(tib->tib_data + cbegin,
 			    clen - flen, uio);
-			if (locktty)
-				tty_lock(tp);
 			ttydisc_lock(tp);
 
 			/* Block can now be readded to the list. */
@@ -260,11 +248,7 @@ ttyinq_read_uio(struct ttyinq *ti, struct tty *tp, struct uio *uio,
 
 			/* Temporary unlock and copy the data to userspace. */
 			ttydisc_unlock(tp);
-			if (locktty)
-				tty_unlock(tp);
 			error = uiomove(ob, clen - flen, uio);
-			if (locktty)
-				tty_lock(tp);
 			ttydisc_lock(tp);
 		}
 

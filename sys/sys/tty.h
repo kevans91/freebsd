@@ -38,6 +38,7 @@
 #include <sys/queue.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
+#include <sys/sx.h>
 #include <sys/condvar.h>
 #include <sys/selinfo.h>
 #include <sys/_termios.h>
@@ -67,8 +68,9 @@ struct ttydevsw;
  * annotated as such.
  */
 struct tty {
-	struct mtx	*t_mtx;		/* TTY lock. */
-	struct mtx	t_mtxobj;	/* Per-TTY lock (when not borrowing). */
+	struct sx	*t_sx;		/* TTY lock. */
+	struct sx	t_sxobj;	/* TTY lock (when not borrowing). */
+	struct mtx	*t_mtx;		/* Deprecated TTY lock (Giant). */
 	struct mtx	*t_discmtx;	/* TTY discipline lock. */
 	/* Per-TTY discipline lock (when not borrowing). */
 	struct mtx	t_discmtxobj;
@@ -182,17 +184,58 @@ struct xtty {
  */
 struct tty *tty_alloc(struct ttydevsw *tsw, void *softc);
 struct tty *tty_alloc_mutex(struct ttydevsw *tsw, void *softc, struct mtx *mtx);
-struct tty *tty_alloc_locks(struct ttydevsw *tsw, void *softc, struct mtx *mtx,
+struct tty *tty_alloc_locks(struct ttydevsw *tsw, void *softc, struct sx *sx,
     struct mtx *discmtx);
 void	tty_rel_pgrp(struct tty *tp, struct pgrp *pgrp);
 void	tty_rel_sess(struct tty *tp, struct session *sess);
 void	tty_rel_gone(struct tty *tp);
 
-#define	tty_lock(tp)		mtx_lock((tp)->t_mtx)
-#define	tty_unlock(tp)		mtx_unlock((tp)->t_mtx)
-#define	tty_lock_owned(tp)	mtx_owned((tp)->t_mtx)
-#define	tty_lock_assert(tp,ma)	mtx_assert((tp)->t_mtx, (ma))
-#define	tty_getlock(tp)		((tp)->t_mtx)
+static __inline void
+tty_lock(struct tty *tp)
+{
+
+	if (tp->t_mtx != NULL)
+		mtx_lock(tp->t_mtx);
+	else
+		sx_xlock(tp->t_sx);
+}
+
+static __inline void
+tty_unlock(struct tty *tp)
+{
+
+	if (tp->t_mtx != NULL)
+		mtx_unlock(tp->t_mtx);
+	else
+		sx_xunlock(tp->t_sx);
+}
+
+static __inline bool
+tty_lock_owned(struct tty *tp)
+{
+
+	if (tp->t_mtx != NULL)
+		return (mtx_owned(tp->t_mtx));
+	else
+		return (sx_xlocked(tp->t_sx));
+}
+
+static __inline void
+tty_lock_assert(struct tty *tp, int ma)
+{
+
+	if (tp->t_mtx != NULL)
+		mtx_assert(tp->t_mtx, ma);
+	else
+		sx_assert(tp->t_sx, ma);
+}
+
+/*
+ * XXX This one is technically wrong as long as syscons is still Giant-locked.
+ * However, neither the internal tty infrastructure nor syscons will attempt to
+ * tty_getlock, so we leave it as-is.
+ */
+#define	tty_getlock(tp)		((tp)->t_sx)
 
 #define	ttydisc_lock(tp)		mtx_lock((tp)->t_discmtx)
 #define	ttydisc_unlock(tp)		mtx_unlock((tp)->t_discmtx)

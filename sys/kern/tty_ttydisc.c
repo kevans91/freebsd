@@ -327,7 +327,7 @@ ttydisc_read(struct tty *tp, struct uio *uio, int ioflag)
 {
 	int error;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	ttydisc_lock_assert(tp, MA_OWNED);
 
 	if (uio->uio_resid == 0)
@@ -460,7 +460,7 @@ ttydisc_write(struct tty *tp, struct uio *uio, int ioflag)
 	int error = 0;
 	unsigned int oblen = 0;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	ttydisc_lock_assert(tp, MA_OWNED);
 
 	if (tp->t_flags & TF_ZOMBIE)
@@ -481,19 +481,11 @@ ttydisc_write(struct tty *tp, struct uio *uio, int ioflag)
 		obstart = ob;
 		nlen = MIN(uio->uio_resid, sizeof ob);
 		ttydisc_unlock(tp);
-		tty_unlock(tp);
 		error = uiomove(ob, nlen, uio);
-		tty_lock(tp);
 		ttydisc_lock(tp);
 		if (error != 0)
 			break;
 		oblen = nlen;
-
-		if (tty_gone(tp)) {
-			error = ENXIO;
-			break;
-		}
-
 		MPASS(oblen > 0);
 
 		/* Step 2: process data. */

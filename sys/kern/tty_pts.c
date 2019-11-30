@@ -266,7 +266,7 @@ ptsdev_ioctl_locked(struct file *fp, u_long cmd, void *data,
 	struct pts_softc *psc = tty_softc(tp);
 	int error = 0, sig;
 
-	tty_lock_assert(tp, MA_OWNED);
+	tty_lock_assert(tp, SA_XLOCKED);
 	switch (cmd) {
 	case FIODTYPE:
 		*(int *)data = D_TTY;
