@@ -517,7 +517,7 @@ xencons_tx(struct tty *tp)
 
 	cons = tty_softc(tp);
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 
 	/*
 	 * Don't transmit any character if the buffer is full. Otherwise,
@@ -557,7 +557,7 @@ xencons_intr(void *arg)
 
 	xencons_rx(cons);
 
-	tty_lock(tp);
+	ttydisc_lock(tp);
 	while ((ret = xencons_getc(cons)) != -1) {
 #ifdef KDB
 		kdb_alt_break(ret, &cons->altbrk);
@@ -565,7 +565,7 @@ xencons_intr(void *arg)
 		ttydisc_rint(tp, ret, 0);
 	}
 	ttydisc_rint_done(tp);
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 
 	/* Try to flush remaining characters if necessary */
 	xencons_tx_flush(cons, 0);
@@ -684,6 +684,7 @@ xencons_tty_outwakeup(struct tty *tp)
 	struct xencons_priv *cons;
 
 	cons = tty_softc(tp);
+	ttydisc_assert_locked(tp);
 
 	callout_stop(&cons->callout);
 
@@ -736,7 +737,7 @@ xencons_attach(device_t dev)
 	tty_makedev(tp, NULL, "%s%r", driver_name, 0);
 	device_set_softc(dev, tp);
 
-	callout_init_mtx(&cons->callout, tty_getlock(tp), 0);
+	callout_init_mtx(&cons->callout, ttydisc_getlock(tp), 0);
 
 	err = cons->ops->init(dev, tp, xencons_intr);
 	if (err != 0) {

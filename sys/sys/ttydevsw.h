@@ -85,6 +85,7 @@ ttydevsw_open(struct tty *tp)
 {
 
 	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
 	return (tp->t_devsw->tsw_open(tp));
@@ -95,6 +96,7 @@ ttydevsw_close(struct tty *tp)
 {
 
 	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
 	tp->t_devsw->tsw_close(tp);
@@ -104,7 +106,8 @@ static __inline void
 ttydevsw_outwakeup(struct tty *tp)
 {
 
-	tty_assert_locked(tp);
+	/* We may or may not have the tty lock. */
+	ttydisc_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
 	/* Prevent spurious wakeups. */
@@ -118,7 +121,8 @@ static __inline void
 ttydevsw_inwakeup(struct tty *tp)
 {
 
-	tty_assert_locked(tp);
+	/* We may or may not have the tty lock. */
+	ttydisc_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
 	/* Prevent spurious wakeups. */
@@ -133,6 +137,7 @@ ttydevsw_ioctl(struct tty *tp, u_long cmd, caddr_t data, struct thread *td)
 {
 
 	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
 	return (tp->t_devsw->tsw_ioctl(tp, cmd, data, td));
@@ -153,6 +158,8 @@ static __inline int
 ttydevsw_param(struct tty *tp, struct termios *t)
 {
 
+	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
 	return (tp->t_devsw->tsw_param(tp, t));
@@ -162,6 +169,8 @@ static __inline int
 ttydevsw_modem(struct tty *tp, int sigon, int sigoff)
 {
 
+	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
 	return (tp->t_devsw->tsw_modem(tp, sigon, sigoff));
@@ -181,7 +190,7 @@ static __inline void
 ttydevsw_pktnotify(struct tty *tp, char event)
 {
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
 	tp->t_devsw->tsw_pktnotify(tp, event);
@@ -191,6 +200,7 @@ static __inline void
 ttydevsw_free(struct tty *tp)
 {
 
+	/* Locks are destroyed at this point. */
 	MPASS(tty_gone(tp));
 
 	tp->t_devsw->tsw_free(tty_softc(tp));
@@ -200,7 +210,8 @@ static __inline bool
 ttydevsw_busy(struct tty *tp)
 {
 
-	tty_assert_locked(tp);
+	/* We may or may not have the tty lock. */
+	ttydisc_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
 	return (tp->t_devsw->tsw_busy(tp));

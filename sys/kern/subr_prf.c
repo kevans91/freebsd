@@ -204,10 +204,10 @@ uprintf(const char *fmt, ...)
 	pca.flags = TOTTY;
 	pca.p_bufr = NULL;
 	va_start(ap, fmt);
-	tty_lock(pca.tty);
+	ttydisc_lock(pca.tty);
 	sx_sunlock(&proctree_lock);
 	retval = kvprintf(fmt, putchar, &pca, 10, ap);
-	tty_unlock(pca.tty);
+	ttydisc_unlock(pca.tty);
 	va_end(ap);
 	return (retval);
 }

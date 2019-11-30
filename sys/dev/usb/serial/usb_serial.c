@@ -526,6 +526,7 @@ ucom_detach_tty(struct ucom_super_softc *ssc, struct ucom_softc *sc)
 		mtx_unlock(&ucom_mtx);
 
 		tty_lock(tp);
+		ttydisc_lock(tp);
 
 		ucom_close(tp);	/* close, if any */
 
@@ -628,8 +629,13 @@ ucom_queue_command(struct ucom_softc *sc,
 	/*
 	 * Closing or opening the device should be synchronous.
 	 */
-	if (fn == ucom_cfg_close || fn == ucom_cfg_open)
+	if (fn == ucom_cfg_close || fn == ucom_cfg_open) {
+		tty_unlock(sc->sc_tty);
 		usb_proc_mwait(&ssc->sc_tq, t0, t1);
+		ttydisc_unlock(sc->sc_tty);
+		tty_lock(sc->sc_tty);
+		ttydisc_lock(sc->sc_tty);
+	}
 
 	/*
 	 * In case of multiple configure requests,

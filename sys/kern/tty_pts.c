@@ -81,20 +81,20 @@ static MALLOC_DEFINE(M_PTS, "pts", "pseudo tty device");
  * Per-PTS structure.
  *
  * List of locks
- * (t)	locked by tty_lock()
+ * (d)	locked by ttydisc_lock()
  * (c)	const until freeing
  */
 struct pts_softc {
 	int		pts_unit;	/* (c) Device unit number. */
-	unsigned int	pts_flags;	/* (t) Device flags. */
+	unsigned int	pts_flags;	/* (d) Device flags. */
 #define	PTS_PKT		0x1	/* Packet mode. */
 #define	PTS_FINISHED	0x2	/* Return errors on read()/write(). */
-	char		pts_pkt;	/* (t) Unread packet mode data. */
+	char		pts_pkt;	/* (d) Unread packet mode data. */
 
-	struct cv	pts_inwait;	/* (t) Blocking write() on master. */
-	struct selinfo	pts_inpoll;	/* (t) Select queue for write(). */
-	struct cv	pts_outwait;	/* (t) Blocking read() on master. */
-	struct selinfo	pts_outpoll;	/* (t) Select queue for read(). */
+	struct cv	pts_inwait;	/* (d) Blocking write() on master. */
+	struct selinfo	pts_inpoll;	/* (d) Select queue for write(). */
+	struct cv	pts_outwait;	/* (d) Blocking read() on master. */
+	struct selinfo	pts_outpoll;	/* (d) Select queue for read(). */
 
 #ifdef PTS_EXTERNAL
 	struct cdev	*pts_cdev;	/* (c) Master device node. */
@@ -119,7 +119,7 @@ ptsdev_read(struct file *fp, struct uio *uio, struct ucred *active_cred,
 	if (uio->uio_resid == 0)
 		return (0);
 
-	tty_lock(tp);
+	ttydisc_lock(tp);
 
 	for (;;) {
 		/*
@@ -130,7 +130,7 @@ ptsdev_read(struct file *fp, struct uio *uio, struct ucred *active_cred,
 		if (psc->pts_flags & PTS_PKT && psc->pts_pkt) {
 			pkt = psc->pts_pkt;
 			psc->pts_pkt = 0;
-			tty_unlock(tp);
+			ttydisc_unlock(tp);
 
 			error = ureadc(pkt, uio);
 			return (error);
@@ -151,11 +151,11 @@ ptsdev_read(struct file *fp, struct uio *uio, struct ucred *active_cred,
 				 * consumers aren't multithreaded.
 				 */
 
-				tty_unlock(tp);
+				ttydisc_unlock(tp);
 				error = ureadc(TIOCPKT_DATA, uio);
 				if (error)
 					return (error);
-				tty_lock(tp);
+				ttydisc_lock(tp);
 			}
 
 			error = ttydisc_getc_uio(tp, uio);
@@ -171,12 +171,12 @@ ptsdev_read(struct file *fp, struct uio *uio, struct ucred *active_cred,
 			error = EWOULDBLOCK;
 			break;
 		}
-		error = cv_wait_sig(&psc->pts_outwait, tp->t_mtx);
+		error = cv_wait_sig(&psc->pts_outwait, ttydisc_getlock(tp));
 		if (error != 0)
 			break;
 	}
 
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 
 	return (error);
 }
@@ -199,7 +199,7 @@ ptsdev_write(struct file *fp, struct uio *uio, struct ucred *active_cred,
 		iblen = MIN(uio->uio_resid, sizeof ib);
 		error = uiomove(ib, iblen, uio);
 
-		tty_lock(tp);
+		ttydisc_lock(tp);
 		if (error != 0) {
 			iblen = 0;
 			goto done;
@@ -233,18 +233,19 @@ ptsdev_write(struct file *fp, struct uio *uio, struct ucred *active_cred,
 
 			/* Wake up users on the slave side. */
 			ttydisc_rint_done(tp);
-			error = cv_wait_sig(&psc->pts_inwait, tp->t_mtx);
+			error = cv_wait_sig(&psc->pts_inwait,
+			    ttydisc_getlock(tp));
 			if (error != 0)
 				goto done;
 		} while (iblen > 0);
 
 		if (uio->uio_resid == 0)
 			break;
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 	}
 
 done:	ttydisc_rint_done(tp);
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 
 	/*
 	 * Don't account for the part of the buffer that we couldn't
@@ -270,9 +271,9 @@ ptsdev_ioctl(struct file *fp, u_long cmd, void *data,
 		/* This device supports non-blocking operation. */
 		return (0);
 	case FIONREAD:
-		tty_lock(tp);
+		ttydisc_lock(tp);
 		*(int *)data = ttydisc_getc_poll(tp);
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 		return (0);
 	case FIODGNAME:
 #ifdef COMPAT_FREEBSD32
@@ -304,9 +305,9 @@ ptsdev_ioctl(struct file *fp, u_long cmd, void *data,
 #ifdef PTS_LINUX
 	case TIOCGETA:
 		/* Obtain terminal flags through tcgetattr(). */
-		tty_lock(tp);
+		ttydisc_lock(tp);
 		*(struct termios*)data = tp->t_termios;
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 		return (0);
 #endif /* PTS_LINUX */
 	case TIOCSETAF:
@@ -331,21 +332,21 @@ ptsdev_ioctl(struct file *fp, u_long cmd, void *data,
 #endif /* PTS_COMPAT || PTS_LINUX */
 	case TIOCGPGRP:
 		/* Get the foreground process group ID. */
-		tty_lock(tp);
+		ttydisc_lock(tp);
 		if (tp->t_pgrp != NULL)
 			*(int *)data = tp->t_pgrp->pg_id;
 		else
 			*(int *)data = NO_PID;
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 		return (0);
 	case TIOCGSID:
 		/* Get the session leader process ID. */
-		tty_lock(tp);
+		ttydisc_lock(tp);
 		if (tp->t_session == NULL)
 			error = ENOTTY;
 		else
 			*(int *)data = tp->t_session->s_sid;
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 		return (error);
 	case TIOCPTMASTER:
 		/* Yes, we are a pseudo-terminal master. */
@@ -356,18 +357,18 @@ ptsdev_ioctl(struct file *fp, u_long cmd, void *data,
 		if (sig < 1 || sig >= NSIG)
 			return (EINVAL);
 
-		tty_lock(tp);
+		ttydisc_lock(tp);
 		tty_signal_pgrp(tp, sig);
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 		return (0);
 	case TIOCPKT:
 		/* Enable/disable packet mode. */
-		tty_lock(tp);
+		ttydisc_lock(tp);
 		if (*(int *)data)
 			psc->pts_flags |= PTS_PKT;
 		else
 			psc->pts_flags &= ~PTS_PKT;
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 		return (0);
 	}
 
@@ -389,11 +390,11 @@ ptsdev_poll(struct file *fp, int events, struct ucred *active_cred,
 	struct pts_softc *psc = tty_softc(tp);
 	int revents = 0;
 
-	tty_lock(tp);
+	ttydisc_lock(tp);
 
 	if (psc->pts_flags & PTS_FINISHED) {
 		/* Slave device is not opened. */
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 		return ((events & (POLLIN|POLLRDNORM)) | POLLHUP);
 	}
 
@@ -427,7 +428,7 @@ ptsdev_poll(struct file *fp, int events, struct ucred *active_cred,
 			selrecord(td, &psc->pts_inpoll);
 	}
 
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 
 	return (revents);
 }
@@ -768,8 +769,8 @@ pts_alloc(int fflags, struct thread *td, struct file *fp)
 	psc->pts_cred = crhold(cred);
 
 	tp = tty_alloc(&pts_class, psc);
-	knlist_init_mtx(&psc->pts_inpoll.si_note, tp->t_mtx);
-	knlist_init_mtx(&psc->pts_outpoll.si_note, tp->t_mtx);
+	knlist_init_mtx(&psc->pts_inpoll.si_note, ttydisc_getlock(tp));
+	knlist_init_mtx(&psc->pts_outpoll.si_note, ttydisc_getlock(tp));
 
 	/* Expose the slave device as well. */
 	tty_makedev(tp, td->td_ucred, "pts/%u", psc->pts_unit);
@@ -815,8 +816,8 @@ pts_alloc_external(int fflags, struct thread *td, struct file *fp,
 	psc->pts_cred = crhold(cred);
 
 	tp = tty_alloc(&pts_class, psc);
-	knlist_init_mtx(&psc->pts_inpoll.si_note, tp->t_mtx);
-	knlist_init_mtx(&psc->pts_outpoll.si_note, tp->t_mtx);
+	knlist_init_mtx(&psc->pts_inpoll.si_note, ttydisc_getlock(tp));
+	knlist_init_mtx(&psc->pts_outpoll.si_note, ttydisc_getlock(tp));
 
 	/* Expose the slave device as well. */
 	tty_makedev(tp, td->td_ucred, "%s", name);

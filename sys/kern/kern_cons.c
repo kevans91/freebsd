@@ -616,16 +616,16 @@ constty_set(struct tty *tp)
 	int size = consmsgbuf_size;
 	void *buf = NULL;
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	if (constty == tp)
 		return (0);
 	if (constty != NULL)
 		return (EBUSY);
 
 	if (consbuf == NULL) {
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 		buf = malloc(size, M_TTYCONS, M_WAITOK);
-		tty_lock(tp);
+		ttydisc_lock(tp);
 	}
 	mtx_lock(&constty_mtx);
 	if (constty != NULL) {
@@ -641,7 +641,7 @@ constty_set(struct tty *tp)
 	constty = tp;
 	mtx_unlock(&constty_mtx);
 
-	callout_init_mtx(&conscallout, tty_getlock(tp), 0);
+	callout_init_mtx(&conscallout, ttydisc_getlock(tp), 0);
 	constty_timeout(tp);
 	return (0);
 }
@@ -654,7 +654,7 @@ constty_clear(struct tty *tp)
 {
 	int c;
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	if (constty != tp)
 		return (ENXIO);
 	callout_stop(&conscallout);
@@ -679,7 +679,7 @@ constty_timeout(void *arg)
 	struct tty *tp = arg;
 	int c;
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	while ((c = msgbuf_getchar(&consmsgbuf)) != -1) {
 		if (tty_putchar(tp, c) < 0) {
 			constty_clear(tp);

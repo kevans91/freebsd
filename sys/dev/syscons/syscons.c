@@ -408,6 +408,7 @@ sctty_outwakeup(struct tty *tp)
 	u_char buf[PCBURST];
 	scr_stat *scp = sc_get_stat(tp);
 
+	ttydisc_assert_locked(tp);
 	if (scp->status & SLKED ||
 	    (scp == scp->sc->cur_scp && scp->sc->blink_in_progress))
 		return;
@@ -746,7 +747,16 @@ sctty_open(struct tty *tp)
 
 	scp = sc_get_stat(tp);
 	if (scp == NULL) {
+		/*
+		 * ttydisc lock isn't sleepable like Giant, so we must go ahead
+		 * and drop it.  The tty lock is still held, but that's Giant at
+		 * the moment as it was before the ttydisc lock became distinct.
+		 * This is still likely unsafe, but something to revisit once
+		 * this particular tty device isn't Giant locked anymore.
+		 */
+		ttydisc_unlock(tp);
 		scp = SC_STAT(tp) = alloc_scp(sc, SC_VTY(tp));
+		ttydisc_lock(tp);
 		if (ISGRAPHSC(scp))
 			sc_set_pixel_mode(scp, NULL, 0, 0, 16, 8);
 	}
@@ -846,9 +856,12 @@ sckbdevent(keyboard_t *thiskbd, int event, void *arg)
 		cur_tty = SC_DEV(sc, sc->cur_scp->index);
 		if (!tty_opened_ns(cur_tty))
 			continue;
+		ttydisc_lock(cur_tty);
 
-		if ((*sc->cur_scp->tsw->te_input)(sc->cur_scp, c, cur_tty))
+		if ((*sc->cur_scp->tsw->te_input)(sc->cur_scp, c, cur_tty)) {
+			ttydisc_unlock(cur_tty);
 			continue;
+		}
 
 		switch (KEYFLAGS(c)) {
 		case 0x0000: /* normal key */
@@ -874,8 +887,8 @@ sckbdevent(keyboard_t *thiskbd, int event, void *arg)
 		}
 
 		ttydisc_rint_done(cur_tty);
+		ttydisc_unlock(cur_tty);
 	}
-
 	sc->cur_scp->status |= MOUSE_HIDDEN;
 
 done:
@@ -4239,10 +4252,12 @@ sc_paste(scr_stat *scp, const u_char *p, int count)
 	tp = SC_DEV(scp->sc, scp->sc->cur_scp->index);
 	if (!tty_opened_ns(tp))
 		return;
+	ttydisc_lock(tp);
 	rmap = scp->sc->scr_rmap;
 	for (; count > 0; --count)
 		ttydisc_rint(tp, rmap[*p++], 0);
 	ttydisc_rint_done(tp);
+	ttydisc_unlock(tp);
 }
 
 void
@@ -4253,11 +4268,13 @@ sc_respond(scr_stat *scp, const u_char *p, int count, int wakeup)
 	tp = SC_DEV(scp->sc, scp->sc->cur_scp->index);
 	if (!tty_opened_ns(tp))
 		return;
+	ttydisc_lock(tp);
 	ttydisc_rint_simple(tp, p, count);
 	if (wakeup) {
 		/* XXX: we can't always call ttydisc_rint_done() here! */
 		ttydisc_rint_done(tp);
 	}
+	ttydisc_unlock(tp);
 }
 
 /*

@@ -126,12 +126,14 @@ tty_watermarks(struct tty *tp)
 	size_t bs = 0;
 	int error;
 
+	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	/* Provide an input buffer for 2 seconds of data. */
 	if (tp->t_termios.c_cflag & CREAD)
 		bs = MIN(tp->t_termios.c_ispeed / 5, TTYBUF_MAX);
 	error = ttyinq_setsize(&tp->t_inq, tp, bs);
 	if (error != 0)
-		return (error);
+		goto out;
 
 	/* Set low watermark at 10% (when 90% is available). */
 	tp->t_inlow = (ttyinq_getallocatedsize(&tp->t_inq) * 9) / 10;
@@ -140,12 +142,13 @@ tty_watermarks(struct tty *tp)
 	bs = MIN(tp->t_termios.c_ospeed / 5, TTYBUF_MAX);
 	error = ttyoutq_setsize(&tp->t_outq, tp, bs);
 	if (error != 0)
-		return (error);
+		goto out;
 
 	/* Set low watermark at 10% (when 90% is available). */
 	tp->t_outlow = (ttyoutq_getallocatedsize(&tp->t_outq) * 9) / 10;
 
-	return (0);
+out:
+	return (error);
 }
 
 static int
@@ -155,6 +158,7 @@ tty_drain(struct tty *tp, int leaving)
 	size_t bytes;
 	int error;
 
+	ttydisc_assert_locked(tp);
 	if (ttyhook_hashook(tp, getc_inject))
 		/* buffer is inaccessible */
 		return (0);
@@ -229,20 +233,31 @@ static void
 ttydev_leave(struct tty *tp)
 {
 
+	/*
+	 * The locking in this function, like elsewhere, is also a nightmare
+	 * that will be corrected when the tty lock gets converted to a
+	 * sleepable lock.
+	 */
 	tty_assert_locked(tp);
 
 	if (tty_opened(tp) || tp->t_flags & TF_OPENCLOSE) {
 		/* Device is still opened somewhere. */
+		if (ttydisc_lock_owned(tp))
+			ttydisc_unlock(tp);
 		tty_unlock(tp);
 		return;
 	}
-
+	if (!ttydisc_lock_owned(tp))
+		ttydisc_lock(tp);
 	tp->t_flags |= TF_OPENCLOSE;
 
 	/* Remove console TTY. */
 	constty_clear(tp);
 
-	/* Drain any output. */
+	/*
+	 * Drain any output.  Pick up ttydisc_lock in advance of tty_drain,
+	 * which will perhaps want to sleep and can't handle having both locks.
+	 */
 	if (!tty_gone(tp))
 		tty_drain(tp, 1);
 
@@ -254,11 +269,22 @@ ttydev_leave(struct tty *tp)
 	ttyoutq_free(&tp->t_outq);
 	tp->t_outlow = 0;
 
-	if (!tty_gone(tp))
+	if (!tty_gone(tp)) {
+		/*
+		 * XXX TTY driver may drop both locks as long as the tty lock
+		 * isn't sleepable, giving it a chance to go away.  This was
+		 * still true before separating out the ttydisc lock, so not
+		 * much has changed.  We'll just make sure they picked up both
+		 * locks when we return.
+		 */
 		ttydevsw_close(tp);
+		tty_assert_locked(tp);
+		ttydisc_assert_locked(tp);
+	}
 
 	tp->t_flags &= ~TF_OPENCLOSE;
 	cv_broadcast(&tp->t_dcdwait);
+	ttydisc_unlock(tp);
 	tty_rel_free(tp);
 }
 
@@ -285,6 +311,7 @@ ttydev_open(struct cdev *dev, int oflags, int devtype __unused,
 	 * Block when other processes are currently opening or closing
 	 * the TTY.
 	 */
+	ttydisc_lock(tp);
 	while (tp->t_flags & TF_OPENCLOSE) {
 		error = tty_wait(tp, &tp->t_dcdwait);
 		if (error != 0) {
@@ -293,6 +320,7 @@ ttydev_open(struct cdev *dev, int oflags, int devtype __unused,
 		}
 	}
 	tp->t_flags |= TF_OPENCLOSE;
+	ttydisc_unlock(tp);
 
 	/*
 	 * Make sure the "tty" and "cua" device cannot be opened at the
@@ -316,11 +344,15 @@ ttydev_open(struct cdev *dev, int oflags, int devtype __unused,
 	}
 
 	if (!tty_opened(tp)) {
-		/* Set proper termios flags. */
+		/*
+		 * Set proper termios flags.  Further mutations of t_termios
+		 * will require the ttydisc lock.
+		 */
 		if (TTY_CALLOUT(tp, dev))
 			tp->t_termios = tp->t_termios_init_out;
 		else
 			tp->t_termios = tp->t_termios_init_in;
+		ttydisc_lock(tp);
 		ttydevsw_param(tp, &tp->t_termios);
 		/* Prevent modem control on callout devices and /dev/console. */
 		if (TTY_CALLOUT(tp, dev) || dev == dev_console)
@@ -335,8 +367,11 @@ ttydev_open(struct cdev *dev, int oflags, int devtype __unused,
 
 		ttydisc_open(tp);
 		error = tty_watermarks(tp);
+		/* tty_watermarks dropped the ttydisc lock. */
 		if (error != 0)
 			goto done;
+	} else {
+		ttydisc_lock(tp);
 	}
 
 	/* Wait for Carrier Detect. */
@@ -358,7 +393,10 @@ ttydev_open(struct cdev *dev, int oflags, int devtype __unused,
 	MPASS((tp->t_flags & (TF_OPENED_CONS | TF_OPENED_IN)) == 0 ||
 	    (tp->t_flags & TF_OPENED_OUT) == 0);
 
-done:	tp->t_flags &= ~TF_OPENCLOSE;
+done:
+	if (!ttydisc_lock_owned(tp))
+		ttydisc_lock(tp);
+	tp->t_flags &= ~TF_OPENCLOSE;
 	cv_broadcast(&tp->t_dcdwait);
 	ttydev_leave(tp);
 
@@ -372,6 +410,7 @@ ttydev_close(struct cdev *dev, int fflag, int devtype __unused,
 	struct tty *tp = dev->si_drv1;
 
 	tty_lock(tp);
+	ttydisc_lock(tp);
 
 	/*
 	 * Don't actually close the device if it is being used as the
@@ -385,6 +424,7 @@ ttydev_close(struct cdev *dev, int fflag, int devtype __unused,
 		tp->t_flags &= ~(TF_OPENED_IN|TF_OPENED_OUT);
 
 	if (tp->t_flags & TF_OPENED) {
+		ttydisc_unlock(tp);
 		tty_unlock(tp);
 		return (0);
 	}
@@ -413,8 +453,8 @@ static __inline int
 tty_is_ctty(struct tty *tp, struct proc *p)
 {
 
-	tty_assert_locked(tp);
-
+	KASSERT(tty_lock_owned(tp) || ttydisc_lock_owned(tp),
+	    ("neither ttymtx nor ttydiscmtx owned"));
 	return (p->p_session == tp->t_session && p->p_flag & P_CONTROLT);
 }
 
@@ -427,7 +467,7 @@ tty_wait_background(struct tty *tp, struct thread *td, int sig)
 	int error;
 
 	MPASS(sig == SIGTTIN || sig == SIGTTOU);
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 
 	p = td->td_proc;
 	for (;;) {
@@ -504,10 +544,18 @@ ttydev_read(struct cdev *dev, struct uio *uio, int ioflag)
 	struct tty *tp = dev->si_drv1;
 	int error;
 
+	/*
+	 * We'll pick up the tty lock just long enough to ensure we're alive and
+	 * well, then we'll pick up the ttydisc lock and drop the tty lock -- we
+	 * won't be needing it for the rest of this as we serialize I/O on the
+	 * ttydisc lock.
+	 */
 	error = ttydev_enter(tp);
 	if (error)
 		goto done;
+	ttydisc_lock(tp);
 	error = ttydisc_read(tp, uio, ioflag);
+	ttydisc_unlock(tp);
 	tty_unlock(tp);
 
 	/*
@@ -528,6 +576,7 @@ ttydev_write(struct cdev *dev, struct uio *uio, int ioflag)
 	error = ttydev_enter(tp);
 	if (error)
 		return (error);
+	ttydisc_lock(tp);
 
 	if (tp->t_termios.c_lflag & TOSTOP) {
 		error = tty_wait_background(tp, curthread, SIGTTOU);
@@ -554,7 +603,8 @@ ttydev_write(struct cdev *dev, struct uio *uio, int ioflag)
 		cv_signal(&tp->t_outserwait);
 	}
 
-done:	tty_unlock(tp);
+done:	ttydisc_unlock(tp);
+	tty_unlock(tp);
 	return (error);
 }
 
@@ -605,7 +655,9 @@ ttydev_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag,
 		 * If the ioctl() causes the TTY to be modified, let it
 		 * wait in the background.
 		 */
+		ttydisc_lock(tp);
 		error = tty_wait_background(tp, curthread, SIGTTOU);
+		ttydisc_unlock(tp);
 		if (error)
 			goto done;
 	}
@@ -654,6 +706,7 @@ ttydev_poll(struct cdev *dev, int events, struct thread *td)
 	if (error)
 		return ((events & (POLLIN|POLLRDNORM)) | POLLHUP);
 
+	ttydisc_lock(tp);
 	if (events & (POLLIN|POLLRDNORM)) {
 		/* See if we can read something. */
 		if (ttydisc_read_poll(tp) > 0)
@@ -668,6 +721,7 @@ ttydev_poll(struct cdev *dev, int events, struct thread *td)
 		if (ttydisc_write_poll(tp) > 0)
 			revents |= events & (POLLOUT|POLLWRNORM);
 	}
+	ttydisc_unlock(tp);
 
 	if (revents == 0) {
 		if (events & (POLLIN|POLLRDNORM))
@@ -716,7 +770,7 @@ tty_kqops_read_event(struct knote *kn, long hint __unused)
 {
 	struct tty *tp = kn->kn_hook;
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 
 	if (tty_gone(tp) || tp->t_flags & TF_ZOMBIE) {
 		kn->kn_flags |= EV_EOF;
@@ -740,7 +794,7 @@ tty_kqops_write_event(struct knote *kn, long hint __unused)
 {
 	struct tty *tp = kn->kn_hook;
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 
 	if (tty_gone(tp)) {
 		kn->kn_flags |= EV_EOF;
@@ -777,12 +831,16 @@ ttydev_kqfilter(struct cdev *dev, struct knote *kn)
 	case EVFILT_READ:
 		kn->kn_hook = tp;
 		kn->kn_fop = &tty_kqops_read;
+		ttydisc_lock(tp);
 		knlist_add(&tp->t_inpoll.si_note, kn, 1);
+		ttydisc_unlock(tp);
 		break;
 	case EVFILT_WRITE:
 		kn->kn_hook = tp;
 		kn->kn_fop = &tty_kqops_write;
+		ttydisc_lock(tp);
 		knlist_add(&tp->t_outpoll.si_note, kn, 1);
+		ttydisc_unlock(tp);
 		break;
 	default:
 		error = EINVAL;
@@ -1052,7 +1110,7 @@ tty_alloc(struct ttydevsw *tsw, void *sc)
 }
 
 struct tty *
-tty_alloc_mutex(struct ttydevsw *tsw, void *sc, struct mtx *mutex)
+tty_alloc_mutex(struct ttydevsw *tsw, void *sc, struct mtx *discmtx)
 {
 	struct tty *tp;
 
@@ -1091,16 +1149,31 @@ tty_alloc_mutex(struct ttydevsw *tsw, void *sc, struct mtx *mutex)
 	cv_init(&tp->t_bgwait, "ttybg");
 	cv_init(&tp->t_dcdwait, "ttydcd");
 
-	/* Allow drivers to use a custom mutex to lock the TTY. */
-	if (mutex != NULL) {
-		tp->t_mtx = mutex;
+	if (discmtx == &Giant) {
+		/*
+		 * This should go away when the syscons/Giant problem is
+		 * resolved.  For now, we still have the one driver locked by
+		 * Giant, so we have to special-case it and maintain the old
+		 * behavior.  It will get a separate discmtx and maintain Giant
+		 * as the main tty lock.
+		 */
+
+		tp->t_mtx = discmtx;
+		discmtx = NULL;
 	} else {
 		tp->t_mtx = &tp->t_mtxobj;
 		mtx_init(&tp->t_mtxobj, "ttymtx", NULL, MTX_DEF);
 	}
 
-	knlist_init_mtx(&tp->t_inpoll.si_note, tp->t_mtx);
-	knlist_init_mtx(&tp->t_outpoll.si_note, tp->t_mtx);
+	if (discmtx != NULL) {
+		tp->t_discmtx = discmtx;
+	} else {
+		tp->t_discmtx = &tp->t_discmtxobj;
+		mtx_init(&tp->t_discmtxobj, "ttydiscmtx", NULL, MTX_DEF);
+	}
+
+	knlist_init_mtx(&tp->t_inpoll.si_note, tp->t_discmtx);
+	knlist_init_mtx(&tp->t_outpoll.si_note, tp->t_discmtx);
 
 	return (tp);
 }
@@ -1134,6 +1207,9 @@ tty_dealloc(void *arg)
 
 	if (tp->t_mtx == &tp->t_mtxobj)
 		mtx_destroy(&tp->t_mtxobj);
+
+	if (tp->t_discmtx == &tp->t_discmtxobj)
+		mtx_destroy(&tp->t_discmtxobj);
 	ttydevsw_free(tp);
 	free(tp, M_TTY);
 }
@@ -1176,9 +1252,11 @@ tty_rel_pgrp(struct tty *tp, struct pgrp *pg)
 	MPASS(tp->t_sessioncnt > 0);
 	tty_assert_locked(tp);
 
+	ttydisc_lock(tp);
 	if (tp->t_pgrp == pg)
 		tp->t_pgrp = NULL;
 
+	ttydisc_unlock(tp);
 	tty_unlock(tp);
 }
 
@@ -1186,14 +1264,17 @@ void
 tty_rel_sess(struct tty *tp, struct session *sess)
 {
 
+	tty_assert_locked(tp);
 	MPASS(tp->t_sessioncnt > 0);
 
+	ttydisc_lock(tp);
 	/* Current session has left. */
 	if (tp->t_session == sess) {
 		tp->t_session = NULL;
 		MPASS(tp->t_pgrp == NULL);
 	}
 	tp->t_sessioncnt--;
+	ttydisc_unlock(tp);
 	tty_rel_free(tp);
 }
 
@@ -1204,6 +1285,8 @@ tty_rel_gone(struct tty *tp)
 	tty_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
+	if (!ttydisc_lock_owned(tp))
+		ttydisc_lock(tp);
 	/* Simulate carrier removal. */
 	ttydisc_modem(tp, 0);
 
@@ -1213,6 +1296,7 @@ tty_rel_gone(struct tty *tp)
 	cv_broadcast(&tp->t_dcdwait);
 
 	tp->t_flags |= TF_GONE;
+	ttydisc_unlock(tp);
 	tty_rel_free(tp);
 }
 
@@ -1254,6 +1338,9 @@ tty_drop_ctty(struct tty *tp, struct proc *p)
 		return (EPERM);
 	}
 
+	ttydisc_lock(tp);
+	tp->t_sessioncnt--;
+	ttydisc_unlock(tp);
 	PROC_LOCK(p);
 	SESS_LOCK(session);
 	vp = session->s_ttyvp;
@@ -1262,7 +1349,6 @@ tty_drop_ctty(struct tty *tp, struct proc *p)
 	session->s_ttydp = NULL;
 	SESS_UNLOCK(session);
 
-	tp->t_sessioncnt--;
 	p->p_flag &= ~P_CONTROLT;
 	PROC_UNLOCK(p);
 	sx_xunlock(&proctree_lock);
@@ -1501,7 +1587,7 @@ tty_signal_sessleader(struct tty *tp, int sig)
 	struct proc *p;
 	struct session *s;
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	MPASS(sig >= 1 && sig < NSIG);
 
 	/* Make signals start output again. */
@@ -1527,7 +1613,7 @@ tty_signal_pgrp(struct tty *tp, int sig)
 {
 	ksiginfo_t ksi;
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	MPASS(sig >= 1 && sig < NSIG);
 
 	/* Make signals start output again. */
@@ -1550,6 +1636,7 @@ void
 tty_wakeup(struct tty *tp, int flags)
 {
 
+	ttydisc_assert_locked(tp);
 	if (tp->t_flags & TF_ASYNC && tp->t_sigio != NULL)
 		pgsigio(&tp->t_sigio, SIGIO, (tp->t_session != NULL));
 
@@ -1570,11 +1657,21 @@ tty_wait(struct tty *tp, struct cv *cv)
 {
 	int error;
 	int revokecnt = tp->t_revokecnt;
+	bool locktty;
 
-	tty_lock_assert(tp, MA_OWNED|MA_NOTRECURSED);
+	ttydisc_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
-	error = cv_wait_sig(cv, tp->t_mtx);
+	locktty = tty_lock_owned(tp);
+	if (locktty)
+		tty_unlock(tp);
+	error = cv_wait_sig(cv, ttydisc_getlock(tp));
+	/* If we had the tty lock coming in, relock it. */
+	if (locktty) {
+		ttydisc_unlock(tp);
+		tty_lock(tp);
+		ttydisc_lock(tp);
+	}
 
 	/* Bail out when the device slipped away. */
 	if (tty_gone(tp))
@@ -1592,11 +1689,21 @@ tty_timedwait(struct tty *tp, struct cv *cv, int hz)
 {
 	int error;
 	int revokecnt = tp->t_revokecnt;
+	bool locktty;
 
-	tty_lock_assert(tp, MA_OWNED|MA_NOTRECURSED);
+	ttydisc_assert_locked(tp);
 	MPASS(!tty_gone(tp));
 
-	error = cv_timedwait_sig(cv, tp->t_mtx, hz);
+	locktty = tty_lock_owned(tp);
+	if (locktty)
+		tty_unlock(tp);
+	error = cv_timedwait_sig(cv, ttydisc_getlock(tp), hz);
+	/* If we had the tty lock coming in, relock it. */
+	if (locktty) {
+		ttydisc_unlock(tp);
+		tty_lock(tp);
+		ttydisc_lock(tp);
+	}
 
 	/* Bail out when the device slipped away. */
 	if (tty_gone(tp))
@@ -1613,6 +1720,7 @@ void
 tty_flush(struct tty *tp, int flags)
 {
 
+	ttydisc_assert_locked(tp);
 	if (flags & FWRITE) {
 		tp->t_flags &= ~TF_HIWAT_OUT;
 		ttyoutq_flush(&tp->t_outq);
@@ -1637,10 +1745,14 @@ void
 tty_set_winsize(struct tty *tp, const struct winsize *wsz)
 {
 
+	ttydisc_assert_unlocked(tp);
+	tty_assert_locked(tp);
 	if (memcmp(&tp->t_winsize, wsz, sizeof(*wsz)) == 0)
 		return;
 	tp->t_winsize = *wsz;
+	ttydisc_lock(tp);
 	tty_signal_pgrp(tp, SIGWINCH);
+	ttydisc_unlock(tp);
 }
 
 static int
@@ -1656,30 +1768,42 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 	 * shifted. I don't know why.
 	 */
 	case TIOCSDTR:
+		ttydisc_lock(tp);
 		ttydevsw_modem(tp, SER_DTR, 0);
+		ttydisc_unlock(tp);
 		return (0);
 	case TIOCCDTR:
+		ttydisc_lock(tp);
 		ttydevsw_modem(tp, 0, SER_DTR);
+		ttydisc_unlock(tp);
 		return (0);
 	case TIOCMSET: {
 		int bits = *(int *)data;
+		ttydisc_lock(tp);
 		ttydevsw_modem(tp,
 		    (bits & (TIOCM_DTR | TIOCM_RTS)) >> 1,
 		    ((~bits) & (TIOCM_DTR | TIOCM_RTS)) >> 1);
+		ttydisc_unlock(tp);
 		return (0);
 	}
 	case TIOCMBIS: {
 		int bits = *(int *)data;
+		ttydisc_lock(tp);
 		ttydevsw_modem(tp, (bits & (TIOCM_DTR | TIOCM_RTS)) >> 1, 0);
+		ttydisc_unlock(tp);
 		return (0);
 	}
 	case TIOCMBIC: {
 		int bits = *(int *)data;
+		ttydisc_lock(tp);
 		ttydevsw_modem(tp, 0, (bits & (TIOCM_DTR | TIOCM_RTS)) >> 1);
+		ttydisc_unlock(tp);
 		return (0);
 	}
 	case TIOCMGET:
+		ttydisc_lock(tp);
 		*(int *)data = TIOCM_LE + (ttydevsw_modem(tp, 0, 0) << 1);
+		ttydisc_unlock(tp);
 		return (0);
 
 	case FIOASYNC:
@@ -1726,6 +1850,7 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 		struct termios *t = data;
 		bool canonicalize = false;
 
+		ttydisc_lock(tp);
 		/*
 		 * Who makes up these funny rules? According to POSIX,
 		 * input baud rate is set equal to the output baud rate
@@ -1743,8 +1868,10 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 		/* Set terminal flags through tcsetattr(). */
 		if (cmd == TIOCSETAW || cmd == TIOCSETAF) {
 			error = tty_drain(tp, 0);
-			if (error)
+			if (error) {
+				ttydisc_unlock(tp);
 				return (error);
+			}
 			if (cmd == TIOCSETAF)
 				tty_flush(tp, FREAD);
 		}
@@ -1759,8 +1886,10 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 		    tp->t_termios.c_ispeed != t->c_ispeed ||
 		    tp->t_termios.c_ospeed != t->c_ospeed)) {
 			error = ttydevsw_param(tp, t);
-			if (error)
+			if (error) {
+				ttydisc_unlock(tp);
 				return (error);
+			}
 
 			/* XXX: CLOCAL? */
 
@@ -1770,8 +1899,10 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 
 			/* Baud rate has changed - update watermarks. */
 			error = tty_watermarks(tp);
-			if (error)
+			if (error) {
+				ttydisc_unlock(tp);
 				return (error);
+			}
 		}
 
 		/*
@@ -1817,6 +1948,7 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 			ttydevsw_pktnotify(tp, TIOCPKT_DOSTOP);
 		else
 			ttydevsw_pktnotify(tp, TIOCPKT_NOSTOP);
+		ttydisc_unlock(tp);
 		return (0);
 	}
 	case TIOCGETD:
@@ -1880,12 +2012,15 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 		}
 
 		/* Connect the session to the TTY. */
+		ttydisc_lock(tp);
 		tp->t_session = p->p_session;
 		tp->t_session->s_ttyp = tp;
 		tp->t_sessioncnt++;
 
 		/* Assign foreground process group. */
 		tp->t_pgrp = p->p_pgrp;
+		ttydisc_unlock(tp);
+
 		PROC_LOCK(p);
 		p->p_flag |= P_CONTROLT;
 		PROC_UNLOCK(p);
@@ -1921,7 +2056,9 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 			sx_sunlock(&proctree_lock);
 			return (ENOTTY);
 		}
+		ttydisc_lock(tp);
 		tp->t_pgrp = pg;
+		ttydisc_unlock(tp);
 		sx_sunlock(&proctree_lock);
 
 		/* Wake up the background process groups. */
@@ -1935,14 +2072,21 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 			flags = (FREAD|FWRITE);
 		else
 			flags &= (FREAD|FWRITE);
+		ttydisc_lock(tp);
 		tty_flush(tp, flags);
+		ttydisc_unlock(tp);
 		return (0);
 	}
 	case TIOCDRAIN:
 		/* Drain TTY output. */
-		return tty_drain(tp, 0);
+		ttydisc_lock(tp);
+		error = tty_drain(tp, 0);
+		ttydisc_unlock(tp);
+		return (error);
 	case TIOCGDRAINWAIT:
+		ttydisc_lock(tp);
 		*(int *)data = tp->t_drainwait;
+		ttydisc_unlock(tp);
 		return (0);
 	case TIOCSDRAINWAIT:
 		error = priv_check(td, PRIV_TTY_DRAINWAIT);
@@ -1969,23 +2113,33 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 		tty_set_winsize(tp, data);
 		return (0);
 	case TIOCEXCL:
+		ttydisc_lock(tp);
 		tp->t_flags |= TF_EXCLUDE;
+		ttydisc_unlock(tp);
 		return (0);
 	case TIOCNXCL:
+		ttydisc_lock(tp);
 		tp->t_flags &= ~TF_EXCLUDE;
+		ttydisc_unlock(tp);
 		return (0);
 	case TIOCSTOP:
+		ttydisc_lock(tp);
 		tp->t_flags |= TF_STOPPED;
 		ttydevsw_pktnotify(tp, TIOCPKT_STOP);
+		ttydisc_unlock(tp);
 		return (0);
 	case TIOCSTART:
+		ttydisc_lock(tp);
 		tp->t_flags &= ~TF_STOPPED;
 		tp->t_termios.c_lflag &= ~FLUSHO;
 		ttydevsw_outwakeup(tp);
 		ttydevsw_pktnotify(tp, TIOCPKT_START);
+		ttydisc_unlock(tp);
 		return (0);
 	case TIOCSTAT:
+		ttydisc_lock(tp);
 		tty_info(tp);
+		ttydisc_unlock(tp);
 		return (0);
 	case TIOCSTI:
 		if ((fflag & FREAD) == 0 && priv_check(td, PRIV_TTY_STI))
@@ -1993,8 +2147,10 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 		if (!tty_is_ctty(tp, td->td_proc) &&
 		    priv_check(td, PRIV_TTY_STI))
 			return (EACCES);
+		ttydisc_lock(tp);
 		ttydisc_rint(tp, *(char *)data, 0);
 		ttydisc_rint_done(tp);
+		ttydisc_unlock(tp);
 		return (0);
 	}
 
@@ -2015,7 +2171,10 @@ tty_ioctl(struct tty *tp, u_long cmd, void *data, int fflag, struct thread *td)
 	if (tty_gone(tp))
 		return (ENXIO);
 
+	/* tty device driver may change parameters related to I/O. */
+	ttydisc_lock(tp);
 	error = ttydevsw_ioctl(tp, cmd, data, td);
+	ttydisc_unlock(tp);
 	if (error == ENOIOCTL)
 		error = tty_generic_ioctl(tp, cmd, data, fflag, td);
 
@@ -2036,6 +2195,7 @@ int
 tty_checkoutq(struct tty *tp)
 {
 
+	ttydisc_assert_locked(tp);
 	/* 256 bytes should be enough to print a log message. */
 	return (ttyoutq_bytesleft(&tp->t_outq) >= 256);
 }
@@ -2044,6 +2204,7 @@ void
 tty_hiwat_in_block(struct tty *tp)
 {
 
+	ttydisc_assert_locked(tp);
 	if ((tp->t_flags & TF_HIWAT_IN) == 0 &&
 	    tp->t_termios.c_iflag & IXOFF &&
 	    tp->t_termios.c_cc[VSTOP] != _POSIX_VDISABLE) {
@@ -2064,6 +2225,7 @@ void
 tty_hiwat_in_unblock(struct tty *tp)
 {
 
+	ttydisc_assert_locked(tp);
 	if (tp->t_flags & TF_HIWAT_IN &&
 	    tp->t_termios.c_iflag & IXOFF &&
 	    tp->t_termios.c_cc[VSTART] != _POSIX_VDISABLE) {
@@ -2163,6 +2325,7 @@ ttyhook_register(struct tty **rtp, struct proc *p, int fd, struct ttyhook *th,
 	if (tp->t_flags & TF_HOOK)
 		goto done3;
 
+	ttydisc_lock(tp);
 	tp->t_flags |= TF_HOOK;
 	tp->t_hook = th;
 	tp->t_hooksoftc = softc;
@@ -2176,6 +2339,7 @@ ttyhook_register(struct tty **rtp, struct proc *p, int fd, struct ttyhook *th,
 	if (!ttyhook_hashook(tp, rint) && ttyhook_hashook(tp, rint_bypass))
 		th->th_rint = ttyhook_defrint;
 
+	ttydisc_unlock(tp);
 done3:	tty_unlock(tp);
 done2:	dev_relthread(dev, ref);
 done1:	fdrop(fp, curthread);
@@ -2190,11 +2354,13 @@ ttyhook_unregister(struct tty *tp)
 	MPASS(tp->t_flags & TF_HOOK);
 
 	/* Disconnect the hook. */
+	ttydisc_lock(tp);
 	tp->t_flags &= ~TF_HOOK;
 	tp->t_hook = NULL;
 
 	/* Maybe we need to leave bypass mode. */
 	ttydisc_optimize(tp);
+	ttydisc_unlock(tp);
 
 	/* Maybe deallocate the TTY as well. */
 	tty_rel_free(tp);

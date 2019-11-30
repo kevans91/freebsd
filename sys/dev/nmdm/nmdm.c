@@ -106,6 +106,7 @@ nmdm_close(struct tty *tp)
 	struct nmdmpart *onp;
 	struct tty *otp;
 
+	ttydisc_assert_locked(tp);
 	np = tty_softc(tp);
 	onp = np->np_other;
 	otp = onp->np_tty;
@@ -118,13 +119,14 @@ nmdm_close(struct tty *tp)
 	tty_rel_gone(tp);
 
 	/* Shut down second part. */
-	tty_lock(tp);
+	tty_lock(otp);
 	onp = np->np_other;
 	if (onp == NULL)
 		return;
 	otp = onp->np_tty;
 	tty_rel_gone(otp);
 	tty_lock(tp);
+	ttydisc_lock(tp);
 }
 
 static void
@@ -189,7 +191,10 @@ nmdm_clone(void *arg, struct ucred *cred, char *name, int nameen,
 	TASK_INIT(&ns->ns_part2.np_task, 0, nmdm_task_tty, &ns->ns_part2);
 	callout_init_mtx(&ns->ns_part2.np_callout, &ns->ns_mtx, 0);
 
-	/* Create device nodes. */
+	/*
+	 * Create device nodes.  Both sides can have distinct tty locks, as
+	 * long as they share a ttydisc lock.
+	 */
 	tp = ns->ns_part1.np_tty = tty_alloc_mutex(&nmdm_class, &ns->ns_part1,
 	    &ns->ns_mtx);
 	*end = 'A';
@@ -254,12 +259,16 @@ nmdm_task_tty(void *arg, int pending __unused)
 	char c;
 
 	tp = np->np_tty;
-	tty_lock(tp);
+	ttydisc_lock(tp);
 	if (tty_gone(tp)) {
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 		return;
 	}
 
+	/*
+	 * We'll be operating on otp while maintaining the tp ttydisc lock; this
+	 * is OK, since they share the same ttydisc lock.
+	 */
 	otp = np->np_other->np_tty;
 	KASSERT(otp != NULL, ("NULL otp in nmdmstart"));
 	KASSERT(otp != tp, ("NULL otp == tp nmdmstart"));
@@ -277,7 +286,7 @@ nmdm_task_tty(void *arg, int pending __unused)
 
 	/* This may happen when we are in detach process. */
 	if (tty_gone(otp)) {
-		tty_unlock(otp);
+		ttydisc_unlock(tp);
 		return;
 	}
 
@@ -291,8 +300,7 @@ nmdm_task_tty(void *arg, int pending __unused)
 	}
 
 	ttydisc_rint_done(otp);
-
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 }
 
 static int
@@ -322,6 +330,8 @@ nmdm_param(struct tty *tp, struct termios *t)
 	struct tty *tp2;
 	int bpc, rate, speed, i;
 
+	/* Must be true for callout manipulation down below. */
+	ttydisc_assert_locked(tp);
 	tp2 = np->np_other->np_tty;
 
 	if (!((t->c_cflag | tp2->t_termios.c_cflag) & CDSR_OFLOW)) {
@@ -379,6 +389,7 @@ nmdm_modem(struct tty *tp, int sigon, int sigoff)
 	struct nmdmpart *np = tty_softc(tp);
 	int i = 0;
 
+	ttydisc_assert_locked(tp);
 	if (sigon || sigoff) {
 		if (sigon & SER_DTR)
 			np->np_other->np_dcd = 1;
@@ -386,14 +397,12 @@ nmdm_modem(struct tty *tp, int sigon, int sigoff)
 			np->np_other->np_dcd = 0;
 
 		ttydisc_modem(np->np_other->np_tty, np->np_other->np_dcd);
-
 		return (0);
 	} else {
 		if (np->np_dcd)
 			i |= SER_DCD;
 		if (np->np_other->np_dcd)
 			i |= SER_DTR;
-
 		return (i);
 	}
 }

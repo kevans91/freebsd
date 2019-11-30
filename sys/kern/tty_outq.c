@@ -93,6 +93,8 @@ ttyoutq_setsize(struct ttyoutq *to, struct tty *tp, size_t size)
 {
 	struct ttyoutq_block *tob;
 
+	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	to->to_quota = howmany(size, TTYOUTQ_DATASIZE);
 
 	while (to->to_quota > to->to_nblocks) {
@@ -106,9 +108,11 @@ ttyoutq_setsize(struct ttyoutq *to, struct tty *tp, size_t size)
 		 * may cause us to allocate too many blocks, but this
 		 * will be caught by the loop below.
 		 */
+		ttydisc_unlock(tp);
 		tty_unlock(tp);
 		tob = uma_zalloc(ttyoutq_zone, M_WAITOK);
 		tty_lock(tp);
+		ttydisc_lock(tp);
 
 		if (tty_gone(tp)) {
 			uma_zfree(ttyoutq_zone, tob);
@@ -200,7 +204,11 @@ ttyoutq_read(struct ttyoutq *to, void *buf, size_t len)
 int
 ttyoutq_read_uio(struct ttyoutq *to, struct tty *tp, struct uio *uio)
 {
+	int locktty;
 
+	/* XXX Can go away when the tty lock becomes sleepable. */
+	locktty = tty_lock_owned(tp);
+	ttydisc_assert_locked(tp);
 	while (uio->uio_resid > 0) {
 		int error;
 		struct ttyoutq_block *tob;
@@ -244,9 +252,13 @@ ttyoutq_read_uio(struct ttyoutq *to, struct tty *tp, struct uio *uio)
 				to->to_end -= TTYOUTQ_DATASIZE;
 
 			/* Temporary unlock and copy the data to userspace. */
-			tty_unlock(tp);
+			ttydisc_unlock(tp);
+			if (locktty)
+				tty_unlock(tp);
 			error = uiomove(tob->tob_data + cbegin, clen, uio);
-			tty_lock(tp);
+			if (locktty)
+				tty_lock(tp);
+			ttydisc_lock(tp);
 
 			/* Block can now be readded to the list. */
 			TTYOUTQ_RECYCLE(to, tob);
@@ -261,9 +273,13 @@ ttyoutq_read_uio(struct ttyoutq *to, struct tty *tp, struct uio *uio)
 			MPASS(to->to_begin < TTYOUTQ_DATASIZE);
 
 			/* Temporary unlock and copy the data to userspace. */
-			tty_unlock(tp);
+			ttydisc_unlock(tp);
+			if (locktty)
+				tty_unlock(tp);
 			error = uiomove(ob, clen, uio);
-			tty_lock(tp);
+			if (locktty)
+				tty_lock(tp);
+			ttydisc_lock(tp);
 		}
 
 		if (error != 0)

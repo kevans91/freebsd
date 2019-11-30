@@ -295,7 +295,8 @@ tty_info(struct tty *tp)
 	char comm[MAXCOMLEN + 1];
 	struct rusage ru;
 
-	tty_assert_locked(tp);
+	/* ttydisc lock is sufficient for everything we're doing here */
+	ttydisc_assert_locked(tp);
 
 	if (tty_checkoutq(tp) == 0)
 		return;

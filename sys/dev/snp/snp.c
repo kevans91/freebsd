@@ -162,10 +162,14 @@ snp_read(struct cdev *dev, struct uio *uio, int flag)
 		return (error);
 
 	tp = ss->snp_tty;
-	if (tp == NULL || tty_gone(tp))
+	if (tp == NULL)
 		return (EIO);
+	ttydisc_lock(tp);
+	if (tty_gone(tp)) {
+		ttydisc_unlock(tp);
+		return (EIO);
+	}
 
-	tty_lock(tp);
 	for (;;) {
 		error = ttyoutq_read_uio(&ss->snp_outq, tp, uio);
 		if (error != 0 || uio->uio_resid != oresid)
@@ -176,7 +180,7 @@ snp_read(struct cdev *dev, struct uio *uio, int flag)
 			error = EWOULDBLOCK;
 			break;
 		}
-		error = cv_wait_sig(&ss->snp_outwait, tty_getlock(tp));
+		error = cv_wait_sig(&ss->snp_outwait, ttydisc_getlock(tp));
 		if (error != 0)
 			break;
 		if (tty_gone(tp)) {
@@ -184,7 +188,7 @@ snp_read(struct cdev *dev, struct uio *uio, int flag)
 			break;
 		}
 	}
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 
 	return (error);
 }
@@ -212,11 +216,11 @@ snp_write(struct cdev *dev, struct uio *uio, int flag)
 		if (error != 0)
 			return (error);
 
-		tty_lock(tp);
+		ttydisc_lock(tp);
 
 		/* Driver could have abandoned the TTY in the mean time. */
 		if (tty_gone(tp)) {
-			tty_unlock(tp);
+			ttydisc_unlock(tp);
 			return (ENXIO);
 		}
 
@@ -228,7 +232,7 @@ snp_write(struct cdev *dev, struct uio *uio, int flag)
 		ttydisc_rint_simple(tp, in, len);
 		ttydisc_rint_done(tp);
 
-		tty_unlock(tp);
+		ttydisc_unlock(tp);
 	}
 
 	return (0);
@@ -276,7 +280,9 @@ snp_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int flags,
 		/* Now that went okay, allocate a buffer for the queue. */
 		tp = ss->snp_tty;
 		tty_lock(tp);
+		ttydisc_lock(tp);
 		ttyoutq_setsize(&ss->snp_outq, tp, SNP_OUTPUT_BUFSIZE);
+		ttydisc_unlock(tp);
 		tty_unlock(tp);
 
 		return (0);

@@ -263,7 +263,7 @@ aju_handle_input(struct altera_jtag_uart_softc *sc, struct tty *tp)
 {
 	int c;
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	AJU_LOCK_ASSERT(sc);
 
 	while (aju_readable(sc)) {
@@ -295,7 +295,7 @@ aju_handle_output(struct altera_jtag_uart_softc *sc, struct tty *tp)
 	uint32_t v;
 	uint8_t ch;
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	AJU_LOCK_ASSERT(sc);
 
 	AJU_UNLOCK(sc);
@@ -361,7 +361,7 @@ aju_outwakeup(struct tty *tp)
 {
 	struct altera_jtag_uart_softc *sc = tty_softc(tp);
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 
 	AJU_LOCK(sc);
 	aju_handle_output(sc, tp);
@@ -374,7 +374,6 @@ aju_io_callout(void *arg)
 	struct altera_jtag_uart_softc *sc = arg;
 	struct tty *tp = sc->ajus_ttyp;
 
-	tty_lock(tp);
 	AJU_LOCK(sc);
 
 	/*
@@ -396,7 +395,6 @@ aju_io_callout(void *arg)
 	callout_reset(&sc->ajus_io_callout, AJU_IO_POLLINTERVAL,
 	    aju_io_callout, sc);
 	AJU_UNLOCK(sc);
-	tty_unlock(tp);
 }
 
 static void
@@ -406,7 +404,6 @@ aju_ac_callout(void *arg)
 	struct tty *tp = sc->ajus_ttyp;
 	uint32_t v;
 
-	tty_lock(tp);
 	AJU_LOCK(sc);
 	v = aju_control_read(sc);
 	if (v & ALTERA_JTAG_UART_CONTROL_AC) {
@@ -436,7 +433,6 @@ aju_ac_callout(void *arg)
 	callout_reset(&sc->ajus_ac_callout, AJU_AC_POLLINTERVAL,
 	    aju_ac_callout, sc);
 	AJU_UNLOCK(sc);
-	tty_unlock(tp);
 }
 
 static void
@@ -446,7 +442,7 @@ aju_intr(void *arg)
 	struct tty *tp = sc->ajus_ttyp;
 	uint32_t v;
 
-	tty_lock(tp);
+	ttydisc_lock(tp);
 	AJU_LOCK(sc);
 	v = aju_control_read(sc);
 	if (v & ALTERA_JTAG_UART_CONTROL_RI) {
@@ -458,7 +454,7 @@ aju_intr(void *arg)
 		aju_handle_output(sc, tp);
 	}
 	AJU_UNLOCK(sc);
-	tty_unlock(tp);
+	ttydisc_unlock(tp);
 }
 
 int
@@ -515,6 +511,8 @@ altera_jtag_uart_attach(struct altera_jtag_uart_softc *sc)
 		tty_init_console(tp, 0);
 	}
 	tty_makedev(tp, NULL, "%s%d", AJU_TTYNAME, sc->ajus_unit);
+	/* Grab the lock now for callout work. */
+	ttydisc_lock(tp);
 
 	/*
 	 * If we will be using interrupts, enable them now; otherwise, start
@@ -525,13 +523,14 @@ altera_jtag_uart_attach(struct altera_jtag_uart_softc *sc)
 		aju_intr_readable_enable(sc);
 		AJU_UNLOCK(sc);
 	} else {
-		callout_init(&sc->ajus_io_callout, 1);
+		callout_init_mtx(&sc->ajus_io_callout, ttydisc_getlock(tp), 0);
 		callout_reset(&sc->ajus_io_callout, AJU_IO_POLLINTERVAL,
 		    aju_io_callout, sc);
 	}
-	callout_init(&sc->ajus_ac_callout, 1);
+	callout_init_mtx(&sc->ajus_ac_callout, ttydisc_getlock(tp), 0);
 	callout_reset(&sc->ajus_ac_callout, AJU_AC_POLLINTERVAL,
 	    aju_ac_callout, sc);
+	ttydisc_unlock(tp);
 	return (0);
 }
 
@@ -542,8 +541,11 @@ altera_jtag_uart_detach(struct altera_jtag_uart_softc *sc)
 
 	/*
 	 * If we're using interrupts, disable and release the interrupt
-	 * handler now.  Otherwise drain the polling timeout.
+	 * handler now.  Otherwise drain the polling timeout.  Grab the tty
+	 * lock early to block any requests from userland until we've finished
+	 * detaching.
 	 */
+	tty_lock(tp);
 	if (sc->ajus_irq_res != NULL) {
 		AJU_LOCK(sc);
 		aju_intr_disable(sc);
@@ -555,7 +557,7 @@ altera_jtag_uart_detach(struct altera_jtag_uart_softc *sc)
 	callout_drain(&sc->ajus_ac_callout);
 	if (sc->ajus_flags & ALTERA_JTAG_UART_FLAG_CONSOLE)
 		aju_cons_sc = NULL;
-	tty_lock(tp);
+	ttydisc_lock(tp);
 	tty_rel_gone(tp);
 	AJU_LOCK_DESTROY(sc);
 }

@@ -100,7 +100,7 @@ cn_drvinit(void *unused)
 			return;
 		if (strlen(output) > 0)
 			tty_makealias(tp, "%s", output);
-		callout_init_mtx(&ofw_timer, tty_getlock(tp), 0);
+		callout_init_mtx(&ofw_timer, ttydisc_getlock(tp), 0);
 	}
 }
 
@@ -112,6 +112,8 @@ static pcell_t	stdout;
 static int
 ofwtty_open(struct tty *tp)
 {
+
+	ttydisc_assert_locked(tp);
 	polltime = hz / OFWCONS_POLL_HZ;
 	if (polltime < 1)
 		polltime = 1;
@@ -125,6 +127,7 @@ static void
 ofwtty_close(struct tty *tp)
 {
 
+	ttydisc_assert_locked(tp);
 	callout_stop(&ofw_timer);
 }
 
@@ -134,6 +137,7 @@ ofwtty_outwakeup(struct tty *tp)
 	int len;
 	u_char buf[OFBURSTLEN];
 
+	ttydisc_assert_locked(tp);
 	for (;;) {
 		len = ttydisc_getc(tp, buf, sizeof buf);
 		if (len == 0)
@@ -150,7 +154,7 @@ ofw_timeout(void *v)
 
 	tp = (struct tty *)v;
 
-	tty_assert_locked(tp);
+	ttydisc_assert_locked(tp);
 	while ((c = ofw_cngetc(NULL)) != -1)
 		ttydisc_rint(tp, c, 0);
 	ttydisc_rint_done(tp);

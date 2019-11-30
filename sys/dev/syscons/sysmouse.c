@@ -260,7 +260,7 @@ sysmouse_event(mouse_info_t *info)
 	int x, y, z;
 	int i, flags = 0;
 
-	tty_lock(sysmouse_tty);
+	ttydisc_lock(sysmouse_tty);
 
 	switch (info->operation) {
 	case MOUSE_ACTION:
@@ -323,7 +323,7 @@ sysmouse_event(mouse_info_t *info)
 	}
 	ttydisc_rint_done(sysmouse_tty);
 
-done:	tty_unlock(sysmouse_tty);
+done:	ttydisc_unlock(sysmouse_tty);
 	return (flags);
 }
 
