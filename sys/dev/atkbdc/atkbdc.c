@@ -40,7 +40,9 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
+#include <sys/lock.h>
 #include <sys/malloc.h>
+#include <sys/mutex.h>
 #include <sys/syslog.h>
 #include <machine/bus.h>
 #include <machine/resource.h>
@@ -284,6 +286,7 @@ atkbdc_setup(atkbdc_softc_t *sc, bus_space_tag_t tag, bus_space_handle_t h0,
 #endif
 	sc->quirks = atkbdc_getquirks();
 
+	mtx_init(&sc->mtx, "atkbdc mtx", NULL, MTX_DEF);
 	return 0;
 }
 
@@ -340,21 +343,26 @@ atkbdc_open(int unit)
  */
 
 /* set/reset polling lock */
-int 
+int
 kbdc_lock(KBDC p, int lock)
 {
-    int prevlock;
 
-    prevlock = p->lock;
-    p->lock = lock;
-
-    return (prevlock != lock);
+    if (lock) {
+        KBDC_LOCK_ASSERT(p, MA_NOTOWNED);
+        return (KBDC_TRYLOCK(p));
+    } else {
+        KBDC_LOCK_ASSERT(p, MA_OWNED);
+        mtx_unlock(p);
+        return (true);
+    }
 }
 
 /* check if any data is waiting to be processed */
 int
 kbdc_data_ready(KBDC p)
 {
+
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     return (availq(&p->kbd) || availq(&p->aux)
 	|| (read_status(p) & KBDS_ANY_BUFFER_FULL));
 }
@@ -364,6 +372,7 @@ kbdc_data_ready(KBDC p)
 static int
 addq(kqueue *q, int c)
 {
+
     if (nextq(q->tail) != q->head) {
 	q->q[q->tail] = c;
 	q->tail = nextq(q->tail);
@@ -403,6 +412,7 @@ wait_while_controller_busy(struct atkbdc_softc *kbdc)
     int retry;
     int f;
 
+    KBDC_LOCK_ASSERT(kbdc, MA_OWNED);
     /* CPU will stay inside the loop for 100msec at most */
     retry = kbdc->retry;
 
@@ -431,6 +441,7 @@ wait_for_data(struct atkbdc_softc *kbdc)
     int retry;
     int f;
 
+    KBDC_LOCK_ASSERT(kbdc, MA_OWNED);
     /* CPU will stay inside the loop for 200msec at most */
     retry = kbdc->retry * 2;
 
@@ -450,6 +461,7 @@ wait_for_kbd_data(struct atkbdc_softc *kbdc)
     int retry;
     int f;
 
+    KBDC_LOCK_ASSERT(kbdc, MA_OWNED);
     /* CPU will stay inside the loop for 200msec at most */
     retry = kbdc->retry * 2;
 
@@ -478,6 +490,7 @@ wait_for_kbd_ack(struct atkbdc_softc *kbdc)
     int f;
     int b;
 
+    KBDC_LOCK_ASSERT(kbdc, MA_OWNED);
     /* CPU will stay inside the loop for 200msec at most */
     retry = kbdc->retry * 2;
 
@@ -506,6 +519,7 @@ wait_for_aux_data(struct atkbdc_softc *kbdc)
     int retry;
     int f;
 
+    KBDC_LOCK_ASSERT(kbdc, MA_OWNED);
     /* CPU will stay inside the loop for 200msec at most */
     retry = kbdc->retry * 2;
 
@@ -534,6 +548,7 @@ wait_for_aux_ack(struct atkbdc_softc *kbdc)
     int f;
     int b;
 
+    KBDC_LOCK_ASSERT(kbdc, MA_OWNED);
     /* CPU will stay inside the loop for 200msec at most */
     retry = kbdc->retry * 2;
 
@@ -559,6 +574,8 @@ wait_for_aux_ack(struct atkbdc_softc *kbdc)
 int
 write_controller_command(KBDC p, int c)
 {
+
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     if (!wait_while_controller_busy(p))
 	return FALSE;
     write_command(p, c);
@@ -569,6 +586,8 @@ write_controller_command(KBDC p, int c)
 int
 write_controller_data(KBDC p, int c)
 {
+
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     if (!wait_while_controller_busy(p))
 	return FALSE;
     write_data(p, c);
@@ -579,6 +598,8 @@ write_controller_data(KBDC p, int c)
 int
 write_kbd_command(KBDC p, int c)
 {
+
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     if (!wait_while_controller_busy(p))
 	return FALSE;
     write_data(p, c);
@@ -591,6 +612,7 @@ write_aux_command(KBDC p, int c)
 {
     int f;
 
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     f = aux_mux_is_enabled(p) ?
         KBDC_WRITE_TO_AUX_MUX + p->aux_mux_port : KBDC_WRITE_TO_AUX;
 
@@ -606,6 +628,7 @@ send_kbd_command(KBDC p, int c)
     int retry = KBD_MAXRETRY;
     int res = -1;
 
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     while (retry-- > 0) {
 	if (!write_kbd_command(p, c))
 	    continue;
@@ -623,6 +646,7 @@ send_aux_command(KBDC p, int c)
     int retry = KBD_MAXRETRY;
     int res = -1;
 
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     while (retry-- > 0) {
 	if (!write_aux_command(p, c))
 	    continue;
@@ -650,6 +674,7 @@ send_kbd_command_and_data(KBDC p, int c, int d)
     int retry;
     int res = -1;
 
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     for (retry = KBD_MAXRETRY; retry > 0; --retry) {
 	if (!write_kbd_command(p, c))
 	    continue;
@@ -709,6 +734,8 @@ send_aux_command_and_data(KBDC p, int c, int d)
 int
 read_controller_data(KBDC p)
 {
+
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     if (availq(&p->kbd))
         return removeq(&p->kbd);
     if (availq(&p->aux))
@@ -726,6 +753,8 @@ static int call = 0;
 int
 read_kbd_data(KBDC p)
 {
+
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
 #if KBDIO_DEBUG >= 2
     if (++call > 2000) {
 	call = 0;
@@ -751,6 +780,7 @@ read_kbd_data_no_wait(KBDC p)
 {
     int f;
 
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
 #if KBDIO_DEBUG >= 2
     if (++call > 2000) {
 	call = 0;
@@ -780,6 +810,8 @@ read_kbd_data_no_wait(KBDC p)
 int
 read_aux_data(KBDC p)
 {
+
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     if (availq(&p->aux))
         return removeq(&p->aux);
     if (!wait_for_aux_data(p))
@@ -795,6 +827,7 @@ read_aux_data_no_wait(KBDC p)
 {
     int f;
 
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     if (availq(&p->aux))
         return removeq(&p->aux);
     f = read_status(p) & KBDS_BUFFER_FULL;
@@ -823,6 +856,7 @@ empty_kbd_buffer(KBDC p, int wait)
 #endif
     int delta = 2;
 
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     for (t = wait; t > 0; ) { 
         if ((f = read_status(p)) & KBDS_ANY_BUFFER_FULL) {
 	    DELAY(KBDD_DELAYTIME);
@@ -862,6 +896,7 @@ empty_aux_buffer(KBDC p, int wait)
 #endif
     int delta = 2;
 
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     for (t = wait; t > 0; ) { 
         if ((f = read_status(p)) & KBDS_ANY_BUFFER_FULL) {
 	    DELAY(KBDD_DELAYTIME);
@@ -901,6 +936,7 @@ empty_both_buffers(KBDC p, int wait)
 #endif
     int delta = 2;
 
+    KBDC_LOCK_ASSERT(p, MA_OWNED);
     for (t = wait; t > 0; ) { 
         if ((f = read_status(p)) & KBDS_ANY_BUFFER_FULL) {
 	    DELAY(KBDD_DELAYTIME);

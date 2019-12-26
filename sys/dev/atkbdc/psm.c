@@ -68,7 +68,9 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
+#include <sys/lock.h>
 #include <sys/module.h>
+#include <sys/mutex.h>
 #include <sys/bus.h>
 #include <sys/conf.h>
 #include <sys/filio.h>
@@ -1035,6 +1037,7 @@ doinitialize(struct psm_softc *sc, mousemode_t *mode)
 	int stat[3];
 	int i;
 
+	KBDC_LOCK_ASSERT(kbdc, MA_OWNED);
 	switch((i = test_aux_port(kbdc))) {
 	case 1:	/* ignore these errors */
 	case 2:
@@ -1232,12 +1235,11 @@ reinitialize(struct psm_softc *sc, int doinit)
 {
 	int err;
 	int c;
-	int s;
 
 	/* don't let anybody mess with the aux device */
 	if (!kbdc_lock(sc->kbdc, TRUE))
 		return (EIO);
-	s = spltty();
+	KBDC_LOCK_ASSERT(sc->kbdc, MA_OWNED);
 
 	/* block our watchdog timer */
 	sc->watchdog = FALSE;
@@ -1256,7 +1258,6 @@ reinitialize(struct psm_softc *sc, int doinit)
 	    KBD_DISABLE_KBD_PORT | KBD_DISABLE_KBD_INT |
 	    KBD_ENABLE_AUX_PORT | KBD_DISABLE_AUX_INT)) {
 		/* CONTROLLER ERROR */
-		splx(s);
 		kbdc_lock(sc->kbdc, FALSE);
 		log(LOG_ERR,
 		    "psm%d: unable to set the command byte (reinitialize).\n",
@@ -1291,7 +1292,6 @@ reinitialize(struct psm_softc *sc, int doinit)
 			err = ENXIO;
 		}
 	}
-	splx(s);
 
 	/* restore the driver state */
 	if ((sc->state & (PSM_OPEN | PSM_EV_OPEN_R | PSM_EV_OPEN_A)) &&
@@ -2211,7 +2211,6 @@ psmopen(struct psm_softc *sc)
 {
 	int command_byte;
 	int err;
-	int s;
 
 	/* Initialize state */
 	sc->mode.level = sc->dflt_mode.level;
@@ -2243,7 +2242,6 @@ psmopen(struct psm_softc *sc)
 		return (EIO);
 
 	/* save the current controller command byte */
-	s = spltty();
 	command_byte = get_controller_command_byte(sc->kbdc);
 
 	/* enable the aux port and temporalily disable the keyboard */
@@ -2253,20 +2251,11 @@ psmopen(struct psm_softc *sc)
 	    KBD_ENABLE_AUX_PORT | KBD_DISABLE_AUX_INT)) {
 		/* CONTROLLER ERROR; do you know how to get out of this? */
 		kbdc_lock(sc->kbdc, FALSE);
-		splx(s);
 		log(LOG_ERR,
 		    "psm%d: unable to set the command byte (psmopen).\n",
 		    sc->unit);
 		return (EIO);
 	}
-	/*
-	 * Now that the keyboard controller is told not to generate
-	 * the keyboard and mouse interrupts, call `splx()' to allow
-	 * the other tty interrupts. The clock interrupt may also occur,
-	 * but timeout routines will be blocked by the poll flag set
-	 * via `kbdc_lock()'
-	 */
-	splx(s);
 
 	/* enable the mouse device */
 	err = doopen(sc, command_byte);
@@ -2281,18 +2270,15 @@ psmclose(struct psm_softc *sc)
 {
 	int stat[3];
 	int command_byte;
-	int s;
 
 	/* don't let timeout routines in the keyboard driver to poll the kbdc */
 	if (!kbdc_lock(sc->kbdc, TRUE))
 		return (EIO);
 
 	/* save the current controller command byte */
-	s = spltty();
 	command_byte = get_controller_command_byte(sc->kbdc);
 	if (command_byte == -1) {
 		kbdc_lock(sc->kbdc, FALSE);
-		splx(s);
 		return (EIO);
 	}
 
@@ -2311,7 +2297,6 @@ psmclose(struct psm_softc *sc)
 		 * so long as the mouse will accept the DISABLE command.
 		 */
 	}
-	splx(s);
 
 	/* stop the watchdog timer */
 	callout_stop(&sc->callout);
@@ -2483,19 +2468,16 @@ psmread(struct cdev *dev, struct uio *uio, int flag)
 static int
 block_mouse_data(struct psm_softc *sc, int *c)
 {
-	int s;
 
 	if (!kbdc_lock(sc->kbdc, TRUE))
 		return (EIO);
 
-	s = spltty();
 	*c = get_controller_command_byte(sc->kbdc);
 	if ((*c == -1) || !set_controller_command_byte(sc->kbdc,
 	    kbdc_get_device_mask(sc->kbdc),
 	    KBD_DISABLE_KBD_PORT | KBD_DISABLE_KBD_INT |
 	    KBD_ENABLE_AUX_PORT | KBD_DISABLE_AUX_INT)) {
 		/* this is CONTROLLER ERROR */
-		splx(s);
 		kbdc_lock(sc->kbdc, FALSE);
 		return (EIO);
 	}
@@ -2515,7 +2497,6 @@ block_mouse_data(struct psm_softc *sc, int *c)
 	empty_aux_buffer(sc->kbdc, 0);		/* flush the queue */
 	read_aux_data_no_wait(sc->kbdc);	/* throw away data if any */
 	flushpackets(sc);
-	splx(s);
 
 	return (0);
 }

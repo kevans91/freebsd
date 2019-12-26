@@ -213,6 +213,7 @@ typedef struct atkbdc_softc {
 #define KBDC_QUIRK_SETLEDS_ON_INIT	(1 << 3)
     int aux_mux_enabled;	/* active PS/2 multiplexing is enabled */
     int aux_mux_port;		/* current aux mux port */
+    struct mtx mtx;
 } atkbdc_softc_t; 
 
 enum kbdc_device_ivar {
@@ -223,6 +224,13 @@ enum kbdc_device_ivar {
 };
 
 typedef atkbdc_softc_t *KBDC;
+
+#define	KBDC_GETLOCK(kbdc)	(&(kbdc)->mtx)
+
+#define	KBDC_TRYLOCK(kbdc)	mtx_trylock(KBDC_GETLOCK(kbdc))
+#define	KBDC_LOCK(kbdc)		mtx_lock(KBDC_GETLOCK(kbdc))
+#define	KBDC_UNLOCK(kbdc)	mtx_unlock(KBDC_GETLOCK(kbdc))
+#define	KBDC_LOCK_ASSERT(kbdc, ma)	mtx_assert(KBDC_GETLOCK(kbdc), (ma))
 
 #define KBDC_RID_KBD	0
 #define KBDC_RID_AUX	1
