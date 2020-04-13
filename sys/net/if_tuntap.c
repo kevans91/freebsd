@@ -191,9 +191,6 @@ static int tapdclone = 1;	/* enable devfs cloning */
 static TAILQ_HEAD(,tuntap_softc)	tunhead = TAILQ_HEAD_INITIALIZER(tunhead);
 SYSCTL_INT(_debug, OID_AUTO, if_tun_debug, CTLFLAG_RW, &tundebug, 0, "");
 
-static struct sx tun_ioctl_sx;
-SX_SYSINIT(tun_ioctl_sx, &tun_ioctl_sx, "tun_ioctl");
-
 SYSCTL_DECL(_net_link);
 /* tun */
 static SYSCTL_NODE(_net_link, OID_AUTO, tun, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
@@ -628,9 +625,6 @@ tun_destroy(struct tuntap_softc *tp)
 		bpfdetach(TUN2IFP(tp));
 		if_detach(TUN2IFP(tp));
 	}
-	sx_xlock(&tun_ioctl_sx);
-	TUN2IFP(tp)->if_softc = NULL;
-	sx_xunlock(&tun_ioctl_sx);
 	free_unr(tp->tun_drv->unrhdr, TUN2IFP(tp)->if_dunit);
 	if_free(TUN2IFP(tp));
 	mtx_destroy(&tp->tun_mtx);
@@ -1001,14 +995,8 @@ tunrename(void *arg __unused, struct ifnet *ifp)
 	 * from dying until we've created the alias (that will then be
 	 * subsequently destroyed).
 	 */
-	sx_xlock(&tun_ioctl_sx);
 	tp = ifp->if_softc;
-	if (tp == NULL) {
-		sx_xunlock(&tun_ioctl_sx);
-		return;
-	}
 	error = tun_busy(tp);
-	sx_xunlock(&tun_ioctl_sx);
 	if (error != 0)
 		return;
 	if (tp->tun_alias != NULL) {
@@ -1300,12 +1288,7 @@ tunifioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	bool		l2tun;
 
 	ifmr = NULL;
-	sx_xlock(&tun_ioctl_sx);
 	tp = ifp->if_softc;
-	if (tp == NULL) {
-		error = ENXIO;
-		goto bad;
-	}
 	l2tun = (tp->tun_flags & TUN_L2) != 0;
 	switch(cmd) {
 	case SIOCGIFSTATUS:
@@ -1367,8 +1350,6 @@ tunifioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			error = EINVAL;
 		}
 	}
-bad:
-	sx_xunlock(&tun_ioctl_sx);
 	return (error);
 }
 
