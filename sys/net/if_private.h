@@ -183,6 +183,13 @@ struct ifnet {
 	struct epoch_context	if_epoch_ctx;
 
 	/*
+	 * Bits for serializing management operations (ioctl/destroy)
+	 * and ensuring order.
+	 */
+	struct mtx	if_busy_lock;
+	blockcount_t	if_busycount;
+
+	/*
 	 * Spare fields to be added before branching a stable branch, so
 	 * that structure can be enhanced without changing the kernel
 	 * binary interface.

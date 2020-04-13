@@ -162,6 +162,7 @@ struct if_data {
 #define	IFF_RENAMING	0x400000	/* (n) interface is being renamed */
 #define	IFF_SPARE	0x800000
 #define	IFF_NETLINK_1	0x1000000	/* (n) used by netlink */
+#define	IFF_DETACHING	0x2000000	/* (n) interface is detaching */
 
 /*
  * Old names for driver flags so that user space tools can continue to use

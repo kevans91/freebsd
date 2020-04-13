@@ -74,6 +74,7 @@ struct	debugnet_methods;
 #include <sys/buf_ring.h>
 #include <net/vnet.h>
 #endif /* _KERNEL */
+#include <sys/_blockcount.h>
 #include <sys/ck.h>
 #include <sys/counter.h>
 #include <sys/epoch.h>
@@ -326,6 +327,12 @@ typedef int (if_ratelimit_setup_t)(if_t, uint64_t, uint32_t);
 #define	IF_ADDR_LOCK_ASSERT(if)	MPASS(in_epoch(net_epoch_preempt) || mtx_owned(&(if)->if_addr_lock))
 #define	IF_ADDR_WLOCK_ASSERT(if) mtx_assert(&(if)->if_addr_lock, MA_OWNED)
 
+#define	IF_BUSY_LOCK_INIT(if)	mtx_init(&(if)->if_busy_lock, "if_busy_lock", NULL, MTX_DEF)
+#define	IF_BUSY_LOCK_DESTROY(if)	mtx_destroy(&(if)->if_busy_lock)
+#define	IF_BUSY_LOCK(if)	mtx_lock(&(if)->if_busy_lock)
+#define	IF_BUSY_UNLOCK(if)	mtx_unlock(&(if)->if_busy_lock)
+#define	IF_BUSY_LOCK_ASSERT(if)	mtx_assert(&(if)->if_busy_lock, MA_OWNED)
+
 #ifdef _KERNEL
 /* interface link layer address change event */
 typedef void (*iflladdr_event_handler_t)(void *, if_t);
@@ -499,6 +506,7 @@ void	if_dead(if_t);
 int	if_delmulti(if_t, struct sockaddr *);
 void	if_delmulti_ifma(struct ifmultiaddr *);
 void	if_delmulti_ifma_flags(struct ifmultiaddr *, int flags);
+void	if_detach_drain(if_t);
 void	if_detach(if_t);
 void	if_purgeaddrs(if_t);
 void	if_delallmulti(if_t);

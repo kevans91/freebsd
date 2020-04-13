@@ -36,6 +36,7 @@
 #include "opt_ddb.h"
 
 #include <sys/param.h>
+#include <sys/blockcount.h>
 #include <sys/capsicum.h>
 #include <sys/conf.h>
 #include <sys/eventhandler.h>
@@ -276,6 +277,9 @@ static void	if_attachdomain1(struct ifnet *);
 static int	ifconf(u_long, caddr_t);
 static void	if_input_default(struct ifnet *, struct mbuf *);
 static int	if_requestencap_default(struct ifnet *, struct if_encap_req *);
+static bool	if_busy(struct ifnet *ifp, int setflags);
+static void	if_unbusy(struct ifnet *ifp);
+static void	if_busy_wait(struct ifnet *ifp);
 static int	if_setflag(struct ifnet *, int, int, int *, int);
 static int	if_transmit_default(struct ifnet *ifp, struct mbuf *m);
 static void	if_unroute(struct ifnet *, int flag, int fam);
@@ -554,6 +558,7 @@ if_alloc_domain(u_char type, int numa_domain)
 	}
 
 	IF_ADDR_LOCK_INIT(ifp);
+	IF_BUSY_LOCK_INIT(ifp);
 	TASK_INIT(&ifp->if_linktask, 0, do_link_state_change, ifp);
 	TASK_INIT(&ifp->if_addmultitask, 0, if_siocaddmulti, ifp);
 	ifp->if_afdata_initialized = 0;
@@ -566,6 +571,7 @@ if_alloc_domain(u_char type, int numa_domain)
 #endif
 	ifq_init(&ifp->if_snd, ifp);
 
+	blockcount_init(&ifp->if_busycount);
 	refcount_init(&ifp->if_refcount, 1);	/* Index reference. */
 	for (int i = 0; i < IFCOUNTERS; i++)
 		ifp->if_counters[i] = counter_u64_alloc(M_WAITOK);
@@ -634,7 +640,7 @@ if_free_deferred(epoch_context_t ctx)
 {
 	struct ifnet *ifp = __containerof(ctx, struct ifnet, if_epoch_ctx);
 
-	KASSERT((ifp->if_flags & IFF_DYING),
+	KASSERT((ifp->if_flags & IFF_DYING) && (ifp->if_flags & IFF_DETACHING),
 	    ("%s: interface not dying", __func__));
 
 	if (if_com_free[ifp->if_alloctype] != NULL)
@@ -646,6 +652,7 @@ if_free_deferred(epoch_context_t ctx)
 #endif /* MAC */
 	IF_AFDATA_DESTROY(ifp);
 	IF_ADDR_LOCK_DESTROY(ifp);
+	IF_BUSY_LOCK_DESTROY(ifp);
 	ifq_delete(&ifp->if_snd);
 
 	for (int i = 0; i < IFCOUNTERS; i++)
@@ -1078,6 +1085,45 @@ if_purgemaddrs(struct ifnet *ifp)
 		if_delmulti_locked(ifp, ifma, 1);
 	}
 	IF_ADDR_WUNLOCK(ifp);
+
+}
+
+/*
+ * Drain all management operations prior to a detach.  This may be used by
+ * ethernet drivers that need to ensure no further activity prior to, e.g.,
+ * detaching their miibus.
+ */
+void
+if_detach_drain(struct ifnet *ifp)
+{
+
+	/*
+	 * Set IFF_DETACHING here so that new ioctl entry is refused.  We will
+	 * then proceed to wait until the busy count drops, then proceed with
+	 * detaching.
+	 */
+	IFNET_WLOCK();
+	IF_BUSY_LOCK(ifp);
+	if ((ifp->if_flags & IFF_DETACHING) != 0) {
+		/*
+		 * If we've already marked IFF_DETACHING, then we're done
+		 * here -- all drained and nothing can change that.
+		 */
+		IF_BUSY_UNLOCK(ifp);
+		IFNET_WUNLOCK();
+
+		return;
+	}
+	ifp->if_flags |= IFF_DETACHING;
+
+	/*
+	 * Unlock the ifnet, then we'll sleep on the busy lock.  Once we're
+	 * back, it's safe to drop the busy lock and we can assume nothing else
+	 * pertinent is going on.
+	 */
+	IFNET_WUNLOCK();
+	if_busy_wait(ifp);
+	IF_BUSY_UNLOCK(ifp);
 }
 
 /*
@@ -1093,6 +1139,8 @@ void
 if_detach(struct ifnet *ifp)
 {
 	bool found;
+
+	if_detach_drain(ifp);
 
 	CURVNET_SET_QUIET(ifp->if_vnet);
 	found = if_unlink_ifnet(ifp, false);
@@ -1125,6 +1173,19 @@ if_detach_internal(struct ifnet *ifp, bool vmove)
 
 	shutdown = VNET_IS_SHUTTING_DOWN(ifp->if_vnet);
 #endif
+	if (!vmove) {
+		/*
+		 * XXX IFF_DETACHING should be checked for vmove || !vmove, but
+		 * the former case can't be checked until we make vmove()
+		 * coordinate detach.
+		 */
+		KASSERT((ifp->if_flags & IFF_DETACHING) != 0,
+		    ("%s: detach flag not set", __func__));
+		KASSERT(blockcount_read(&ifp->if_busycount) == 0,
+		    ("%s: busy threads still present", __func__));
+		KASSERT((ifp->if_flags & IFF_DYING) != 0,
+		    ("%s: not marked dying", __func__));
+	}
 
 	sx_assert(&ifnet_detach_sxlock, SX_XLOCKED);
 
@@ -2299,6 +2360,47 @@ ifunit(const char *name)
 	return (ifp);
 }
 
+#define	IFF_BUSY_FLAGS	(IFF_DETACHING | IFF_DYING)
+
+/*
+ * Busy the interface, if it's not already detaching/dying.  The caller may
+ * request, via setflags, flags to set on the ifp while we're still holding the
+ * busy lock if we've succeeded.  The caller is responsible for clearing any
+ * temporary flags that were set.
+ */
+static bool
+if_busy(struct ifnet *ifp, int setflags)
+{
+
+	IFNET_WLOCK();
+	IF_BUSY_LOCK(ifp);
+	if ((ifp->if_flags & IFF_BUSY_FLAGS) != 0) {
+		IF_BUSY_UNLOCK(ifp);
+		IFNET_WUNLOCK();
+		return (false);
+	}
+	blockcount_acquire(&ifp->if_busycount, 1);
+	ifp->if_flags |= setflags;
+	IF_BUSY_UNLOCK(ifp);
+	IFNET_WUNLOCK();
+	return (true);
+}
+
+static void
+if_unbusy(struct ifnet *ifp)
+{
+
+	blockcount_release(&ifp->if_busycount, 1);
+}
+
+static void
+if_busy_wait(struct ifnet *ifp)
+{
+
+	IF_BUSY_LOCK_ASSERT(ifp);
+	blockcount_wait(&ifp->if_busycount, &ifp->if_busy_lock, "ifbusy", 0);
+}
+
 void *
 ifr_buffer_get_buffer(void *data)
 {
@@ -2453,8 +2555,8 @@ if_capint_to_capnv(nvlist_t *nv, const struct ifcap_nv_bit_name *nn,
 /*
  * Hardware specific interface ioctls.
  */
-int
-ifhwioctl(u_long cmd, struct ifnet *ifp, caddr_t data, struct thread *td)
+static int
+ifhwioctl_internal(u_long cmd, struct ifnet *ifp, caddr_t data, struct thread *td)
 {
 	struct ifreq *ifr;
 	int error = 0, do_ifup = 0;
@@ -2466,6 +2568,14 @@ ifhwioctl(u_long cmd, struct ifnet *ifp, caddr_t data, struct thread *td)
 	nvlist_t *nvcap;
 	struct siocsifcapnv_driver_data drv_ioctl_data;
 
+	/*
+	 * We can't assert that we're not detaching because the procedure is to
+	 * mark us as detaching then wait for the different "management" paths
+	 * to exit before proceeding with the detach.  We should have properly
+	 * increased the refcount, at least.
+	 */
+	KASSERT(blockcount_read(&ifp->if_busycount) > 0,
+	    ("%s: mgmt refcount not increased", __func__));
 	ifr = (struct ifreq *)data;
 	switch (cmd) {
 	case SIOCGIFINDEX:
@@ -2912,6 +3022,23 @@ ifhwioctl(u_long cmd, struct ifnet *ifp, caddr_t data, struct thread *td)
 }
 
 /*
+ * Hardware specific interface ioctls.
+ */
+int
+ifhwioctl(u_long cmd, struct ifnet *ifp, caddr_t data, struct thread *td)
+{
+	int error;
+
+	if (!if_busy(ifp, 0))
+		return (ENXIO);
+
+	error = ifhwioctl_internal(cmd, ifp, data, td);
+
+	if_unbusy(ifp);
+	return (error);
+}
+
+/*
  * Interface ioctls.
  */
 int
@@ -3011,7 +3138,7 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct thread *td)
 	switch (cmd) {
 	case SIOCGIFCONF:
 		error = ifconf(cmd, data);
-		goto out_noref;
+		goto out_notbusy;
 	}
 
 	ifr = (struct ifreq *)data;
@@ -3022,7 +3149,7 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct thread *td)
 		if (error == 0)
 			error = if_vmove_reclaim(td, ifr->ifr_name,
 			    ifr->ifr_jid);
-		goto out_noref;
+		goto out_notbusy;
 #endif
 	case SIOCIFCREATE:
 	case SIOCIFCREATE2:
@@ -3031,7 +3158,7 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct thread *td)
 			error = if_clone_create(ifr->ifr_name,
 			    sizeof(ifr->ifr_name), cmd == SIOCIFCREATE2 ?
 			    ifr_data_get_ptr(ifr) : NULL);
-		goto out_noref;
+		goto out_notbusy;
 	case SIOCIFDESTROY:
 		error = priv_check(td, PRIV_NET_IFDESTROY);
 
@@ -3040,15 +3167,15 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct thread *td)
 			error = if_clone_destroy(ifr->ifr_name);
 			sx_xunlock(&ifnet_detach_sxlock);
 		}
-		goto out_noref;
+		goto out_notbusy;
 
 	case SIOCIFGCLONERS:
 		error = if_clone_list((struct if_clonereq *)data);
-		goto out_noref;
+		goto out_notbusy;
 
 	case SIOCGIFGMEMB:
 		error = if_getgroupmembers((struct ifgroupreq *)data);
-		goto out_noref;
+		goto out_notbusy;
 
 #if defined(INET) || defined(INET6)
 	case SIOCSVH:
@@ -3057,24 +3184,34 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct thread *td)
 			error = EPROTONOSUPPORT;
 		else
 			error = (*carp_ioctl_p)(ifr, cmd, td);
-		goto out_noref;
+		goto out_notbusy;
 #endif
 	}
 
-	ifp = ifunit_ref(ifr->ifr_name);
+	/*
+	 * Don't increment the refcount; we'll do administrative refcounting as
+	 * we want to ensure that we're no longer busy before
+	 * if_detach/if_free may proceed.
+	 */
+	ifp = ifunit(ifr->ifr_name);
 	if (ifp == NULL) {
 		error = ENXIO;
-		goto out_noref;
+		goto out_notbusy;
 	}
 
-	error = ifhwioctl(cmd, ifp, data, td);
+	if (!if_busy(ifp, 0)) {
+		error = ENXIO;
+		goto out_notbusy;
+	}
+
+	error = ifhwioctl_internal(cmd, ifp, data, td);
 	if (error != ENOIOCTL)
-		goto out_ref;
+		goto out_busy;
 
 	oif_flags = ifp->if_flags;
 	if (so->so_proto == NULL) {
 		error = EOPNOTSUPP;
-		goto out_ref;
+		goto out_busy;
 	}
 
 	/*
@@ -3094,9 +3231,9 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct thread *td)
 
 	if (!(oif_flags & IFF_UP) && (ifp->if_flags & IFF_UP))
 		if_up(ifp);
-out_ref:
-	if_rele(ifp);
-out_noref:
+out_busy:
+	if_unbusy(ifp);
+out_notbusy:
 	CURVNET_RESTORE();
 #ifdef COMPAT_FREEBSD32
 	if (error != 0)
