@@ -423,6 +423,9 @@ function config.processFile(name, silent)
 	if name:match(".lua$") then
 		local cfg_env = {}
 
+		-- Give local modules a chance to populate the config
+		-- environment.
+		hook.runAll("config.buildenv", cfg_env)
 		function cfg_env.getenv(k)
 			if cfg_env[k] ~= nil then
 				return cfg_env[k]
@@ -681,6 +684,7 @@ function config.loadelf()
 	return status
 end
 
+hook.registerType("config.buildenv")
 hook.registerType("config.loaded")
 hook.registerType("config.reloaded")
 hook.registerType("kernel.loaded")
