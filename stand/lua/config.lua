@@ -407,6 +407,23 @@ local function checkNextboot()
 	end
 end
 
+local function processEnv(k, v)
+	-- Perhaps we should split out the name portion of the expressions in
+	-- the pattern table, but for now this is OK.
+	for _, val in ipairs(pattern_table) do
+		if val.luaexempt then
+			goto next
+		end
+
+		local matched = k:match(assert(val.name))
+
+		if matched then
+			val.process(matched, v)
+		end
+		::next::
+	end
+end
+
 -- Module exports
 config.verbose = false
 
@@ -458,11 +475,16 @@ function config.processFile(name, silent)
 			end
 		end
 		local res, err = pcall(load(text, name, "t", cfg_env))
-		if not res then
+		if res then
+			for k, v in pairs(cfg_env) do
+				if type(v) ~= "function" then
+					processEnv(k, v)
+				end
+			end
+		else
 			print(err)
 		end
 
-		-- XXX TODO: Process
 		return res
 	else
 		return config.parse(text)
