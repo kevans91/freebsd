@@ -423,6 +423,12 @@ function config.processFile(name, silent)
 	if name:match(".lua$") then
 		local cfg_env = {}
 
+		function cfg_env.getenv(k)
+			if cfg_env[k] ~= nil then
+				return cfg_env[k]
+			end
+			return loader.getenv(k)
+		end
 		function cfg_env.setenv(k, v)
 			if type(k) == "table" then
 				if v ~= nil then
