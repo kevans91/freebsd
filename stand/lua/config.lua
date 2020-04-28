@@ -165,13 +165,15 @@ end
 --
 local pattern_table = {
 	{
+		luaexempt = true,
 		str = "(#.*)",
 		process = function(_, _)  end,
 		groups = 1,
 	},
 	--  module_load="value"
 	{
-		str = MODULEEXPR .. "_load%s*=%s*$VALUE",
+		name = MODULEEXPR .. "_load%s*",
+		val = "%s*$VALUE",
 		process = function(k, v)
 			if modules[k] == nil then
 				modules[k] = {}
@@ -181,49 +183,57 @@ local pattern_table = {
 	},
 	--  module_name="value"
 	{
-		str = MODULEEXPR .. "_name%s*=%s*$VALUE",
+		name = MODULEEXPR .. "_name%s*",
+		val = "%s*$VALUE",
 		process = function(k, v)
 			setKey(k, "name", v)
 		end,
 	},
 	--  module_type="value"
 	{
-		str = MODULEEXPR .. "_type%s*=%s*$VALUE",
+		name = MODULEEXPR .. "_type%s*",
+		val = "%s*$VALUE",
 		process = function(k, v)
 			setKey(k, "type", v)
 		end,
 	},
 	--  module_flags="value"
 	{
-		str = MODULEEXPR .. "_flags%s*=%s*$VALUE",
+		name = MODULEEXPR .. "_flags%s*",
+		val = "%s*$VALUE",
 		process = function(k, v)
 			setKey(k, "flags", v)
 		end,
 	},
 	--  module_before="value"
 	{
-		str = MODULEEXPR .. "_before%s*=%s*$VALUE",
+		name = MODULEEXPR .. "_before%s*",
+		val = "%s*$VALUE",
 		process = function(k, v)
 			setKey(k, "before", v)
 		end,
 	},
 	--  module_after="value"
 	{
-		str = MODULEEXPR .. "_after%s*=%s*$VALUE",
+		name = MODULEEXPR .. "_after%s*",
+		val = "%s*$VALUE",
 		process = function(k, v)
 			setKey(k, "after", v)
 		end,
 	},
 	--  module_error="value"
 	{
-		str = MODULEEXPR .. "_error%s*=%s*$VALUE",
+		name = MODULEEXPR .. "_error%s*",
+		val = "%s*$VALUE",
 		process = function(k, v)
 			setKey(k, "error", v)
 		end,
 	},
 	--  exec="command"
 	{
-		str = "exec%s*=%s*" .. QVALEXPR,
+		luaexempt = true,
+		name = "exec%s*",
+		val = "%s*" .. QVALEXPR,
 		process = function(k, _)
 			if cli_execute_unparsed(k) ~= 0 then
 				print(MSG_FAILEXEC:format(k))
@@ -233,7 +243,8 @@ local pattern_table = {
 	},
 	--  env_var="value"
 	{
-		str = "([%w%p]+)%s*=%s*$VALUE",
+		name = "([%w%p]+)%s*",
+		val = "%s*$VALUE",
 		process = function(k, v)
 			if setEnv(k, processEnvVar(v)) ~= 0 then
 				print(MSG_FAILSETENV:format(k, v))
@@ -242,7 +253,8 @@ local pattern_table = {
 	},
 	--  env_var=num
 	{
-		str = "([%w%p]+)%s*=%s*(-?%d+)",
+		name = "([%w%p]+)%s*",
+		val = "%s*(-?%d+)",
 		process = function(k, v)
 			if setEnv(k, processEnvVar(v)) ~= 0 then
 				print(MSG_FAILSETENV:format(k, tostring(v)))
@@ -465,6 +477,9 @@ function config.parse(text)
 	for line in text:gmatch("([^\n]+)") do
 		if line:match("^%s*$") == nil then
 			for _, val in ipairs(pattern_table) do
+				if val.str == nil then
+					val.str = val.name .. "=" .. val.val
+				end
 				local pattern = '^%s*' .. val.str .. '%s*(.*)';
 				local cgroups = val.groups or 2
 				local k, v, c = checkPattern(line, pattern)
