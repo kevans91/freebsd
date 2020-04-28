@@ -420,7 +420,32 @@ function config.processFile(name, silent)
 		return silent
 	end
 
-	return config.parse(text)
+	if name:match(".lua$") then
+		local cfg_env = {}
+
+		function cfg_env.setenv(k, v)
+			if type(k) == "table" then
+				if v ~= nil then
+					error(
+					    "setenv: illegal version, second arg not valid with a table")
+				end
+				for tk, tv in pairs(k) do
+					cfg_env[tk] = tv
+				end
+			else
+				cfg_env[k] = v
+			end
+		end
+		local res, err = pcall(load(text, name, "t", cfg_env))
+		if not res then
+			print(err)
+		end
+
+		-- XXX TODO: Process
+		return res
+	else
+		return config.parse(text)
+	end
 end
 
 -- silent runs will not return false if we fail to open the file
