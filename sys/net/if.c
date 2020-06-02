@@ -277,6 +277,7 @@ static void	if_attachdomain1(struct ifnet *);
 static int	ifconf(u_long, caddr_t);
 static void	if_input_default(struct ifnet *, struct mbuf *);
 static int	if_requestencap_default(struct ifnet *, struct if_encap_req *);
+#define	IFF_BUSY_FLAGS	(IFF_DETACHING | IFF_DYING | IFF_VMOVING)
 static bool	if_busy(struct ifnet *ifp, int setflags);
 static void	if_unbusy(struct ifnet *ifp);
 static void	if_busy_wait(struct ifnet *ifp);
@@ -294,6 +295,7 @@ static void	if_siocaddmulti(void *, int);
 static void	if_link_ifnet(struct ifnet *);
 static bool	if_unlink_ifnet(struct ifnet *, bool);
 #ifdef VIMAGE
+static int	if_vmove_busied(struct ifnet *, struct vnet *);
 static int	if_vmove(struct ifnet *, struct vnet *);
 #endif
 
@@ -504,12 +506,13 @@ vnet_if_return(const void *unused __unused)
 	pending = malloc(sizeof(struct ifnet *) * curvnet->vnet_ifcnt,
 	    M_IFNET, M_WAITOK | M_ZERO);
 
-	/* Return all inherited interfaces to their parent vnets. */
 	CK_STAILQ_FOREACH_SAFE(ifp, &V_ifnet, if_link, nifp) {
 		if (ifp->if_home_vnet != ifp->if_vnet) {
 			found = if_unlink_ifnet(ifp, true);
 			MPASS(found);
 
+			/* Shouldn't be able to observe in-motion/dying? */
+			MPASS((ifp->if_flags & IFF_BUSY_FLAGS) == 0);
 			pending[i++] = ifp;
 		}
 	}
@@ -1100,14 +1103,16 @@ if_detach_drain(struct ifnet *ifp)
 	/*
 	 * Set IFF_DETACHING here so that new ioctl entry is refused.  We will
 	 * then proceed to wait until the busy count drops, then proceed with
-	 * detaching.
+	 * detaching.  IFF_VMOVING is cleared here so that if_vmove_busied() can
+	 * detect when it shouldn't clear IFF_DETACHING.
 	 */
 	IFNET_WLOCK();
 	IF_BUSY_LOCK(ifp);
-	if ((ifp->if_flags & IFF_DETACHING) != 0) {
+	if ((ifp->if_flags & (IFF_DETACHING | IFF_VMOVING)) == IFF_DETACHING) {
 		/*
-		 * If we've already marked IFF_DETACHING, then we're done
-		 * here -- all drained and nothing can change that.
+		 * If we've already marked IFF_DETACHING without IFF_VMOVING,
+		 * then we're done here -- all drained and nothing can change
+		 * that.
 		 */
 		IF_BUSY_UNLOCK(ifp);
 		IFNET_WUNLOCK();
@@ -1115,6 +1120,7 @@ if_detach_drain(struct ifnet *ifp)
 		return;
 	}
 	ifp->if_flags |= IFF_DETACHING;
+	ifp->if_flags &= ~IFF_VMOVING;
 
 	/*
 	 * Unlock the ifnet, then we'll sleep on the busy lock.  Once we're
@@ -1173,16 +1179,13 @@ if_detach_internal(struct ifnet *ifp, bool vmove)
 
 	shutdown = VNET_IS_SHUTTING_DOWN(ifp->if_vnet);
 #endif
+	KASSERT((ifp->if_flags & IFF_DETACHING) != 0,
+	    ("%s: detach flag not set", __func__));
 	if (!vmove) {
-		/*
-		 * XXX IFF_DETACHING should be checked for vmove || !vmove, but
-		 * the former case can't be checked until we make vmove()
-		 * coordinate detach.
-		 */
-		KASSERT((ifp->if_flags & IFF_DETACHING) != 0,
-		    ("%s: detach flag not set", __func__));
 		KASSERT(blockcount_read(&ifp->if_busycount) == 0,
 		    ("%s: busy threads still present", __func__));
+		KASSERT((ifp->if_flags & IFF_VMOVING) == 0,
+		    ("%s: detach while ifnet changing vnets", __func__));
 		KASSERT((ifp->if_flags & IFF_DYING) != 0,
 		    ("%s: not marked dying", __func__));
 	}
@@ -1319,12 +1322,8 @@ finish_vnet_shutdown:
 }
 
 #ifdef VIMAGE
-/*
- * if_vmove() performs a limited version of if_detach() in current
- * vnet and if_attach()es the ifnet to the vnet specified as 2nd arg.
- */
 static int
-if_vmove(struct ifnet *ifp, struct vnet *new_vnet)
+if_vmove_busied(struct ifnet *ifp, struct vnet *new_vnet)
 {
 #ifdef DEV_BPF
 	u_int bif_dlt, bif_hdrlen;
@@ -1332,7 +1331,7 @@ if_vmove(struct ifnet *ifp, struct vnet *new_vnet)
 	int rc;
 
 #ifdef DEV_BPF
- 	/*
+	/*
 	 * if_detach_internal() will call the eventhandler to notify
 	 * interface departure.  That will detach if_bpf.  We need to
 	 * safe the dlt and hdrlen so we can re-attach it later.
@@ -1347,11 +1346,23 @@ if_vmove(struct ifnet *ifp, struct vnet *new_vnet)
 	 */
 	rc = if_detach_internal(ifp, true);
 	if (rc != 0)
-		return (rc);
+		goto out;
+
+	/*
+	 * We could defer clearing IFF_DETACHING until the end, but
+	 * IFF_VMOVING is sufficient for keeping the interface 'busy' until
+	 * death or ioctls are invoked, and this keeps if_flags looking somewhat
+	 * correct for what's happening right now- we've exited the detach phase
+	 * of if_vmove, and we're now attaching to the new vnet.
+	 */
+	IF_BUSY_LOCK(ifp);
+	if ((ifp->if_flags & IFF_VMOVING) != 0)
+		ifp->if_flags &= ~IFF_DETACHING;
+	IF_BUSY_UNLOCK(ifp);
 
 	/*
 	 * Perform interface-specific reassignment tasks, if provided by
-	 * the driver.
+	 * The driver.
 	 */
 	if (ifp->if_reassign != NULL)
 		ifp->if_reassign(ifp, new_vnet, NULL);
@@ -1368,7 +1379,43 @@ if_vmove(struct ifnet *ifp, struct vnet *new_vnet)
 #endif
 
 	CURVNET_RESTORE();
-	return (0);
+out:
+	/*
+	 * Either we failed or the interface is no longer visible in the current
+	 * vnet, so we can go ahead and drop IFF_DETACHED and IFF_VMOVING.  If
+	 * IFF_VMOVING is no longer set, then if_detach() came along and
+	 * solidifed the detaching.  We may have already cleared IFF_DETACHING
+	 * up above, but we're blocked from doing further vnet moves and
+	 * if_detach would have cleared IFF_VMOVING, so we can go ahead and
+	 * unconditionally clear it -- we'll need to clear it anyways if we're
+	 * in the error path.
+	 */
+	IF_BUSY_LOCK(ifp);
+	if ((ifp->if_flags & IFF_VMOVING) != 0)
+		ifp->if_flags &= ~(IFF_DETACHING | IFF_VMOVING);
+	IF_BUSY_UNLOCK(ifp);
+	return (rc);
+}
+
+/*
+ * if_vmove() performs a limited version of if_detach() in current
+ * vnet and if_attach()es the ifnet to the vnet specified as 2nd arg.
+ *
+ * The caller may indicate that it's already busied thet interface prior
+ * to entry.  If it has done so, assume it's ok to proceed with the move.
+ * The caller will handle unbusy.
+ */
+static int
+if_vmove(struct ifnet *ifp, struct vnet *new_vnet)
+{
+	int error;
+
+	if (!if_busy(ifp, IFF_DETACHING | IFF_VMOVING))
+		return (EBUSY);
+
+	error = if_vmove_busied(ifp, new_vnet);
+	if_unbusy(ifp);
+	return (error);
 }
 
 /*
@@ -2359,8 +2406,6 @@ ifunit(const char *name)
 	NET_EPOCH_EXIT(et);
 	return (ifp);
 }
-
-#define	IFF_BUSY_FLAGS	(IFF_DETACHING | IFF_DYING)
 
 /*
  * Busy the interface, if it's not already detaching/dying.  The caller may
