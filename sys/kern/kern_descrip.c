@@ -150,6 +150,7 @@ static struct pwd *pwd_alloc(void);
 #define NDSLOT(x)	((x) / NDENTRIES)
 #define NDBIT(x)	((NDSLOTTYPE)1 << ((x) % NDENTRIES))
 #define	NDSLOTS(x)	(((x) + NDENTRIES - 1) / NDENTRIES)
+#define NFD2MAPSIZE(x)	(NDSLOTS(x) * NDSLOTSIZE)
 
 #define	FILEDESC_FOREACH_FDE(fdp, _iterator, _fde)				\
 	struct filedesc *_fdp = (fdp);						\
@@ -1958,7 +1959,7 @@ fdgrowtable(struct filedesc *fdp, int nfd)
 	 * entries than the table can hold.
 	 */
 	if (NDSLOTS(nnfiles) > NDSLOTS(onfiles)) {
-		nmap = malloc(NDSLOTS(nnfiles) * NDSLOTSIZE, M_FILEDESC,
+		nmap = malloc(NFD2MAPSIZE(nnfiles), M_FILEDESC,
 		    M_ZERO | M_WAITOK);
 		/* copy over the old data and update the pointer */
 		memcpy(nmap, omap, NDSLOTS(onfiles) * sizeof(*omap));
@@ -4421,6 +4422,55 @@ sysctl_kern_proc_nfds(SYSCTL_HANDLER_ARGS)
 static SYSCTL_NODE(_kern_proc, KERN_PROC_NFDS, nfds,
     CTLFLAG_RD|CTLFLAG_CAPRD|CTLFLAG_MPSAFE, sysctl_kern_proc_nfds,
     "Number of open file descriptors");
+
+static int
+sysctl_kern_proc_fdmap(SYSCTL_HANDLER_ARGS)
+{
+	struct filedesc *fdp;
+	NDSLOTTYPE lmap[NDSLOTS(NDFILE) * 16];
+	NDSLOTTYPE *map;
+	size_t bsize, csize;
+	int error;
+
+	CTASSERT(sizeof(lmap) <= 128);
+
+	if (*(int *)arg1 != 0)
+		return (EINVAL);
+
+	fdp = curproc->p_fd;
+
+	if (req->oldptr == NULL)
+		return (SYSCTL_OUT(req, NULL, NFD2MAPSIZE(fdp->fd_nfiles)));
+
+	if (curproc->p_numthreads == 1 && fdp->fd_refcnt == 1)
+		/* No need to lock anything as only we can modify the map. */
+		return (SYSCTL_OUT(req, fdp->fd_map, NFD2MAPSIZE(fdp->fd_nfiles)));
+
+	/* Potential other threads modifying the map. */
+	map = lmap;
+	bsize = sizeof(lmap);
+	for (;;) {
+		FILEDESC_SLOCK(fdp);
+		csize = NFD2MAPSIZE(fdp->fd_nfiles);
+		if (bsize >= csize)
+			break;
+		FILEDESC_SUNLOCK(fdp);
+		if (map != lmap)
+			free(map, M_TEMP);
+		bsize = csize;
+		map = malloc(bsize, M_TEMP, M_WAITOK);
+	}
+	memcpy(map, fdp->fd_map, csize);
+	FILEDESC_SUNLOCK(fdp);
+	error = SYSCTL_OUT(req, map, csize);
+	if (map != lmap)
+		free(map, M_TEMP);
+	return (error);
+}
+
+static SYSCTL_NODE(_kern_proc, KERN_PROC_FDMAP, fdmap,
+    CTLFLAG_RD|CTLFLAG_CAPRD|CTLFLAG_MPSAFE, sysctl_kern_proc_fdmap,
+    "File descriptor map");
 
 /*
  * Get file structures globally.
