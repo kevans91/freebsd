@@ -8,6 +8,8 @@ LIB=		cxgb4
 SHLIB_MAJOR=	1
 MK_PROFILE=	no
 
+WARNS?=		1
+
 SRCS= \
 cq.c \
 dev.c \

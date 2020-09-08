@@ -11,6 +11,8 @@ VERSION_MAP=	${_spath}/libibverbs.map
 
 CFLAGS+= -I${_spath}
 
+WARNS?=	1
+
 SRCS= \
 cmd.c \
 compat-1_0.c \

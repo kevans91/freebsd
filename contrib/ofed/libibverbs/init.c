@@ -255,9 +255,9 @@ static void check_memlock_limit(void)
 	}
 
 	if (rlim.rlim_cur <= 32768)
-		fprintf(stderr, PFX "Warning: RLIMIT_MEMLOCK is %lu bytes.\n"
+		fprintf(stderr, PFX "Warning: RLIMIT_MEMLOCK is %ju bytes.\n"
 			"    This will severely limit memory registrations.\n",
-			rlim.rlim_cur);
+			(uintmax_t)rlim.rlim_cur);
 }
 
 static void add_device(struct ibv_device *dev,
