@@ -3,6 +3,8 @@
 
 ATF_TESTS_C+=		clearenv_test
 ATF_TESTS_C+=		dynthr_test
+ATF_TESTS_C+=		fdwalk_test
+LIBADD.fdwalk_test+=	pthread
 ATF_TESTS_C+=		heapsort_test
 ATF_TESTS_C+=		mergesort_test
 ATF_TESTS_C+=		qsort_test
