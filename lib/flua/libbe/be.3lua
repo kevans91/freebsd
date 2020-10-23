@@ -1,0 +1,230 @@
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+.\"
+.\" Copyright (c) 2020 Kyle Evans <kevans@FreeBSD.org>
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.\" $FreeBSD$
+.\"
+.Dd October 12, 2020
+.Dt BE 3lua
+.Os
+.Sh NAME
+.Nd Lua binding to
+.Xr libbe 3
+.Sh SYNOPSIS
+.Bd -literal
+local be = require('be')
+.Ed
+.Pp
+.Bl -tag -width XXXX -compact
+.It Dv ok, err = be.switch(root)
+.It Dv ok, err = be.activate(beName[, temporary])
+.It Dv name, path = be.active()
+.It Dv ok, err = be.create(beName[, origin])
+.It Dv ok, err = be.deactivate(beName[, temporary])
+.It Dv ok, err = be.destroy(beName[, destroy_flags])
+.It Dv iter, be_obj = be.list([params])
+.It Dv name, path = be.nextboot()
+.It Dv ok, err = be.rename(beName, newName)
+.It Dv root = be.root()
+.It Dv ok, err = be.snapshot(beName, snapName)
+.It Dv be.system_root
+.It Dv be.DESTROY_FORCE
+.It Dv be.DESTROY_ORIGIN
+.It Dv be.DESTROY_AUTOORIGIN
+.El
+.Sh DESCRIPTION
+The
+.Nm be
+module is a binding to the
+.Xr libbe 3
+library.
+.Bl -tag -width XXXX
+.It Dv ok, err = be.switch(root)
+Switch to a different BE root.
+This will typically be used to switch to operating on a zpool other than the
+currently booted BE's zpool.
+.It Dv name, path = be.active()
+Get the name and dataset path to the active (currently booted) boot environment.
+.It Dv name, path = be.nextboot()
+Get the name and path to the next active boot environment.
+It will become active on reboot.
+.It Dv ok, err = be.create(beName[, origin])
+Create a new boot environment with the given name.
+If
+.Dv origin
+is specified, it will be used as the basis for the new boot environment.
+.Dv origin
+may either name a boot environment or a snapshot, e.g., beName@snapName.
+If
+.Dv origin
+is a boot environment, a snapshot of that boot environment will be auto-created.
+.It Dv ok, err = be.snapshot(beName, snapName)
+Create a new snapshot of the boot environment with the given snapName.
+.It Dv ok, err = be.rename(beName, newName)
+Rename a boot environment from beName to newName.
+.It Dv ok, err = be.activate(beName[, temporary])
+Activate a boot environment.
+If
+.Dv temporary
+is true, then the boot environment will only be activated for the next boot.
+See
+.Xr zfsbootcfg 8
+for more details.
+.It Dv ok, err = be.deactivate(beName[, temporary])
+Deactivate a boot environment.
+If
+.Dv temporary
+is true, then the boot environment will only be deactivated if it's been
+previously specified for temporary acitvation.
+.It Dv ok, err = be.destroy(beName[, destroy_flags])
+Destroy the given boot environment.
+See below for descriptions of the optional
+.Dv destroy_flags
+that can be combined with bitwise-or.
+.It Dv iter, be_obj = be.list([params])
+Returns an iterator over existing BEs.
+.Dv params ,
+if specified, is a lit of parameters to populate for each boot environment.
+.Dv name will always be returned.
+See the
+.Xr be_get_bootenv_props 3
+documentation for valid parameters to query and their description.
+.El
+.Pp
+.Dv be.system_root
+points to the active boot environment's parent dataset.
+This value does not change after calling
+.Dv be.switch(root) .
+.Pp
+Valid
+.Dv destroy_flags :
+.Bl -tag -width XXXX
+.It Dv be.DESTROY_FORCE
+Force destruction of a mounted boot environment.
+.It Dv be.DESTROY_ORIGIN
+Destroy the origin snapshot.
+.It Dv be.DESTROY_AUTOORIGIN
+Destroy the origin snapshot, but only if the name of the snapshot matches the
+convention that
+.Xr libbe 3
+uses for automatically-created snapshots.
+.El
+
+
+
+.Sh RETURN VALUES
+The
+.Fn getid
+and
+.Fn setparams
+functions return a jail identifier integer on success, or
+.Dv nil
+and an error message string if an error occurred.
+.Pp
+The
+.Fn getname
+function returns a jail name string on success, or
+.Dv nil
+and an error message string if an error occurred.
+.Pp
+The
+.Fn allparams
+function returns a list of parameter name strings on success, or
+.Dv nil
+and an error message string if an error occurred.
+.Pp
+The
+.Fn getparams
+function returns a jail identifier integer and a table of jail parameters
+with parameter name strings as keys and strings for values on success, or
+.Dv nil
+and an error message string if an error occurred.
+.Sh EXAMPLES
+Set the hostname of jail
+.Dq foo
+to
+.Dq foo.bar :
+.Bd -literal -offset indent
+local jail = require('jail')
+
+jid, err = jail.setparams("foo", {["host.hostname"]="foo.bar"},
+    jail.UPDATE)
+if not jid then
+    error(err)
+end
+.Ed
+.Pp
+Retrieve the hostname of jail
+.Dq foo :
+.Bd -literal -offset indent
+local jail = require('jail')
+
+jid, res = jail.getparams("foo", {"host.hostname"})
+if not jid then
+    error(res)
+end
+print(res["host.hostname"])
+.Ed
+.Pp
+Iterate over jails on the system:
+.Bd -literal -offset indent
+local jail = require('jail')
+
+-- Recommended: just loop over it
+for jparams in jail.list() do
+	print(jparams["jid"] .. " = " .. jparams["name"])
+end
+
+-- Request path and hostname, too
+for jparams in jail.list({"path", "host.hostname"}) do
+	print(jparams["host.hostname"] .. " mounted at " .. jparams["path"])
+end
+
+-- Raw iteration protocol
+local iter, jail_obj = jail.list()
+
+-- Request the first params
+local jparams = jail_obj:next()
+while jparams do
+	print(jparams["jid"] .. " = " .. jparams["name"])
+	-- Subsequent calls may return nil
+	jparams = jail_obj:next()
+end
+.Ed
+.Sh SEE ALSO
+.Xr jail 2 ,
+.Xr jail 3 ,
+.Xr jail 8
+.Sh HISTORY
+The
+.Nm jail
+Lua module for flua first appeared in
+.Fx 13.0 .
+.Sh AUTHORS
+.An Ryan Moeller ,
+with inspiration from
+.Nx
+gpio(3lua), by
+.An Mark Balmer .

@@ -1,3 +1,4 @@
+SUBDIR+=	libbe
 SUBDIR+=	libhash
 SUBDIR+=	libjail
 
