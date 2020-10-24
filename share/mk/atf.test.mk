@@ -20,6 +20,7 @@
 # manpage.
 ATF_TESTS_C?=
 ATF_TESTS_CXX?=
+ATF_TESTS_LUA?=
 ATF_TESTS_SH?=
 ATF_TESTS_KSH93?=
 
@@ -57,6 +58,31 @@ TEST_INTERFACE.${_T}= atf
 .endfor
 # Silence warnings about usage of deprecated std::auto_ptr
 CXXWARNFLAGS+=	-Wno-deprecated-declarations
+.endif
+
+.if !empty(ATF_TESTS_LUA)
+SCRIPTS+= ${ATF_TESTS_LUA}
+_TESTS+= ${ATF_TESTS_LUA}
+.for _T in ${ATF_TESTS_LUA}
+SCRIPTSDIR_${_T}= ${TESTSDIR}
+TEST_INTERFACE.${_T}= atf
+CLEANFILES+= ${_T} ${_T}.tmp
+# TODO(jmmv): It seems to me that this SED and SRC functionality should
+# exist in bsd.prog.mk along the support for SCRIPTS.  Move it there if
+# this proves to be useful within the tests.
+ATF_TESTS_LUA_SED_${_T}?= # empty
+ATF_TESTS_LUA_SRC_${_T}?= ${_T}.lua
+${_T}: ${ATF_TESTS_LUA_SRC_${_T}}
+	echo '#! /usr/libexec/atf-lua' > ${.TARGET}.tmp
+.if empty(ATF_TESTS_LUA_SED_${_T})
+	cat ${.ALLSRC:N*Makefile*} >>${.TARGET}.tmp
+.else
+	cat ${.ALLSRC:N*Makefile*} \
+	    | sed ${ATF_TESTS_LUA_SED_${_T}} >>${.TARGET}.tmp
+.endif
+	chmod +x ${.TARGET}.tmp
+	mv ${.TARGET}.tmp ${.TARGET}
+.endfor
 .endif
 
 .if !empty(ATF_TESTS_SH)
