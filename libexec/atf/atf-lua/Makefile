@@ -1,5 +1,6 @@
 # $FreeBSD$
 
+.include <src.opts.mk>
 .include <bsd.init.mk>
 
 ATF=		${SRCTOP}/contrib/atf
@@ -23,6 +24,9 @@ CFLAGS+=	-I${SRCTOP}/contrib/lua/src
 # Loadable modules
 LDFLAGS+=	-Wl,-E
 LIBADD=		lua
+
+HAS_TESTS=
+SUBDIR.${MK_TESTS}+= tests
 
 .include "../../../lib/atf/common.mk"
 .include <bsd.prog.mk>

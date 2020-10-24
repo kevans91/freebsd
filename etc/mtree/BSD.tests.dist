@@ -419,6 +419,8 @@
         atf
             atf-check
             ..
+            atf-lua
+            ..
             atf-sh
             ..
         ..
