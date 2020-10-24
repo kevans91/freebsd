@@ -319,6 +319,10 @@
             static
             ..
         ..
+            flua
+                libjail
+                ..
+            ..
         googletest
             gmock
             ..
