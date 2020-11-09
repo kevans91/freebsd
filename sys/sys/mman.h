@@ -206,6 +206,7 @@ struct shm_largepage_conf {
 #define	MFD_ALLOW_SEALING		0x00000002
 
 #define	MFD_HUGETLB			0x00000004
+#define	MFD_CLOFORK			0x00000008
 
 #define	MFD_HUGE_MASK			0xFC000000
 #define	MFD_HUGE_SHIFT			26

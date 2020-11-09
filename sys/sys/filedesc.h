@@ -121,6 +121,7 @@ struct filedesc {
 	struct	kqlist fd_kqlist;	/* list of kqueues on this filedesc */
 	int	fd_holdleaderscount;	/* block fdfree() for shared close() */
 	int	fd_holdleaderswakeup;	/* fdfree() needs wakeup */
+	int	fd_flags;		/* FDESC_* flags */
 };
 
 /*
@@ -148,6 +149,9 @@ struct filedesc_to_leader {
  * Per-process open flags.
  */
 #define	UF_EXCLOSE	0x01		/* auto-close on exec */
+#define	UF_CLOFORK	0x02		/* auto-close on fork */
+
+#define	FDESC_CLOFORK	0x00000001	/* Has CLOFORK descriptors. */
 
 #ifdef _KERNEL
 
@@ -220,6 +224,7 @@ enum {
 
 /* Flags for kern_dup(). */
 #define	FDDUP_FLAG_CLOEXEC	0x1	/* Atomically set UF_EXCLOSE. */
+#define	FDDUP_FLAG_CLOFORK	0x2	/* Atomically set UF_CLOFORK. */
 
 /* For backward compatibility. */
 #define	falloc(td, resultfp, resultfd, flags) \
@@ -260,6 +265,7 @@ int	fdalloc(struct thread *td, int minfd, int *result);
 int	fdallocn(struct thread *td, int minfd, int *fds, int n);
 int	fdcheckstd(struct thread *td);
 void	fdclose(struct thread *td, struct file *fp, int idx);
+void	fdclosefork(struct thread *td);
 void	fdcloseexec(struct thread *td);
 void	fdsetugidsafety(struct thread *td);
 struct	filedesc *fdcopy(struct filedesc *fdp);

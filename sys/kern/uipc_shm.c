@@ -1179,7 +1179,8 @@ kern_shm_open2(struct thread *td, const char *userpath, int flags, mode_t mode,
 	if ((flags & O_ACCMODE) != O_RDONLY && (flags & O_ACCMODE) != O_RDWR)
 		return (EINVAL);
 
-	if ((flags & ~(O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_CLOEXEC)) != 0)
+	if ((flags & ~(O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_CLOEXEC |
+	    O_CLOFORK)) != 0)
 		return (EINVAL);
 
 	largepage = (shmflags & SHM_LARGEPAGE) != 0;
@@ -1227,9 +1228,10 @@ kern_shm_open2(struct thread *td, const char *userpath, int flags, mode_t mode,
 	 * by POSIX.  We allow it to be unset here so that an in-kernel
 	 * interface may be written as a thin layer around shm, optionally not
 	 * setting CLOEXEC.  For shm_open(2), O_CLOEXEC is set unconditionally
-	 * in sys_shm_open() to keep this implementation compliant.
+	 * in libc to keep this implementation compliant.
 	 */
-	error = falloc_caps(td, &fp, &fd, flags & O_CLOEXEC, fcaps);
+	error = falloc_caps(td, &fp, &fd, flags & (O_CLOEXEC | O_CLOFORK),
+	    fcaps);
 	if (error) {
 		free(path, M_SHMFD);
 		return (error);

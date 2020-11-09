@@ -65,8 +65,8 @@ memfd_create(const char *name, unsigned int flags)
 		errno = EINVAL;
 		return (-1);
 	}
-	if ((flags & ~(MFD_CLOEXEC | MFD_ALLOW_SEALING | MFD_HUGETLB |
-	    MFD_HUGE_MASK)) != 0) {
+	if ((flags & ~(MFD_CLOEXEC | MFD_CLOFORK | MFD_ALLOW_SEALING |
+	    MFD_HUGETLB | MFD_HUGE_MASK)) != 0) {
 		errno = EINVAL;
 		return (-1);
 	}
@@ -82,6 +82,8 @@ memfd_create(const char *name, unsigned int flags)
 	shmflags = 0;
 	if ((flags & MFD_CLOEXEC) != 0)
 		oflags |= O_CLOEXEC;
+	if ((flags & MFD_CLOFORK) != 0)
+		oflags |= O_CLOFORK;
 	if ((flags & MFD_ALLOW_SEALING) != 0)
 		shmflags |= SHM_ALLOW_SEALING;
 	if ((flags & MFD_HUGETLB) != 0)

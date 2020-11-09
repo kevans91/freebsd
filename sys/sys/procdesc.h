@@ -131,7 +131,8 @@ __END_DECLS
  */
 #define	PD_DAEMON	0x00000001	/* Don't exit when procdesc closes. */
 #define	PD_CLOEXEC	0x00000002	/* Close file descriptor on exec. */
+#define	PD_CLOFORK	0x00000004	/* Close file descriptor on fork. */
 
-#define	PD_ALLOWED_AT_FORK	(PD_DAEMON | PD_CLOEXEC)
+#define	PD_ALLOWED_AT_FORK	(PD_DAEMON | PD_CLOEXEC | PD_CLOFORK)
 
 #endif /* !_SYS_PROCDESC_H_ */

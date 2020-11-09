@@ -238,7 +238,9 @@ procdesc_falloc(struct thread *td, struct file **resultfp, int *resultfd,
 
 	fflags = 0;
 	if (flags & PD_CLOEXEC)
-		fflags = O_CLOEXEC;
+		fflags |= O_CLOEXEC;
+	if (flags & PD_CLOFORK)
+		fflags |= O_CLOFORK;
 
 	return (falloc_caps(td, resultfp, resultfd, fflags, fcaps));
 }

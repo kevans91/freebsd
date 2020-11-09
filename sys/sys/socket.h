@@ -110,6 +110,7 @@ typedef	__uintptr_t	uintptr_t;
  */
 #define	SOCK_CLOEXEC	0x10000000
 #define	SOCK_NONBLOCK	0x20000000
+#define	SOCK_CLOFORK	0x40000000
 #ifdef _KERNEL
 /*
  * Flags for accept1(), kern_accept4() and solisten_dequeue, in addition
@@ -472,6 +473,10 @@ struct msghdr {
 #ifdef _KERNEL
 #define	MSG_MORETOCOME	 0x00100000	/* additional data pending */
 #define	MSG_TLSAPPDATA	 0x00200000	/* do not soreceive() alert rec. (TLS) */
+#endif
+#if __BSD_VISIBLE
+/* XXX Defined by a future version of POSIX. */
+#define	MSG_CMSG_CLOFORK 0x00400000	/* make received fds close-on-fork */
 #endif
 
 /*

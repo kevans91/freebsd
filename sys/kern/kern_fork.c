@@ -350,6 +350,7 @@ fork_norfproc(struct thread *td, int flags)
 	if ((flags & RFFDG) != 0) {
 		fdunshare(td);
 		pdunshare(td);
+		fdclosefork(td);
 	}
 
 fail:
@@ -533,6 +534,14 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
 	p2->p_fd = fd;
 	p2->p_fdtol = fdtol;
 	p2->p_pd = pd;
+
+	if ((fr->fr_flags & RFFDG) != 0) {
+		/*
+		 * If we've made our own copy of the descriptor table, close all
+		 * CLOFORK.
+		 */
+		fdclosefork(td2);
+	}
 
 	if (p1->p_flag2 & P2_INHERIT_PROTECTED) {
 		p2->p_flag |= P_PROTECTED;

@@ -2421,7 +2421,7 @@ unp_externalize(struct mbuf *control, struct mbuf **controlp, int flags)
 	struct filedescent **fdep;
 	void *data;
 	socklen_t clen = control->m_len, datalen;
-	int error, newfds;
+	int error, newfds, newflags;
 	u_int newlen;
 
 	UNP_LINK_UNLOCK_ASSERT();
@@ -2467,10 +2467,14 @@ unp_externalize(struct mbuf *control, struct mbuf **controlp, int flags)
 				*controlp = NULL;
 				goto next;
 			}
+			newflags = 0;
+			if ((flags & MSG_CMSG_CLOEXEC) != 0)
+				newflags |= O_CLOEXEC;
+			if ((flags & MSG_CMSG_CLOFORK) != 0)
+				newflags |= O_CLOFORK;
 			for (i = 0; i < newfds; i++, fdp++) {
 				_finstall(fdesc, fdep[i]->fde_file, *fdp,
-				    (flags & MSG_CMSG_CLOEXEC) != 0 ? O_CLOEXEC : 0,
-				    &fdep[i]->fde_caps);
+				    newflags, &fdep[i]->fde_caps);
 				unp_externalize_fp(fdep[i]->fde_file);
 			}
 

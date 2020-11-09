@@ -150,6 +150,10 @@ kern_socket(struct thread *td, int domain, int type, int protocol)
 		type &= ~SOCK_CLOEXEC;
 		oflag |= O_CLOEXEC;
 	}
+	if ((type & SOCK_CLOFORK) != 0) {
+		type &= ~SOCK_CLOFORK;
+		oflag |= O_CLOFORK;
+	}
 	if ((type & SOCK_NONBLOCK) != 0) {
 		type &= ~SOCK_NONBLOCK;
 		fflag |= FNONBLOCK;
@@ -332,7 +336,7 @@ kern_accept4(struct thread *td, int s, struct sockaddr *sa, int flags,
 	struct filecaps fcaps;
 	u_int fflag;
 	pid_t pgid;
-	int error, fd, tmp;
+	int error, fallocflags, fd, tmp;
 
 	AUDIT_ARG_FD(s);
 	error = getsock_cap(td, s, &cap_accept_rights,
@@ -350,8 +354,12 @@ kern_accept4(struct thread *td, int s, struct sockaddr *sa, int flags,
 	if (error != 0)
 		goto done;
 #endif
-	error = falloc_caps(td, &nfp, &fd,
-	    (flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0, &fcaps);
+	fallocflags = 0;
+	if ((flags & SOCK_CLOEXEC) != 0)
+		fallocflags |= O_CLOEXEC;
+	if ((flags & SOCK_CLOFORK) != 0)
+		fallocflags |= O_CLOFORK;
+	error = falloc_caps(td, &nfp, &fd, fallocflags, &fcaps);
 	if (error != 0)
 		goto done;
 	SOCK_LOCK(head);
@@ -555,6 +563,10 @@ kern_socketpair(struct thread *td, int domain, int type, int protocol,
 	if ((type & SOCK_CLOEXEC) != 0) {
 		type &= ~SOCK_CLOEXEC;
 		oflag |= O_CLOEXEC;
+	}
+	if ((type & SOCK_CLOFORK) != 0) {
+		type &= ~SOCK_CLOFORK;
+		oflag |= O_CLOFORK;
 	}
 	if ((type & SOCK_NONBLOCK) != 0) {
 		type &= ~SOCK_NONBLOCK;

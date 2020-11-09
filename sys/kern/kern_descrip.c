@@ -491,7 +491,7 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 	struct vnode *vp;
 	struct mount *mp;
 	struct kinfo_file *kif;
-	int error, flg, kif_sz, seals, tmp, got_set, got_cleared;
+	int error, flg, flags, kif_sz, seals, tmp, got_set, got_cleared;
 	uint64_t bsize;
 	off_t foffset;
 
@@ -513,6 +513,11 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 		error = kern_dup(td, FDDUP_FCNTL, FDDUP_FLAG_CLOEXEC, fd, tmp);
 		break;
 
+	case F_DUPFD_CLOFORK:
+		tmp = arg;
+		error = kern_dup(td, FDDUP_FCNTL, FDDUP_FLAG_CLOFORK, fd, tmp);
+		break;
+
 	case F_DUP2FD:
 		tmp = arg;
 		error = kern_dup(td, FDDUP_FIXED, 0, fd, tmp);
@@ -523,13 +528,22 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 		error = kern_dup(td, FDDUP_FIXED, FDDUP_FLAG_CLOEXEC, fd, tmp);
 		break;
 
+	case F_DUP2FD_CLOFORK:
+		tmp = arg;
+		error = kern_dup(td, FDDUP_FIXED, FDDUP_FLAG_CLOFORK, fd, tmp);
+		break;
+
 	case F_GETFD:
 		error = EBADF;
 		FILEDESC_SLOCK(fdp);
 		fde = fdeget_noref(fdp, fd);
 		if (fde != NULL) {
-			td->td_retval[0] =
-			    (fde->fde_flags & UF_EXCLOSE) ? FD_CLOEXEC : 0;
+			flags = 0;
+			if (fde->fde_flags & UF_EXCLOSE)
+				flags |= FD_CLOEXEC;
+			if (fde->fde_flags & UF_CLOFORK)
+				flags |= FD_CLOFORK;
+			td->td_retval[0] = flags;
 			error = 0;
 		}
 		FILEDESC_SUNLOCK(fdp);
@@ -540,8 +554,14 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 		FILEDESC_XLOCK(fdp);
 		fde = fdeget_noref(fdp, fd);
 		if (fde != NULL) {
-			fde->fde_flags = (fde->fde_flags & ~UF_EXCLOSE) |
-			    (arg & FD_CLOEXEC ? UF_EXCLOSE : 0);
+			flags = fde->fde_flags & ~(UF_EXCLOSE | UF_CLOFORK);
+			if ((arg & FD_CLOEXEC) != 0)
+				flags |= UF_EXCLOSE;
+			if ((arg & FD_CLOFORK) != 0) {
+				flags |= UF_CLOFORK;
+				fdp->fd_flags |= FDESC_CLOFORK;
+			}
+			fde->fde_flags = flags;
 			error = 0;
 		}
 		FILEDESC_XUNLOCK(fdp);
@@ -941,7 +961,7 @@ kern_dup(struct thread *td, u_int mode, int flags, int old, int new)
 	fdp = p->p_fd;
 	oioctls = NULL;
 
-	MPASS((flags & ~(FDDUP_FLAG_CLOEXEC)) == 0);
+	MPASS((flags & ~(FDDUP_FLAG_CLOEXEC | FDDUP_FLAG_CLOFORK)) == 0);
 	MPASS(mode < FDDUP_LASTMODE);
 
 	AUDIT_ARG_FD(old);
@@ -968,6 +988,10 @@ kern_dup(struct thread *td, u_int mode, int flags, int old, int new)
 		td->td_retval[0] = new;
 		if (flags & FDDUP_FLAG_CLOEXEC)
 			fdp->fd_ofiles[new].fde_flags |= UF_EXCLOSE;
+		if (flags & FDDUP_FLAG_CLOFORK) {
+			fdp->fd_ofiles[new].fde_flags |= UF_CLOFORK;
+			fdp->fd_flags |= FDESC_CLOFORK;
+		}
 		error = 0;
 		goto unlock;
 	}
@@ -1042,10 +1066,13 @@ kern_dup(struct thread *td, u_int mode, int flags, int old, int new)
 	fde_copy(oldfde, newfde);
 	filecaps_copy_finish(&oldfde->fde_caps, &newfde->fde_caps,
 	    nioctls);
+	newfde->fde_flags = oldfde->fde_flags & ~(UF_EXCLOSE | UF_CLOFORK);
 	if ((flags & FDDUP_FLAG_CLOEXEC) != 0)
-		newfde->fde_flags = oldfde->fde_flags | UF_EXCLOSE;
-	else
-		newfde->fde_flags = oldfde->fde_flags & ~UF_EXCLOSE;
+		newfde->fde_flags |= UF_EXCLOSE;
+	if ((flags & FDDUP_FLAG_CLOFORK) != 0) {
+		newfde->fde_flags |= UF_CLOFORK;
+		fdp->fd_flags |= FDESC_CLOFORK;
+	}
 #ifdef CAPABILITIES
 	seqc_write_end(&newfde->fde_seqc);
 #endif
@@ -2164,7 +2191,13 @@ _finstall(struct filedesc *fdp, struct file *fp, int fd, int flags,
 	seqc_write_begin(&fde->fde_seqc);
 #endif
 	fde->fde_file = fp;
-	fde->fde_flags = (flags & O_CLOEXEC) != 0 ? UF_EXCLOSE : 0;
+	fde->fde_flags = 0;
+	if ((flags & O_CLOEXEC) != 0)
+		fde->fde_flags |= UF_EXCLOSE;
+	if ((flags & O_CLOFORK) != 0) {
+		fde->fde_flags |= UF_CLOFORK;
+		fdp->fd_flags |= FDESC_CLOFORK;
+	}
 	if (fcaps != NULL)
 		filecaps_move(fcaps, &fde->fde_caps);
 	else
@@ -2435,6 +2468,7 @@ fdcopy(struct filedesc *fdp)
 		fdused_init(newfdp, i);
 	}
 	MPASS(newfdp->fd_freefile != -1);
+	newfdp->fd_flags = fdp->fd_flags;
 	FILEDESC_SUNLOCK(fdp);
 	return (newfdp);
 }
@@ -2697,6 +2731,35 @@ fdclose(struct thread *td, struct file *fp, int idx)
 		fdrop(fp, td);
 	} else
 		FILEDESC_XUNLOCK(fdp);
+}
+
+/*
+ * Close any files on fork?
+ */
+void
+fdclosefork(struct thread *td)
+{
+	struct filedesc *fdp;
+	struct filedescent *fde;
+	struct file *fp;
+	int i, lastfile;
+
+	fdp = td->td_proc->p_fd;
+	KASSERT(fdp->fd_refcnt == 1, ("the fdtable should not be shared"));
+	if ((fdp->fd_flags & FDESC_CLOFORK) == 0)
+		return;
+	lastfile = fdlastfile_single(fdp);
+	for (i = 0; i <= lastfile; i++) {
+		fde = &fdp->fd_ofiles[i];
+		fp = fde->fde_file;
+		if (fp != NULL &&
+		    __predict_false((fde->fde_flags & UF_CLOFORK) != 0)) {
+			FILEDESC_XLOCK(fdp);
+			fdfree(fdp, i);
+			(void) closefp(fdp, i, fp, td, false, false);
+			FILEDESC_UNLOCK_ASSERT(fdp);
+		}
+	}
 }
 
 /*

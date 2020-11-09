@@ -142,6 +142,11 @@ typedef	__pid_t		pid_t;
 #define	O_EMPTY_PATH	0x02000000
 #endif
 
+#if __BSD_VISIBLE
+/* Defined in a future version of POSIX. */
+#define	O_CLOFORK	0x02000000
+#endif
+
 /*
  * XXX missing O_RSYNC.
  */
@@ -268,7 +273,16 @@ typedef	__pid_t		pid_t;
 #define	F_GET_SEALS	20
 #define	F_ISUNIONSTACK	21		/* Kludge for libc, don't use it. */
 #define	F_KINFO		22		/* Return kinfo_file for this fd */
+#endif
 
+#if __BSD_VISIBLE
+/* XXX Defined in a future version of POSIX. */
+#define	F_DUPFD_CLOFORK	23
+/* But this one isn't. */
+#define	F_DUP2FD_CLOFORK 24
+#endif
+
+#if __BSD_VISIBLE
 /* Seals (F_ADD_SEALS, F_GET_SEALS). */
 #define	F_SEAL_SEAL	0x0001		/* Prevent adding sealings */
 #define	F_SEAL_SHRINK	0x0002		/* May not shrink */
@@ -278,6 +292,7 @@ typedef	__pid_t		pid_t;
 
 /* file descriptor flags (F_GETFD, F_SETFD) */
 #define	FD_CLOEXEC	1		/* close-on-exec flag */
+#define	FD_CLOFORK	2		/* close-on-fork flag */
 
 /* record locking flags (F_GETLK, F_SETLK, F_SETLKW) */
 #define	F_RDLCK		1		/* shared or read lock */
