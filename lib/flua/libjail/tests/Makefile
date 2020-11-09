@@ -2,6 +2,6 @@
 
 PACKAGE=	tests
 
-ATF_TESTS_LUA+=	jail_test
+TAP_TESTS_LUA+=	jail_test
 
 .include <bsd.test.mk>
