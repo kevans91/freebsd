@@ -9,6 +9,7 @@ SUBDIR=	${_colldef} \
 	${_doc} \
 	${_dtrace} \
 	${_examples} \
+	flua \
 	${_i18n} \
 	keys \
 	${_man} \
