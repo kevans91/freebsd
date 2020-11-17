@@ -84,6 +84,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/timex.h>
 #include <sys/unistd.h>
 #include <sys/ucontext.h>
+#include <sys/umtx.h>
 #include <sys/vnode.h>
 #include <sys/wait.h>
 #include <sys/ipc.h>
@@ -3607,4 +3608,12 @@ freebsd32_ntp_adjtime(struct thread *td, struct freebsd32_ntp_adjtime_args *uap)
 		}
 	}
 	return (error);
+}
+
+int
+freebsd32__umtx_op(struct thread *td, struct freebsd32__umtx_op_args *uap)
+{
+
+	return (kern__umtx_op(td, uap->obj, uap->op, uap->val, uap->uaddr,
+	    uap->uaddr2, &umtx_native_ops32));
 }
