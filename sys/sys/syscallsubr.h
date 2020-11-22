@@ -63,7 +63,6 @@ struct stat;
 struct thr_param;
 struct timex;
 struct uio;
-struct umtx_copyops;
 struct vm_map;
 struct vmspace;
 
@@ -71,8 +70,6 @@ typedef int (*mmap_check_fp_fn)(struct file *, int, int, int);
 
 int	kern___getcwd(struct thread *td, char *buf, enum uio_seg bufseg,
 	    size_t buflen, size_t path_max);
-int	kern__umtx_op(struct thread *td, void *obj, int op, unsigned long val,
-	    void *uaddr1, void *uaddr2, const struct umtx_copyops *ops);
 int	kern_accept(struct thread *td, int s, struct sockaddr **name,
 	    socklen_t *namelen, struct file **fp);
 int	kern_accept4(struct thread *td, int s, struct sockaddr **name,
