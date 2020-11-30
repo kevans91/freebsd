@@ -1278,6 +1278,7 @@ int
 soclose(struct socket *so)
 {
 	struct accept_queue lqueue;
+	sbintime_t lto;
 	int error = 0;
 	bool listening, last __diagused;
 
@@ -1297,10 +1298,11 @@ soclose(struct socket *so)
 			if ((so->so_state & SS_ISDISCONNECTING) &&
 			    (so->so_state & SS_NBIO))
 				goto drop;
-			while (so->so_state & SS_ISCONNECTED) {
-				error = tsleep(&so->so_timeo,
+			lto = sbinuptime() + (SBT_1S * so->so_linger);
+			while ((so->so_state & SS_ISCONNECTED) != 0) {
+				error = tsleep_sbt(&so->so_timeo,
 				    PSOCK | PCATCH, "soclos",
-				    so->so_linger * hz);
+				    lto, SBT_1MS, C_ABSOLUTE);
 				if (error)
 					break;
 			}
