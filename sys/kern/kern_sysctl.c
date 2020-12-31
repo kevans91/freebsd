@@ -115,6 +115,7 @@ static struct sx sysctlstringlock;
 #define	SYSCTL_SLEEP(ch, wmesg, timo)					\
 				rm_sleep(ch, &sysctllock, 0, wmesg, timo)
 
+static void sysctl_fetch_fqname(struct sysctl_oid *, struct sbuf *);
 static int sysctl_root(SYSCTL_HANDLER_ARGS);
 
 /* Root list */
@@ -188,6 +189,19 @@ sysctl_root_handler_locked(struct sysctl_oid *oid, void *arg1, intmax_t arg2,
 		SYSCTL_RUNLOCK(tracker);
 	else
 		SYSCTL_WUNLOCK();
+
+	if ((oid->oid_kind & CTLFLAG_DEPRECATED) != 0) {
+		struct sbuf *sb;
+
+		sb = sbuf_new_auto();
+		sysctl_fetch_fqname(oid, sb);
+		sbuf_finish(sb);
+
+		printf("Deprecated sysctl (to be removed in a future version): %s\n",
+		    sbuf_data(sb));
+
+		sbuf_delete(sb);
+	}
 
 	/*
 	 * Treat set CTLFLAG_NEEDGIANT and unset CTLFLAG_MPSAFE flags the same,
@@ -398,6 +412,19 @@ sysctl_search_oid(struct sysctl_oid **nodes, struct sysctl_oid *needle)
 		nodes[indx] = RB_NEXT(sysctl_oid_list, NULL, nodes[indx]);
 	}
 	return (-1);
+}
+
+static void
+sysctl_fetch_fqname(struct sysctl_oid *oid, struct sbuf *sb)
+{
+	struct sysctl_oid *parent;
+
+	if ((parent = SYSCTL_PARENT(oid)) != NULL) {
+		sysctl_fetch_fqname(parent, sb);
+		sbuf_printf(sb, ".%s", oid->oid_name);
+	} else {
+		sbuf_printf(sb, "%s", oid->oid_name);
+	}
 }
 
 static void

@@ -103,6 +103,7 @@
  * for SYSCTL_PROC and SYSCTL_NODE.
  */
 #define	CTLFLAG_NEEDGIANT 0x00000800	/* Handler require Giant */
+#define	CTLFLAG_DEPRECATED	0x00000400
 
 /*
  * Secure level.   Note that CTLFLAG_SECURE == CTLFLAG_SECURE1.
