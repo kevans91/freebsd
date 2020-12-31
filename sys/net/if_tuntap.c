@@ -201,7 +201,8 @@ SYSCTL_INT(_net_link_tun, OID_AUTO, devfs_cloning, CTLFLAG_RWTUN, &tundclone, 0,
 /* tap */
 static SYSCTL_NODE(_net_link, OID_AUTO, tap, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "Ethernet tunnel software network interface");
-SYSCTL_INT(_net_link_tap, OID_AUTO, user_open, CTLFLAG_RW, &tap_allow_uopen, 0,
+SYSCTL_INT(_net_link_tap, OID_AUTO, user_open, CTLFLAG_RW | CTLFLAG_DEPRECATED,
+    &tap_allow_uopen, 0,
     "Enable legacy devfs interface creation for all users");
 SYSCTL_INT(_net_link_tap, OID_AUTO, up_on_open, CTLFLAG_RW, &tapuponopen, 0,
     "Bring interface up when /dev/tap is opened");
