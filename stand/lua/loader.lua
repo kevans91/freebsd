@@ -47,7 +47,13 @@ end
 if color.isEnabled() then
 	printc(core.KEYSTR_RESET)
 end
-try_include("local")
+local res, err = try_include("local")
+if not res then
+	-- Our error object may not be as helpful as we wanted... we'll try
+	-- to stringify it in case a local object is trying to error() some
+	-- odd non-stringable object (e.g., a table).
+	print("Local module failed, error: " .. tostring(err))
+end
 password.check()
 if not core.isMenuSkipped() then
 	require("menu").run()

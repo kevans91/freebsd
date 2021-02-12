@@ -61,8 +61,8 @@ end
 
 
 -- Globals
--- try_include will return the loaded module on success, or false and the error
--- message on failure.
+-- try_include will return the loaded module or true on success (module loaded
+-- or file does not exist), or false and the error message on failure.
 function try_include(module)
 	if module:sub(1, 1) ~= "/" then
 		module = loader.lua_path .. "/" .. module
@@ -75,11 +75,27 @@ function try_include(module)
 			module = module .. ".lua"
 		end
 	end
-	if lfs.attributes(module, "mode") ~= "file" then
-		return
+
+	-- If the file doesn't exist, just pretend we succeeded... if it does
+	-- exist but it's not a regular file, then that's an actual error.
+	-- try_include doesn't guarantee that it won't trip over weird entries,
+	-- just that it won't trip over nonexistent entries.
+	local mode = lfs.attributes(module, 'mode')
+	if not mode then
+		return true
+	elseif mode ~= "file" then
+		return nil, module .. " is not a regular file."
 	end
 
-	return dofile(module)
+	local function unwrap_result(res, mod, ...)
+		if res then
+			return mod or true, ...
+		else
+			return res, mod
+		end
+	end
+
+	return unwrap_result(pcall(dofile, module))
 end
 
 -- Module exports
