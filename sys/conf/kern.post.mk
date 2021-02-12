@@ -60,10 +60,19 @@ KERN_DEBUGDIR?=	${DEBUGDIR}
 # Default prefix used for modules installed from ports
 LOCALBASE?=	/usr/local
 
-LOCAL_MODULES_DIR?= ${LOCALBASE}/sys/modules
+.if defined(LOCAL_MODULES_DIR_${KERN_IDENT})
+LOCAL_MODULES_DIR=	${LOCAL_MODULES_DIR_${KERN_IDENT}}
+.else
+LOCAL_MODULES_DIR?=	${LOCALBASE}/sys/modules
+.endif
+
+.if defined(LOCAL_MODULES_${KERN_IDENT})
+LOCAL_MODULES=	${LOCAL_MODULES_${KERN_IDENT}}
+.endif
 
 # Default to installing all modules installed by ports unless overridden
-# by the user.
+# by the user.  A LOCAL_MODULES default can be supplied, but we also support
+# per-KERNCONF LOCAL_MODULES *instead* with LOCAL_MODULES_${KERNCONF} variables.
 .if !defined(LOCAL_MODULES) && exists(${LOCAL_MODULES_DIR})
 LOCAL_MODULES!= ls ${LOCAL_MODULES_DIR}
 .endif
