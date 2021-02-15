@@ -14,7 +14,7 @@ SRCS=	tweetnacl.c \
 	encrypt.c \
 	util.c
 
-CFLAGS+=	-I${.CURDIR} -DHAVE_POSIX_MEMALIGN
+CFLAGS+=	-I${.CURDIR} -DHAVE_POSIX_MEMALIGN -DHAVE_ARC4RANDOM_BUF
 WARNS=	2
 
 .include <bsd.lib.mk>
