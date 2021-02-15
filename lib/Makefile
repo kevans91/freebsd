@@ -34,6 +34,7 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	lib9p \
 	libalias \
 	libarchive \
+	libasignify \
 	libauditd \
 	libbegemot \
 	libblocksruntime \
