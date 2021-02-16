@@ -452,6 +452,8 @@
             ..
         ..
         keys
+            kbsd
+            ..
             pkg
                 revoked tags=package=runtime
                 ..
