@@ -156,6 +156,10 @@ If the
 is set to
 .Dq Cm skip ,
 devices are silently skipped.
+Note that the default
+.Dq Cm read
+operates differently in recursive mode, as the default behavior is to skip
+reading devices that were not explicitly listed as arguments.
 .It Fl d Ar action , Fl Fl directories= Ns Ar action
 Specify the demanded
 .Ar action

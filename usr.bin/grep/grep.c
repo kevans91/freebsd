@@ -110,7 +110,7 @@ const char *color;	/* --color */
 int	 grepbehave = GREP_BASIC;	/* -EFG: type of the regex */
 int	 binbehave = BINFILE_BIN;	/* -aIU: handling of binary files */
 int	 filebehave = FILE_STDIO;
-int	 devbehave = DEV_READ;		/* -D: handling of devices */
+int	 devbehave = DEV_READ_NAMED;	/* -D: handling of devices */
 int	 dirbehave = DIR_READ;		/* -dRr: handling of directories */
 int	 linkbehave = LINK_READ;	/* -OpS: handling of symlinks */
 
@@ -701,7 +701,7 @@ main(int argc, char *argv[])
 	initqueue();
 
 	if (aargc == 0 && dirbehave != DIR_RECURSE)
-		exit(!procfile("-"));
+		exit(!procfile("-", 0));
 
 	if (dirbehave == DIR_RECURSE)
 		matched = grep_tree(aargv);
@@ -709,7 +709,7 @@ main(int argc, char *argv[])
 		for (matched = false; aargc--; ++aargv) {
 			if ((finclude || fexclude) && !file_matching(*aargv))
 				continue;
-			if (procfile(*aargv))
+			if (procfile(*aargv, 0))
 				matched = true;
 		}
 

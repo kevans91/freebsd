@@ -60,8 +60,9 @@ extern const char		*errstr[];
 #define	DIR_SKIP	1
 #define	DIR_RECURSE	2
 
-#define	DEV_READ	0
-#define	DEV_SKIP	1
+#define	DEV_READ_NAMED	0
+#define	DEV_READ	1
+#define	DEV_SKIP	2
 
 #define	LINK_READ	0
 #define	LINK_EXPLICIT	1
@@ -139,7 +140,7 @@ extern char	 re_error[RE_ERROR_BUF + 1];	/* Seems big enough */
 
 /* util.c */
 bool	 file_matching(const char *fname);
-bool	 procfile(const char *fn);
+bool	 procfile(const char *fn, long depth);
 bool	 grep_tree(char **argv);
 void	*grep_malloc(size_t size);
 void	*grep_calloc(size_t nmemb, size_t size);

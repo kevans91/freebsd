@@ -179,7 +179,7 @@ grep_tree(char **argv)
 			if (fexclude || finclude)
 				ok &= file_matching(p->fts_path);
 
-			if (ok && procfile(p->fts_path))
+			if (ok && procfile(p->fts_path, p->fts_level))
 				matched = true;
 			break;
 		}
@@ -285,7 +285,7 @@ procmatches(struct mprintc *mc, struct parsec *pc, bool matched)
  * passing the lines to procline().
  */
 bool
-procfile(const char *fn)
+procfile(const char *fn, long depth)
 {
 	struct parsec pc;
 	struct mprintc mc;
@@ -304,9 +304,13 @@ procfile(const char *fn)
 			s = sb.st_mode & S_IFMT;
 			if (dirbehave == DIR_SKIP && s == S_IFDIR)
 				return (false);
-			if (devbehave == DEV_SKIP && (s == S_IFIFO ||
-			    s == S_IFCHR || s == S_IFBLK || s == S_IFSOCK))
-				return (false);
+			if (s == S_IFIFO || s == S_IFCHR || s == S_IFBLK ||
+			    s == S_IFSOCK) {
+				if (devbehave == DEV_SKIP)
+					return (false);
+				if (devbehave == DEV_READ_NAMED && depth != 0)
+					return (false);
+			}
 		}
 		f = grep_open(fn);
 	}
