@@ -1604,6 +1604,20 @@ cr_cansignal(struct ucred *cred, struct proc *proc, int signum)
 			return (error);
 	}
 
+	/*
+	 * At this point, the target may be in a different jail than the
+	 * subject -- the subject must be in a parent jail to the target,
+	 * whether it is prison0 or a subordinate of prison0 that has
+	 * children.  Additional privileges are required to allow this, as
+	 * whether the creds are truly equivalent or not must be determined on
+	 * a case-by-case basis.
+	 */
+	if (cred->cr_prison != proc->p_ucred->cr_prison) {
+		error = priv_check_cred(cred, PRIV_SIGNAL_DIFFJAIL);
+		if (error)
+			return (error);
+	}
+
 	return (0);
 }
 
@@ -1677,6 +1691,11 @@ p_cansched(struct thread *td, struct proc *p)
 	if (td->td_ucred->cr_ruid != p->p_ucred->cr_ruid &&
 	    td->td_ucred->cr_uid != p->p_ucred->cr_ruid) {
 		error = priv_check(td, PRIV_SCHED_DIFFCRED);
+		if (error)
+			return (error);
+	}
+	if (td->td_ucred->cr_prison != p->p_ucred->cr_prison) {
+		error = priv_check(td, PRIV_SCHED_DIFFJAIL);
 		if (error)
 			return (error);
 	}
@@ -1782,6 +1801,12 @@ p_candebug(struct thread *td, struct proc *p)
 	 */
 	if ((p->p_flag & P_SUGID) != 0) {
 		error = priv_check(td, PRIV_DEBUG_SUGID);
+		if (error)
+			return (error);
+	}
+
+	if (td->td_ucred->cr_prison != p->p_ucred->cr_prison) {
+		error = priv_check(td, PRIV_DEBUG_DIFFJAIL);
 		if (error)
 			return (error);
 	}

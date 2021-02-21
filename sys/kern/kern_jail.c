@@ -3979,6 +3979,7 @@ prison_priv_check(struct ucred *cred, int priv)
 	case PRIV_DEBUG_DIFFCRED:
 	case PRIV_DEBUG_SUGID:
 	case PRIV_DEBUG_UNPRIV:
+	case PRIV_DEBUG_DIFFJAIL:
 
 		/*
 		 * Allow jail to set various resource limits and login
@@ -4011,8 +4012,10 @@ prison_priv_check(struct ucred *cred, int priv)
 		 */
 	case PRIV_SCHED_DIFFCRED:
 	case PRIV_SCHED_CPUSET:
+	case PRIV_SCHED_DIFFJAIL:
 	case PRIV_SIGNAL_DIFFCRED:
 	case PRIV_SIGNAL_SUGID:
+	case PRIV_SIGNAL_DIFFJAIL:
 
 		/*
 		 * Allow jailed processes to write to sysctls marked as jail
