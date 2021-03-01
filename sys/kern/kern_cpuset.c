@@ -1889,6 +1889,9 @@ kern_cpuset_setid(struct thread *td, cpuwhich_t which,
 	 */
 	if (which != CPU_WHICH_PID)
 		return (EINVAL);
+	error = priv_check(td, PRIV_SCHED_CPUSET_ASGN);
+	if (error != 0)
+		return (error);
 	set = cpuset_lookup(setid, td);
 	if (set == NULL)
 		return (ESRCH);

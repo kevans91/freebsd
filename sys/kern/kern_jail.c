@@ -4012,6 +4012,7 @@ prison_priv_check(struct ucred *cred, int priv)
 		 */
 	case PRIV_SCHED_DIFFCRED:
 	case PRIV_SCHED_CPUSET:
+	case PRIV_SCHED_CPUSET_ASGN:
 	case PRIV_SCHED_DIFFJAIL:
 	case PRIV_SIGNAL_DIFFCRED:
 	case PRIV_SIGNAL_SUGID:

@@ -194,6 +194,7 @@
 #define	PRIV_SCHED_CPUSET_INTR	207	/* Can adjust IRQ to CPU binding. */
 #define	PRIV_SCHED_IDPRIO	208	/* Can set idle time scheduling. */
 #define	PRIV_SCHED_DIFFJAIL	209	/* Exempt scheduling other jails. */
+#define	PRIV_SCHED_CPUSET_ASGN	210	/* Exempt re-assigning own cpuset. */
 
 /*
  * POSIX semaphore privileges.
