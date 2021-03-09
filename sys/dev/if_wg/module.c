@@ -179,13 +179,11 @@ wg_cloneattach(if_ctx_t ctx, struct if_clone *ifc, const char *name, caddr_t par
 		err = EBADMSG;
 		goto out;
 	}
-	if (!nvlist_exists_number(nvl, "listen-port")) {
-		device_printf(dev, "%s listen-port not set\n", __func__);
-		err = EBADMSG;
-		goto nvl_out;
-	}
-	listen_port = nvlist_get_number(nvl, "listen-port");
 
+	/* wg_socket_bind() will update with the chosen port if omitted. */
+	listen_port = 0;
+	if (nvlist_exists_number(nvl, "listen-port"))
+		listen_port = nvlist_get_number(nvl, "listen-port");
 	if (!nvlist_exists_binary(nvl, "private-key")) {
 		device_printf(dev, "%s private-key not set\n", __func__);
 		err = EBADMSG;

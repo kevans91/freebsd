@@ -354,8 +354,6 @@ wg_socket_bind(struct wg_softc *sc, struct wg_socket *so)
 	struct sockaddr_in6 *sin6;
 	struct ifnet *ifp;
 
-	if (so->so_port == 0)
-		return (0);
 	td = curthread;
 	bzero(&laddr, sizeof(laddr));
 	ifp = iflib_get_ifp(sc->wg_ctx);
@@ -369,6 +367,20 @@ wg_socket_bind(struct wg_softc *sc, struct wg_socket *so)
 		if_printf(ifp, "can't bind AF_INET socket %d\n", rc);
 		return (rc);
 	}
+
+	if (so->so_port == 0) {
+		rc = sogetsockaddr(so->so_so4, (struct sockaddr **)&sin);
+		if (rc != 0) {
+			if_printf(ifp,
+			    "can't fetch listening port from socket, error %d\n",
+			    rc);
+			return (rc);
+		}
+
+		so->so_port = ntohs(sin->sin_port);
+		free(sin, M_SONAME);
+	}
+
 	sin6 = &laddr.in6;
 	sin6->sin6_len = sizeof(laddr.in6);
 	sin6->sin6_family = AF_INET6;
