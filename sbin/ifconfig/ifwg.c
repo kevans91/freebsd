@@ -609,8 +609,6 @@ wg_create(int s, struct ifreq *ifr)
 	size_t size;
 
 	setproctitle("ifconfig %s create ...\n", name);
-	if (!nvlist_exists_number(nvl_params, "listen-port"))
-		goto legacy;
 	if (!nvlist_exists_binary(nvl_params, "private-key"))
 		goto legacy;
 
