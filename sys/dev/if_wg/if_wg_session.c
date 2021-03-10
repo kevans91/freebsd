@@ -337,18 +337,6 @@ wg_socket_reinit(struct wg_softc *sc, struct socket *new4,
 	so->so_so6 = new6;
 }
 
-int
-wg_socket_close(struct wg_socket *so)
-{
-	int ret = 0;
-	if ((ret = soclose(so->so_so4)) != 0)
-		goto leave;
-	if ((ret = soclose(so->so_so6)) != 0)
-		goto leave;
-leave:
-	return ret;
-}
-
 union wg_sockaddr {
 	struct sockaddr sa;
 	struct sockaddr_in in4;

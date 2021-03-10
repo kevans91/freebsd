@@ -297,7 +297,6 @@ void	wg_route_destroy(struct wg_route_table *);
 int wg_socket_init(struct wg_softc *sc);
 void wg_socket_reinit(struct wg_softc *, struct socket *so4,
     struct socket *so6);
-int wg_socket_close(struct wg_socket *so);
 
 void wg_softc_handshake_receive(struct wg_softc *sc);
 
