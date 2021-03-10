@@ -142,7 +142,7 @@ noise_remote_init(struct noise_remote *r,
 	SLIST_INSERT_HEAD(&r->r_unused_keypairs, &r->r_keypair[1], kp_entry);
 	SLIST_INSERT_HEAD(&r->r_unused_keypairs, &r->r_keypair[2], kp_entry);
 
-	KASSERT(l != NULL, "must provide local");
+	KASSERT(l != NULL, ("must provide local"));
 	r->r_local = l;
 
 	rw_enter_write(&l->l_identity_lock);
