@@ -356,12 +356,17 @@ wg_detach(if_ctx_t ctx)
 
 	sc = iflib_get_softc(ctx);
 	if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
-	NET_EPOCH_WAIT();
 	wg_socket_reinit(sc, NULL, NULL);
+
+	/*
+	 * No guarantees that all traffic have passed until the epoch has
+	 * elapsed with the socket closed.
+	 */
+	NET_EPOCH_WAIT();
+
 	taskqgroup_drain_all(qgroup_if_io_tqg);
 	pause("link_down", hz/4);
 	wg_peer_remove_all(sc);
-	pause("link_down", hz);
 	mtx_destroy(&sc->sc_mtx);
 	rw_destroy(&sc->sc_index_lock);
 	taskqgroup_detach(qgroup_if_io_tqg, &sc->sc_handshake);
