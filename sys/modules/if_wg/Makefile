@@ -7,6 +7,6 @@ KMOD=   if_wg
 
 SRCS= opt_inet.h opt_inet6.h device_if.h bus_if.h ifdi_if.h
 
-SRCS+= if_wg_session.c module.c wg_noise.c wg_cookie.c crypto.c
+SRCS+= module.c if_wg.c wg_noise.c wg_cookie.c crypto.c
 
 .include <bsd.kmod.mk>

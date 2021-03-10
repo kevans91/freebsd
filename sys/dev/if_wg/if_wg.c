@@ -47,8 +47,7 @@ __FBSDID("$FreeBSD$");
 #include <net/bpf.h>
 
 #include "support.h"
-#include "if_wg_session.h"
-#include "if_wg_session_vars.h"
+#include "if_wg.h"
 #include "crypto.h"
 
 #include <sys/syslog.h>

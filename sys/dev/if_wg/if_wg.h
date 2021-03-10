@@ -17,8 +17,8 @@
  * $FreeBSD$
  */
 
-#ifndef _IF_WG_VARS_H_
-#define _IF_WG_VARS_H_
+#ifndef __IF_WG_H__
+#define __IF_WG_H__
 
 #include <sys/types.h>
 #include <sys/param.h>
@@ -36,16 +36,33 @@
 #include <net/pfvar.h>
 #include <net/iflib.h>
 
+#include <netinet/in.h>
+
+#include "support.h"
 #include "wg_noise.h"
 #include "wg_cookie.h"
-/* This is only needed for wg_keypair. */
-#include "if_wg_session.h"
+
+/* TODO this what is left of if_wg_session.h. It will need looking at (as well
+ * as the rest of this file). */
+struct wg_allowedip {
+	struct sockaddr_storage a_addr;
+	struct sockaddr_storage a_mask;
+};
+
+#ifndef ENOKEY
+#define	ENOKEY	ENOTCAPABLE
+#endif
+
+typedef enum {
+	WGC_GET = 0x5,
+	WGC_SET = 0x6,
+} wg_cmd_t;
+/* end TODO */
 
 #define UNIMPLEMENTED() panic("%s not implemented\n", __func__)
 
 #define WG_KEY_SIZE		 	32
 #define WG_MSG_PADDING_SIZE 		16
-
 
 /* Constant for session */
 #define REKEY_TIMEOUT			5
@@ -315,5 +332,4 @@ void wg_decrypt_dispatch(struct wg_softc *);
 
 struct wg_tag *wg_tag_get(struct mbuf *m);
 
-
-#endif /* _IF_WG_VARS_H_ */
+#endif /* __IF_WG_H__ */

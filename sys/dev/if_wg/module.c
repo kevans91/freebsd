@@ -56,16 +56,62 @@ __FBSDID("$FreeBSD$");
 
 #include "ifdi_if.h"
 
-#include "wg_module.h"
 #include "wg_noise.h"
-#include "if_wg_session_vars.h"
-#include "if_wg_session.h"
 #include "crypto.h"
+#include "if_wg.h"
 
 MALLOC_DEFINE(M_WG, "WG", "wireguard");
 
 #define	WG_CAPS		IFCAP_LINKSTATE
 #define	ph_family	PH_loc.eight[5]
+
+/* TODO this is dumped in here from wg_module.h, so we can consolidate files.
+ * It will need cleaning up. */
+#define	MAX_PEERS_PER_IFACE	(1U << 20)
+
+#define zfree(addr, type)						\
+	do {										\
+		explicit_bzero(addr, sizeof(*addr));	\
+		free(addr, type);						\
+	} while (0)
+
+struct crypt_queue {
+	union {
+		struct {
+			int last_cpu;
+		};
+	};
+};
+
+#define __ATOMIC_LOAD_SIZE						\
+	({									\
+	switch (size) {							\
+	case 1: *(uint8_t *)res = *(volatile uint8_t *)p; break;		\
+	case 2: *(uint16_t *)res = *(volatile uint16_t *)p; break;		\
+	case 4: *(uint32_t *)res = *(volatile uint32_t *)p; break;		\
+	case 8: *(uint64_t *)res = *(volatile uint64_t *)p; break;		\
+	}								\
+})
+
+static inline void
+__atomic_load_acq_size(volatile void *p, void *res, int size)
+{
+	__ATOMIC_LOAD_SIZE;
+}
+
+#define atomic_load_acq(x)						\
+	({											\
+	union { __typeof(x) __val; char __c[1]; } __u;			\
+	__atomic_load_acq_size(&(x), __u.__c, sizeof(x));		\
+	__u.__val;												\
+})
+
+
+int wg_ctx_init(void);
+void wg_ctx_uninit(void);
+/* end TODO */
+
+
 
 TASKQGROUP_DECLARE(if_io_tqg);
 
