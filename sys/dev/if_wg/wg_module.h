@@ -42,34 +42,7 @@
 
 #include "crypto.h"
 
-
-enum noise_lengths {
-	NOISE_PUBLIC_KEY_LEN = CURVE25519_KEY_SIZE,
-	NOISE_SYMMETRIC_KEY_LEN = CHACHA20POLY1305_KEY_SIZE,
-	NOISE_TIMESTAMP_LEN = sizeof(uint64_t) + sizeof(uint32_t),
-	NOISE_AUTHTAG_LEN = CHACHA20POLY1305_AUTHTAG_SIZE,
-	NOISE_HASH_LEN = BLAKE2S_HASH_SIZE
-};
-
-#define noise_encrypted_len(plain_len) ((plain_len) + NOISE_AUTHTAG_LEN)
-
-enum cookie_values {
-	COOKIE_SECRET_MAX_AGE = 2 * 60,
-	COOKIE_SECRET_LATENCY = 5,
-	COOKIE_NONCE_LEN = XCHACHA20POLY1305_NONCE_SIZE,
-	COOKIE_LEN = 16
-};
-
-enum limits {
-	REKEY_TIMEOUT = 5,
-	INITIATIONS_PER_SECOND = 50,
-	MAX_PEERS_PER_DEVICE = 1U << 20,
-	KEEPALIVE_TIMEOUT = 10,
-	MAX_TIMER_HANDSHAKES = 90 / REKEY_TIMEOUT,
-	MAX_QUEUED_INCOMING_HANDSHAKES = 4096, /* TODO: replace this with DQL */
-	MAX_STAGED_PACKETS = 128,
-	MAX_QUEUED_PACKETS = 1024 /* TODO: replace this with DQL */
-};
+#define	MAX_PEERS_PER_IFACE	(1U << 20)
 
 #define zfree(addr, type)						\
 	do {										\
