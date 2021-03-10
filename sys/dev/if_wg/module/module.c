@@ -212,9 +212,15 @@ unpacked:
 	sc->sc_socket.so_port = listen_port;
 
 	if (key != NULL) {
-		noise_local_set_private(local, __DECONST(uint8_t *, key));
-		noise_local_keys(local, public, NULL);
+		/* TODO this is temp code, should not be released */
+		if (!curve25519_generate_public(public, key)) {
+			err = EBADMSG;
+			goto nvl_out;
+		}
+		noise_local_lock_identity(local);
+		noise_local_set_private(local, key);
 		cookie_checker_update(&sc->sc_cookie, public);
+		noise_local_unlock_identity(local);
 	}
 	atomic_add_int(&clone_count, 1);
 	scctx = sc->shared = iflib_get_softc_ctx(ctx);
@@ -792,13 +798,20 @@ wgc_set(struct wg_softc *sc, struct ifdrv *ifd)
 			err = EBADMSG;
 			goto nvl_out;
 		}
+
+		/* TODO this is temp code, should not be released */
+		if (!curve25519_generate_public(public, key)) {
+			err = EBADMSG;
+			goto nvl_out;
+		}
 		/*
 		 * set private key
 		 */
 		local = &sc->sc_local;
-		noise_local_set_private(local, __DECONST(uint8_t *, key));
-		noise_local_keys(local, public, NULL);
+		noise_local_lock_identity(local);
+		noise_local_set_private(local, key);
 		cookie_checker_update(&sc->sc_cookie, public);
+		noise_local_unlock_identity(local);
 	}
 	if (nvlist_exists_number(nvl, "user-cookie")) {
 		sc->sc_user_cookie = nvlist_get_number(nvl, "user-cookie");

@@ -306,7 +306,7 @@ void	wg_timers_set_persistent_keepalive(struct wg_timers *t, uint16_t);
 void	wg_timers_get_last_handshake(struct wg_timers *, struct timespec *);
 
 
-struct noise_remote *wg_remote_get(struct wg_softc *, uint8_t [NOISE_KEY_SIZE]);
+struct noise_remote *wg_remote_get(struct wg_softc *, uint8_t [NOISE_PUBLIC_KEY_LEN]);
 uint32_t wg_index_set(struct wg_softc *, struct noise_remote *);
 struct noise_remote *wg_index_get(struct wg_softc *, uint32_t);
 void wg_index_drop(struct wg_softc *, uint32_t);

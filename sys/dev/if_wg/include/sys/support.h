@@ -47,9 +47,33 @@
 #if defined(__aarch64__) || defined(__amd64__) || defined(__i386__)
 #include <machine/fpu.h>
 #endif
+
+/* TODO the following is openbsd compat defines to allow us to copy the wg_*
+ * files from openbsd (almost) verbatim. this will greatly increase maintenance
+ * across the platforms. it should be moved to it's own file after figuring out
+ * what to do with the crypto stuff below. the only thing we're missing from
+ * this is struct pool (freebsd: uma_zone_t), which isn't a show stopper, but
+ * is something worth considering in the future.
+ *  - md */
+
+#define rw_assert_wrlock(x) rw_assert(x, RA_WLOCKED)
+#define rw_enter_write rw_wlock
+#define rw_exit_write rw_wunlock
+#define rw_enter_read rw_rlock
+#define rw_exit_read rw_runlock
+#define rw_exit rw_unlock
+
+#define RW_DOWNGRADE 1
+#define rw_enter(x, y) do {		\
+	CTASSERT(y == RW_DOWNGRADE);	\
+	rw_downgrade(x);		\
+} while (0)
+
+/* TODO the following is crypto compat stuff, that should be looked at (and
+ * probably removed and done properly). I've just consolidated it here to
+ * separate from the openbsd compat stuff above.
+ *  - md */
 #include <crypto/siphash/siphash.h>
-
-
 #define COMPAT_ZINC_IS_A_MODULE
 MALLOC_DECLARE(M_WG);
 
@@ -62,12 +86,6 @@ MALLOC_DECLARE(M_WG);
 #else
 #define BITS_PER_LONG           32
 #endif
-
-#define rw_enter_write rw_wlock
-#define rw_exit_write rw_wunlock
-#define rw_enter_read rw_rlock
-#define rw_exit_read rw_runlock
-#define rw_exit rw_unlock
 
 #define ASSERT(x) MPASS(x)
 

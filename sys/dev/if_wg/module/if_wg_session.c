@@ -79,27 +79,35 @@ TASKQGROUP_DECLARE(if_io_tqg);
 
 struct wg_pkt_initiation {
 	uint32_t		t;
-	struct noise_initiation init;
+	uint32_t		s_idx;
+	uint8_t			ue[NOISE_PUBLIC_KEY_LEN];
+	uint8_t			es[NOISE_PUBLIC_KEY_LEN + NOISE_AUTHTAG_LEN];
+	uint8_t			ets[NOISE_TIMESTAMP_LEN + NOISE_AUTHTAG_LEN];
 	struct cookie_macs	m;
-} __packed;
+};
 
 struct wg_pkt_response {
 	uint32_t		t;
-	struct noise_response	resp;
+	uint32_t		s_idx;
+	uint32_t		r_idx;
+	uint8_t			ue[NOISE_PUBLIC_KEY_LEN];
+	uint8_t			en[0 + NOISE_AUTHTAG_LEN];
 	struct cookie_macs	m;
-} __packed;
+};
 
 struct wg_pkt_cookie {
 	uint32_t		t;
 	uint32_t		r_idx;
-	uint8_t			nonce[COOKIE_XNONCE_SIZE];
+	uint8_t			nonce[COOKIE_NONCE_SIZE];
 	uint8_t			ec[COOKIE_ENCRYPTED_SIZE];
-} __packed;
+};
 
 struct wg_pkt_data {
 	uint32_t		t;
-	struct noise_data	data;
-} __packed;
+	uint32_t		r_idx;
+	uint8_t			nonce[sizeof(uint64_t)];
+	uint8_t			buf[];
+};
 
 #define MTAG_WIREGUARD 0xBEAD
 #define WG_PKT_WITH_PADDING(n)	(((n) + (16-1)) & (~(16-1)))
@@ -1212,14 +1220,13 @@ wg_send_initiation(struct wg_peer *peer)
 {
 	struct wg_pkt_initiation pkt;
 	struct epoch_tracker et;
-	int ret;
 
 	if (wg_timers_check_handshake_last_sent(&peer->p_timers) != ETIMEDOUT)
 		return;
 
 	NET_EPOCH_ENTER(et);
-	ret = noise_create_initiation(&peer->p_remote, &pkt.init);
-	if (ret)
+	if (noise_create_initiation(&peer->p_remote, &pkt.s_idx, pkt.ue,
+	    pkt.es, pkt.ets) != 0)
 		goto out;
 	pkt.t = le32toh(MESSAGE_HANDSHAKE_INITIATION);
 	cookie_maker_mac(&peer->p_cookie, &pkt.m, &pkt,
@@ -1230,29 +1237,31 @@ out:
 	NET_EPOCH_EXIT(et);
 }
 
-static int
+static void
 wg_send_response(struct wg_peer *peer)
 {
 	struct wg_pkt_response pkt;
 	struct epoch_tracker et;
-	int ret;
 
 	NET_EPOCH_ENTER(et);
 
 	DPRINTF(peer->p_sc, "Sending handshake response to peer %llu\n",
 	    (unsigned long long)peer->p_id);
 
-	ret = noise_create_response(&peer->p_remote, &pkt.resp);
-	if (ret)
+	if (noise_create_response(&peer->p_remote, &pkt.s_idx, &pkt.r_idx,
+	    pkt.ue, pkt.en) != 0)
 		goto out;
+	if (noise_remote_begin_session(&peer->p_remote) != 0)
+		goto out;
+
+	wg_timers_event_session_derived(&peer->p_timers);
 	pkt.t = MESSAGE_HANDSHAKE_RESPONSE;
 	cookie_maker_mac(&peer->p_cookie, &pkt.m, &pkt,
 	     sizeof(pkt)-sizeof(pkt.m));
-	wg_peer_send_buf(peer, (uint8_t*)&pkt, sizeof(pkt));
 	wg_timers_event_handshake_responded(&peer->p_timers);
+	wg_peer_send_buf(peer, (uint8_t*)&pkt, sizeof(pkt));
 out:
 	NET_EPOCH_EXIT(et);
-	return (ret);
 }
 
 static void
@@ -1517,11 +1526,11 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 		init = mtod(m, struct wg_pkt_initiation *);
 
 		if (packet_needs_cookie) {
-			wg_send_cookie(sc, &init->m, init->init.s_idx, m);
+			wg_send_cookie(sc, &init->m, init->s_idx, m);
 			return;
 		}
 		if (noise_consume_initiation(&sc->sc_local, &remote,
-		    &init->init) != 0) {
+		    init->s_idx, init->ue, init->es, init->ets) != 0) {
 			DPRINTF(sc, "Invalid handshake initiation");
 			goto free;
 		}
@@ -1530,25 +1539,23 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 		DPRINTF(sc, "Receiving handshake initiation from peer %llu\n",
 		    (unsigned long long)peer->p_id);
 		wg_peer_set_endpoint_from_tag(peer, t);
-		res = wg_send_response(peer);
-		if (res == 0 && noise_remote_begin_session(&peer->p_remote) == 0)
-			wg_timers_event_session_derived(&peer->p_timers);
+		wg_send_response(peer);
 		break;
 	case MESSAGE_HANDSHAKE_RESPONSE:
 		resp = mtod(m, struct wg_pkt_response *);
 
 		if (packet_needs_cookie) {
-			wg_send_cookie(sc, &resp->m, resp->resp.s_idx, m);
+			wg_send_cookie(sc, &resp->m, resp->s_idx, m);
 			return;
 		}
 
-		if ((remote = wg_index_get(sc, resp->resp.r_idx)) == NULL) {
+		if ((remote = wg_index_get(sc, resp->r_idx)) == NULL) {
 			DPRINTF(sc, "Unknown handshake response\n");
 			goto free;
 		}
 		peer = CONTAINER_OF(remote, struct wg_peer, p_remote);
-
-		if (noise_consume_response(remote, &resp->resp) != 0) {
+		if (noise_consume_response(remote, resp->s_idx, resp->r_idx,
+		    resp->ue, resp->en) != 0) {
 			DPRINTF(sc, "Invalid handshake response\n");
 			goto free;
 		}
@@ -1599,6 +1606,7 @@ wg_encap(struct wg_softc *sc, struct mbuf *m)
 	struct mbuf *mc;
 	struct wg_peer *peer;
 	struct wg_tag *t;
+	uint64_t nonce;
 	int res;
 
 	if (sc->sc_ifp->if_link_state == LINK_STATE_DOWN)
@@ -1610,18 +1618,22 @@ wg_encap(struct wg_softc *sc, struct mbuf *m)
 
 	plaintext_len = MIN(WG_PKT_WITH_PADDING(m->m_pkthdr.len), t->t_mtu);
 	padding_len = plaintext_len - m->m_pkthdr.len;
-	out_len = sizeof(struct wg_pkt_data) + plaintext_len + NOISE_MAC_SIZE;
+	out_len = sizeof(struct wg_pkt_data) + plaintext_len + NOISE_AUTHTAG_LEN;
+
 
 	if ((mc = m_getjcl(M_NOWAIT, MT_DATA, M_PKTHDR, MCLBYTES)) == NULL)
 		goto error;
 
 	data = mtod(mc, struct wg_pkt_data *);
-	m_copydata(m, 0, m->m_pkthdr.len, data->data.buf);
-	bzero(data->data.buf + m->m_pkthdr.len, padding_len);
+	m_copydata(m, 0, m->m_pkthdr.len, data->buf);
+	bzero(data->buf + m->m_pkthdr.len, padding_len);
 
 	data->t = htole32(MESSAGE_DATA);
 
-	res = noise_remote_encrypt(&peer->p_remote, &data->data, plaintext_len);
+	res = noise_remote_encrypt(&peer->p_remote, &data->r_idx, &nonce,
+	    data->buf, plaintext_len);
+	nonce = htole64(nonce); /* Wire format is little endian. */
+	memcpy(data->nonce, &nonce, sizeof(data->nonce));
 
 	if (__predict_false(res)) {
 		if (res == EINVAL) {
@@ -1664,6 +1676,7 @@ wg_decap(struct wg_softc *sc, struct mbuf *m)
 	struct wg_tag *t;
 	size_t plaintext_len;
 	uint8_t version;
+	uint64_t nonce;
 	int res;
 
 	if (sc->sc_ifp->if_link_state == LINK_STATE_DOWN)
@@ -1676,7 +1689,12 @@ wg_decap(struct wg_softc *sc, struct mbuf *m)
 	t = wg_tag_get(m);
 	peer = t->t_peer;
 
-	res = noise_remote_decrypt(&peer->p_remote, &data->data, plaintext_len);
+	memcpy(&nonce, data->nonce, sizeof(nonce));
+	nonce = le64toh(nonce); /* Wire format is little endian. */
+
+	res = noise_remote_decrypt(&peer->p_remote, data->r_idx, nonce,
+	    data->buf, plaintext_len);
+
 	if (__predict_false(res)) {
 		DPRINTF(sc, "noise_remote_decrypt fail %d \n", res);
 		if (res == EINVAL) {
@@ -1694,7 +1712,7 @@ wg_decap(struct wg_softc *sc, struct mbuf *m)
 
 	/* Remove the data header, and crypto mac tail from the packet */
 	m_adj(m, sizeof(struct wg_pkt_data));
-	m_adj(m, -NOISE_MAC_SIZE);
+	m_adj(m, -NOISE_AUTHTAG_LEN);
 
 	/* A packet with length 0 is a keepalive packet */
 	if (m->m_pkthdr.len == 0) {
@@ -1768,7 +1786,7 @@ wg_softc_encrypt(struct wg_softc *sc)
 }
 
 struct noise_remote *
-wg_remote_get(struct wg_softc *sc, uint8_t public[NOISE_KEY_SIZE])
+wg_remote_get(struct wg_softc *sc, uint8_t public[NOISE_PUBLIC_KEY_LEN])
 {
 	struct wg_peer *peer;
 
@@ -1941,11 +1959,11 @@ wg_input(struct mbuf *m0, int offset, struct inpcb *inpcb,
 			DPRINTF(sc, "Dropping handshake packet\n");
 			wg_m_freem(m);
 		}
-	} else if (pktlen >= sizeof(struct wg_pkt_data) + NOISE_MAC_SIZE
+	} else if (pktlen >= sizeof(struct wg_pkt_data) + NOISE_AUTHTAG_LEN
 	    && pkttype == MESSAGE_DATA) {
 
 		pkt_data = data;
-		remote = wg_index_get(sc, pkt_data->data.r_idx);
+		remote = wg_index_get(sc, pkt_data->r_idx);
 		if (remote == NULL) {
 			DPRINTF(sc, "no remote\n");
 			if_inc_counter(sc->sc_ifp, IFCOUNTER_IERRORS, 1);
