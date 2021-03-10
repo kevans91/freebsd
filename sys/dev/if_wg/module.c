@@ -367,7 +367,7 @@ wg_detach(if_ctx_t ctx)
 
 	taskqgroup_drain_all(qgroup_if_io_tqg);
 	pause("link_down", hz/4);
-	wg_peer_remove_all(sc);
+	wg_peer_remove_all(sc, true);
 	mtx_destroy(&sc->sc_mtx);
 	rw_destroy(&sc->sc_index_lock);
 	taskqgroup_detach(qgroup_if_io_tqg, &sc->sc_handshake);
@@ -793,7 +793,7 @@ wgc_set(struct wg_softc *sc, struct ifdrv *ifd)
 	}
 	if (nvlist_exists_bool(nvl, "replace-peers") &&
 		nvlist_get_bool(nvl, "replace-peers"))
-		wg_peer_remove_all(sc);
+		wg_peer_remove_all(sc, false);
 	if (nvlist_exists_number(nvl, "listen-port")) {
 		int listen_port __unused = nvlist_get_number(nvl, "listen-port");
 			/*

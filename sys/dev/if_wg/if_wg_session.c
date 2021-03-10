@@ -1164,7 +1164,8 @@ wg_peer_free_deferred(epoch_context_t ctx)
 	rw_destroy(&peer->p_endpoint_lock);
 	zfree(peer, M_WG);
 
-	refcount_release(peercnt);
+	if (refcount_release(peercnt))
+		wakeup(__DEVOLATILE(u_int *, peercnt));
 }
 
 void
@@ -1980,7 +1981,7 @@ free:
 }
 
 void
-wg_peer_remove_all(struct wg_softc *sc)
+wg_peer_remove_all(struct wg_softc *sc, bool drain)
 {
 	struct wg_peer *peer, *tpeer;
 
@@ -1989,5 +1990,16 @@ wg_peer_remove_all(struct wg_softc *sc)
 		wg_hashtable_peer_remove(&peer->p_sc->sc_hashtable, peer);
 		/* FIXME -- needs to be deferred */
 		wg_peer_destroy(peer);
+	}
+
+	if (drain) {
+		/*
+		 * For drains, we wait until the peer count drops to 0.  Only
+		 * safe to do in a context that we can guarantee no other peers
+		 * will be created because we're running lockless right now.
+		 */
+		while (refcount_load(&sc->sc_peer_count) != 0)
+			tsleep(__DEVOLATILE(u_int *, &sc->sc_peer_count), 0,
+			    "wgpeergo", hz * 2);
 	}
 }

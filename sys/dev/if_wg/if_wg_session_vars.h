@@ -278,7 +278,7 @@ struct wg_tag {
 struct wg_peer *wg_route_lookup(struct wg_route_table *, struct mbuf *,
     enum route_direction);
 
-void	wg_peer_remove_all(struct wg_softc *);
+void	wg_peer_remove_all(struct wg_softc *, bool);
 struct wg_peer *wg_peer_alloc(struct wg_softc *);
 void	wg_peer_destroy(struct wg_peer *);
 
