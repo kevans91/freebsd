@@ -262,6 +262,7 @@ struct wg_softc {
 	u_long			 sc_index_mask;
 
 	struct mtx	sc_mtx;
+	volatile u_int	sc_peer_count;
 };
 
 struct wg_tag {

@@ -50,6 +50,7 @@ __FBSDID("$FreeBSD$");
 #include "if_wg_session.h"
 #include "if_wg_session_vars.h"
 #include "crypto.h"
+
 #include <sys/syslog.h>
 
 #include <netinet/in.h>
@@ -1110,6 +1111,7 @@ wg_peer_alloc(struct wg_softc *sc)
 	device_t dev;
 
 	dev = iflib_get_dev(sc->wg_ctx);
+
 	peer = malloc(sizeof(*peer), M_WG, M_WAITOK|M_ZERO);
 	peer->p_sc = sc;
 	peer->p_id = atomic_fetchadd_long(&peer_counter, 1);
@@ -1151,14 +1153,18 @@ static void
 wg_peer_free_deferred(epoch_context_t ctx)
 {
 	struct wg_peer *peer;
+	volatile u_int *peercnt;
 
 	peer = __containerof(ctx, struct wg_peer, p_ctx);
+	peercnt = &peer->p_sc->sc_peer_count;
 	counter_u64_free(peer->p_tx_bytes);
 	counter_u64_free(peer->p_rx_bytes);
 
 	rw_destroy(&peer->p_timers.t_lock);
 	rw_destroy(&peer->p_endpoint_lock);
 	zfree(peer, M_WG);
+
+	refcount_release(peercnt);
 }
 
 void

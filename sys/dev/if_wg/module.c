@@ -233,6 +233,7 @@ unpacked:
 	mbufq_init(&sc->sc_handshake_queue, MAX_QUEUED_INCOMING_HANDSHAKES);
 	mtx_init(&sc->sc_mtx, NULL, "wg softc lock",  MTX_DEF);
 	rw_init(&sc->sc_index_lock, "wg index lock");
+	refcount_init(&sc->sc_peer_count, 0);
 	sc->sc_encap_ring = buf_ring_alloc(MAX_QUEUED_PACKETS, M_WG, M_WAITOK, &sc->sc_mtx);
 	sc->sc_decap_ring = buf_ring_alloc(MAX_QUEUED_PACKETS, M_WG, M_WAITOK, &sc->sc_mtx);
 	GROUPTASK_INIT(&sc->sc_handshake, 0,
@@ -696,8 +697,20 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 		wg_route_delete(&peer->p_sc->sc_routes, peer);
 	}
 	if (peer == NULL) {
+		/*
+		 * Serialize peer additions for a brief moment to do peer
+		 * accounting.  Note that we don't bother locking on peer
+		 * removal, and a peer isn't discounted until deferred-release.
+		 */
+		mtx_lock(&sc->sc_mtx);
+		if (refcount_load(&sc->sc_peer_count) >= MAX_PEERS_PER_IFACE)
+			return (E2BIG);
+		refcount_acquire(&sc->sc_peer_count);
+		mtx_unlock(&sc->sc_mtx);
+
 		need_insert = true;
 		peer = wg_peer_alloc(sc);
+		MPASS(peer != NULL);
 		noise_remote_init(&peer->p_remote, pub_key, &sc->sc_local);
 		cookie_maker_init(&peer->p_cookie, pub_key);
 	}
