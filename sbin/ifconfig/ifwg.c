@@ -382,9 +382,9 @@ DECL_CMD_FUNC(peerlist, val, d)
 		errx(1, "failed to obtain peer list");
 
 	nvl = nvlist_unpack(packed, size, 0);
-	if (!nvlist_exists_nvlist_array(nvl, "peer-list"))
+	if (!nvlist_exists_nvlist_array(nvl, "peers"))
 		return;
-	nvl_peerlist = nvlist_get_nvlist_array(nvl, "peer-list", &peercount);
+	nvl_peerlist = nvlist_get_nvlist_array(nvl, "peers", &peercount);
 
 	for (int i = 0; i < peercount; i++, nvl_peerlist++) {
 		nvl_peer = *nvl_peerlist;
@@ -409,7 +409,7 @@ peerfinish(int s, void *arg)
 		errx(1, "must specify at least one range of allowed-ips to add a peer");
 
 	nvl_array[0] = nvl_params;
-	nvlist_add_nvlist_array(nvl, "peer-list", (const nvlist_t * const *)nvl_array, 1);
+	nvlist_add_nvlist_array(nvl, "peers", (const nvlist_t * const *)nvl_array, 1);
 	packed = nvlist_pack(nvl, &size);
 
 	if (do_cmd(s, WGC_SET, packed, size, true))
@@ -585,7 +585,9 @@ wireguard_status(int s)
 static struct cmd wireguard_cmds[] = {
     DEF_CLONE_CMD_ARG("listen-port",  setwglistenport),
     DEF_CLONE_CMD_ARG("private-key",  setwgprivkey),
+    /* XXX peer-list is deprecated. */
     DEF_CMD("peer-list",  0, peerlist),
+    DEF_CMD("peers",  0, peerlist),
     DEF_CMD("peer",  0, peerstart),
     DEF_CMD_ARG("public-key",  setwgpubkey),
     DEF_CMD_ARG("persistent-keepalive",  setwgpersistentkeepalive),
