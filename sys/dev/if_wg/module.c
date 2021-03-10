@@ -482,16 +482,16 @@ wg_peer_export_to_nvl(struct wg_peer_export *exp)
 
 	ts64.tv_sec = exp->last_handshake.tv_sec;
 	ts64.tv_nsec = exp->last_handshake.tv_nsec;
-	nvlist_add_binary(nvl, "last_handshake", &ts64, sizeof(ts64));
+	nvlist_add_binary(nvl, "last-handshake-time", &ts64, sizeof(ts64));
 
 	if (exp->persistent_keepalive != 0)
 		nvlist_add_number(nvl, "persistent-keepalive-interval",
 		    exp->persistent_keepalive);
 
 	if (exp->rx_bytes != 0)
-		nvlist_add_number(nvl, "rx_bytes", exp->rx_bytes);
+		nvlist_add_number(nvl, "rx-bytes", exp->rx_bytes);
 	if (exp->tx_bytes != 0)
-		nvlist_add_number(nvl, "tx_bytes", exp->tx_bytes);
+		nvlist_add_number(nvl, "tx-bytes", exp->tx_bytes);
 
 	return (nvl);
 }
@@ -560,10 +560,10 @@ wg_marshal_peers(struct wg_softc *sc, nvlist_t **nvlp, nvlist_t ***nvl_arrayp, i
 	}
 
 	if (nvl) {
-		nvlist_add_nvlist_array(nvl, "peer-list",
+		nvlist_add_nvlist_array(nvl, "peers",
 		    (const nvlist_t * const *)nvl_array, peer_count);
 		if ((err = nvlist_error(nvl))) {
-			printf("nvlist_add_nvlist_array(%p, \"peer-list\", %p, %d) => %d\n",
+			printf("nvlist_add_nvlist_array(%p, \"peers\", %p, %d) => %d\n",
 			    nvl, nvl_array, peer_count, err);
 			goto out;
 		}
@@ -613,7 +613,7 @@ wgc_get(struct wg_softc *sc, struct ifdrv *ifd)
 		err = wg_marshal_peers(sc, NULL, &nvl_array, &peer_count);
 		if (err)
 			goto out;
-		nvlist_add_nvlist_array(nvl, "peer-list",
+		nvlist_add_nvlist_array(nvl, "peers",
 		    (const nvlist_t * const *)nvl_array, peer_count);
 	}
 	packed = nvlist_pack(nvl, &size);
@@ -674,8 +674,8 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 		return (EINVAL);
 	}
 	peer = wg_peer_lookup(sc, pub_key);
-	if (nvlist_exists_bool(nvl, "peer-remove") &&
-		nvlist_get_bool(nvl, "peer-remove")) {
+	if (nvlist_exists_bool(nvl, "remove") &&
+		nvlist_get_bool(nvl, "remove")) {
 		if (peer != NULL) {
 			wg_hashtable_peer_remove(&sc->sc_hashtable, peer);
 			wg_peer_destroy(peer);
@@ -705,10 +705,10 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 		}
 		memcpy(&peer->p_endpoint.e_remote, endpoint, size);
 	}
-	if (nvlist_exists_binary(nvl, "pre-shared-key")) {
+	if (nvlist_exists_binary(nvl, "preshared-key")) {
 		const void *key;
 
-		key = nvlist_get_binary(nvl, "pre-shared-key", &size);
+		key = nvlist_get_binary(nvl, "preshared-key", &size);
 		noise_remote_set_psk(&peer->p_remote, key);
 	}
 	if (nvlist_exists_number(nvl, "persistent-keepalive-interval")) {
@@ -819,11 +819,11 @@ wgc_set(struct wg_softc *sc, struct ifdrv *ifd)
 		 * setsockopt
 		 */
 	}
-	if (nvlist_exists_nvlist_array(nvl, "peer-list")) {
+	if (nvlist_exists_nvlist_array(nvl, "peers")) {
 		size_t peercount;
 		const nvlist_t * const*nvl_peers;
 
-		nvl_peers = nvlist_get_nvlist_array(nvl, "peer-list", &peercount);
+		nvl_peers = nvlist_get_nvlist_array(nvl, "peers", &peercount);
 		for (int i = 0; i < peercount; i++) {
 			wg_peer_add(sc, nvl_peers[i]);
 		}
