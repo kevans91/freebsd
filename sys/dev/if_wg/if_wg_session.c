@@ -1168,7 +1168,6 @@ wg_peer_free_deferred(epoch_context_t ctx)
 	counter_u64_free(peer->p_tx_bytes);
 	counter_u64_free(peer->p_rx_bytes);
 
-	DPRINTF(peer->p_sc, "Peer %llu destroyed\n", (unsigned long long)peer->p_id);
 	rw_destroy(&peer->p_timers.t_lock);
 	rw_destroy(&peer->p_endpoint_lock);
 	zfree(peer, M_WG);
