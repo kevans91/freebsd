@@ -36,10 +36,10 @@
 #include <net/pfvar.h>
 #include <net/iflib.h>
 
-#include <sys/wg_noise.h>
-#include <sys/wg_cookie.h>
+#include "wg_noise.h"
+#include "wg_cookie.h"
 /* This is only needed for wg_keypair. */
-#include <sys/if_wg_session.h>
+#include "if_wg_session.h"
 
 #define UNIMPLEMENTED() panic("%s not implemented\n", __func__)
 

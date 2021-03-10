@@ -25,7 +25,7 @@
 
 #include <netinet/in.h>
 
-#include <sys/crypto.h>
+#include "crypto.h"
 
 #define COOKIE_MAC_SIZE		16
 #define COOKIE_KEY_SIZE		32

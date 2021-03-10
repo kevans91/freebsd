@@ -20,10 +20,8 @@
 #include <sys/param.h>
 #include <sys/rwlock.h>
 
-/* TODO I don't like including this from "sys/", can we move it to "wg/" or
- * something like that? */
-#include <sys/support.h>
-#include <sys/wg_noise.h>
+#include "support.h"
+#include "wg_noise.h"
 
 /* Private functions */
 static struct noise_keypair *

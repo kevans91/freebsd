@@ -9,7 +9,7 @@
 #include <sys/systm.h>
 #include <sys/kernel.h>
 
-#include <sys/crypto.h>
+#include "crypto.h"
 
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 #define le32_to_cpup(a) __builtin_bswap32(*(a))

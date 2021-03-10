@@ -56,12 +56,11 @@ __FBSDID("$FreeBSD$");
 
 #include "ifdi_if.h"
 
-#include <sys/wg_module.h>
-#include <sys/wg_noise.h>
-#include <sys/if_wg_session_vars.h>
-#include <sys/if_wg_session.h>
-
-#include <sys/crypto.h>
+#include "wg_module.h"
+#include "wg_noise.h"
+#include "if_wg_session_vars.h"
+#include "if_wg_session.h"
+#include "crypto.h"
 
 MALLOC_DEFINE(M_WG, "WG", "wireguard");
 

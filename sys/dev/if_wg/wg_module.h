@@ -33,17 +33,14 @@
 #include <sys/socket.h>
 #include <net/if.h>
 #include <net/if_var.h>
-#include <sys/support.h>
-
+#include "support.h"
 
 #include <sys/types.h>
 #include <sys/epoch.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
 
-
-
-#include <sys/crypto.h>
+#include "crypto.h"
 
 
 enum noise_lengths {

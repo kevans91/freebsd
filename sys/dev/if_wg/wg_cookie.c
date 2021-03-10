@@ -22,10 +22,8 @@
 #include <sys/malloc.h> /* Because systm doesn't include M_NOWAIT, M_DEVBUF */
 #include <sys/socket.h>
 
-/* TODO I don't like including this from "sys/", can we move it to "wg/" or
- * something like that? */
-#include <sys/support.h>
-#include <sys/wg_cookie.h>
+#include "support.h"
+#include "wg_cookie.h"
 
 static void	cookie_precompute_key(uint8_t *,
 			const uint8_t[COOKIE_INPUT_SIZE], const char *);

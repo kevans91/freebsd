@@ -46,10 +46,10 @@ __FBSDID("$FreeBSD$");
 
 #include <net/bpf.h>
 
-
-#include <sys/support.h>
-#include <sys/if_wg_session.h>
-#include <sys/if_wg_session_vars.h>
+#include "support.h"
+#include "if_wg_session.h"
+#include "if_wg_session_vars.h"
+#include "crypto.h"
 #include <sys/syslog.h>
 
 #include <netinet/in.h>
@@ -67,8 +67,6 @@ __FBSDID("$FreeBSD$");
 #include <netinet/udp_var.h>
 
 #include <machine/in_cksum.h>
-
-#include <sys/crypto.h>
 
 #define MAX_STAGED_PKT		128
 #define MAX_QUEUED_PKT		512
