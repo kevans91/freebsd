@@ -214,7 +214,7 @@ cookie_precompute_key(uint8_t *key, const uint8_t input[COOKIE_INPUT_SIZE],
 	blake2s_update(&blake, input, COOKIE_INPUT_SIZE);
 	/* TODO we shouldn't need to provide outlen to _final. we can align
 	 * this with openbsd after fixing the blake library. */
-	blake2s_final(&blake, key, COOKIE_KEY_SIZE);
+	blake2s_final(&blake, key);
 }
 
 static void
@@ -224,7 +224,7 @@ cookie_macs_mac1(struct cookie_macs *cm, const void *buf, size_t len,
 	struct blake2s_state state;
 	blake2s_init_key(&state, COOKIE_MAC_SIZE, key, COOKIE_KEY_SIZE);
 	blake2s_update(&state, buf, len);
-	blake2s_final(&state, cm->mac1, COOKIE_MAC_SIZE);
+	blake2s_final(&state, cm->mac1);
 }
 
 static void
@@ -235,7 +235,7 @@ cookie_macs_mac2(struct cookie_macs *cm, const void *buf, size_t len,
 	blake2s_init_key(&state, COOKIE_MAC_SIZE, key, COOKIE_COOKIE_SIZE);
 	blake2s_update(&state, buf, len);
 	blake2s_update(&state, cm->mac1, COOKIE_MAC_SIZE);
-	blake2s_final(&state, cm->mac2, COOKIE_MAC_SIZE);
+	blake2s_final(&state, cm->mac2);
 }
 
 static int
@@ -273,14 +273,14 @@ cookie_checker_make_cookie(struct cookie_checker *cc,
 				sizeof(struct in_addr));
 		blake2s_update(&state, (uint8_t *)&satosin(sa)->sin_port,
 				sizeof(in_port_t));
-		blake2s_final(&state, cookie, COOKIE_COOKIE_SIZE);
+		blake2s_final(&state, cookie);
 #ifdef INET6
 	} else if (sa->sa_family == AF_INET6) {
 		blake2s_update(&state, (uint8_t *)&satosin6(sa)->sin6_addr,
 				sizeof(struct in6_addr));
 		blake2s_update(&state, (uint8_t *)&satosin6(sa)->sin6_port,
 				sizeof(in_port_t));
-		blake2s_final(&state, cookie, COOKIE_COOKIE_SIZE);
+		blake2s_final(&state, cookie);
 #endif
 	} else {
 		arc4random_buf(cookie, COOKIE_COOKIE_SIZE);

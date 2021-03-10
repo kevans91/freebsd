@@ -43,9 +43,7 @@
 
 
 
-#include <crypto/curve25519.h>
-#include <zinc/chacha20poly1305.h>
-#include <crypto/blake2s.h>
+#include <sys/crypto.h>
 
 
 enum noise_lengths {

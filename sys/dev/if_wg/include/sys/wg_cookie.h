@@ -25,10 +25,7 @@
 
 #include <netinet/in.h>
 
-/* TODO fixup imports once crypto is cleaned up */
-#include <zinc/chacha20poly1305.h>
-#include <crypto/blake2s.h>
-//#include <crypto/siphash.h>
+#include <sys/crypto.h>
 
 #define COOKIE_MAC_SIZE		16
 #define COOKIE_KEY_SIZE		32

@@ -22,10 +22,7 @@
 #include <sys/time.h>
 #include <sys/rwlock.h>
 
-/* TODO fixup imports once crypto is cleaned up */
-#include <crypto/blake2s.h>
-#include <zinc/chacha20poly1305.h>
-#include <crypto/curve25519.h>
+#include <sys/crypto.h>
 
 #define NOISE_PUBLIC_KEY_LEN	CURVE25519_KEY_SIZE
 #define NOISE_SYMMETRIC_KEY_LEN	CHACHA20POLY1305_KEY_SIZE

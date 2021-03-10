@@ -863,9 +863,7 @@ noise_mix_hash(uint8_t hash[NOISE_HASH_LEN], const uint8_t *src,
 	blake2s_init(&blake, NOISE_HASH_LEN);
 	blake2s_update(&blake, hash, NOISE_HASH_LEN);
 	blake2s_update(&blake, src, src_len);
-	/* TODO we shouldn't need to provide outlen to _final. we can align
-	 * this with openbsd after fixing the blake library. */
-	blake2s_final(&blake, hash, NOISE_HASH_LEN);
+	blake2s_final(&blake, hash);
 }
 
 static void
@@ -894,7 +892,7 @@ noise_param_init(uint8_t ck[NOISE_HASH_LEN], uint8_t hash[NOISE_HASH_LEN],
 	blake2s_update(&blake, ck, NOISE_HASH_LEN);
 	blake2s_update(&blake, (uint8_t *)NOISE_IDENTIFIER_NAME,
 	    strlen(NOISE_IDENTIFIER_NAME));
-	blake2s_final(&blake, hash, NOISE_HASH_LEN);
+	blake2s_final(&blake, hash);
 
 	noise_mix_hash(hash, s, NOISE_PUBLIC_KEY_LEN);
 }

@@ -66,9 +66,9 @@ __FBSDID("$FreeBSD$");
 #include <netinet6/in6_pcb.h>
 #include <netinet/udp_var.h>
 
-#include <crypto/blake2s.h>
-#include <crypto/curve25519.h>
 #include <machine/in_cksum.h>
+
+#include <sys/crypto.h>
 
 #define MAX_STAGED_PKT		128
 #define MAX_QUEUED_PKT		512
