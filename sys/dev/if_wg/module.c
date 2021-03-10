@@ -945,7 +945,7 @@ wg_module_event_handler(module_t mod, int what, void *arg)
 				return (err);
 			break;
 		case MOD_UNLOAD:
-			if (clone_count == 0)
+			if (atomic_load_int(&clone_count) == 0)
 				wg_module_deinit();
 			else
 				return (EBUSY);
