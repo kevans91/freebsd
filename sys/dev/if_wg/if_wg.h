@@ -54,8 +54,8 @@ struct wg_allowedip {
 #endif
 
 typedef enum {
-	WGC_GET = 0x5,
-	WGC_SET = 0x6,
+	WGC_GET = 0,
+	WGC_SET = 1,
 } wg_cmd_t;
 /* end TODO */
 
