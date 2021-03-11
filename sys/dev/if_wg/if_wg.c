@@ -1995,6 +1995,7 @@ void
 wg_peer_remove_all(struct wg_softc *sc, bool drain)
 {
 	struct wg_peer *peer, *tpeer;
+	int error;
 
 	CK_LIST_FOREACH_SAFE(peer, &sc->sc_hashtable.h_peers_list,
 	    p_entry, tpeer) {
@@ -2004,13 +2005,17 @@ wg_peer_remove_all(struct wg_softc *sc, bool drain)
 	}
 
 	if (drain) {
+		error = EWOULDBLOCK;
+
 		/*
 		 * For drains, we wait until the peer count drops to 0.  Only
 		 * safe to do in a context that we can guarantee no other peers
 		 * will be created because we're running lockless right now.
 		 */
-		while (refcount_load(&sc->sc_peer_count) != 0)
-			tsleep(__DEVOLATILE(u_int *, &sc->sc_peer_count), 0,
-			    "wgpeergo", hz * 2);
+		while (error != 0 && refcount_load(&sc->sc_peer_count) != 0) {
+			error = tsleep_sbt(__DEVOLATILE(u_int *,
+			    &sc->sc_peer_count), 0, "wgpeergo",
+			    SBT_1S / 4, SBT_1MS, 0);
+		}
 	}
 }
