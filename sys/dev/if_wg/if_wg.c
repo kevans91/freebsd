@@ -1242,6 +1242,30 @@ wg_route_populate_aip6(struct wg_route *aip, const struct in6_addr *addr,
 	in6_prefixlen2mask(&rmask->sin6_addr, mask);
 }
 
+/* wg_route_take assumes that the caller guarantees the allowed-ip exists. */
+static void
+wg_route_take(struct radix_node_head *root, struct wg_peer *peer,
+    struct wg_route *route)
+{
+	struct radix_node *node;
+	struct wg_peer *ppeer;
+
+	RADIX_NODE_HEAD_LOCK_ASSERT(root);
+
+	node = root->rnh_lookup(&route->r_addr, &route->r_mask,
+	    &root->rh);
+	MPASS(node != NULL);
+
+	route = (struct wg_route *)node;
+	ppeer = route->r_peer;
+	if (ppeer != peer) {
+		route->r_peer = peer;
+
+		CK_LIST_REMOVE(route, r_entry);
+		CK_LIST_INSERT_HEAD(&peer->p_routes, route, r_entry);
+	}
+}
+
 static int
 wg_route_add(struct wg_route_table *tbl, struct wg_peer *peer,
 			 const struct wg_allowedip *aip)
@@ -1282,6 +1306,7 @@ wg_route_add(struct wg_route_table *tbl, struct wg_peer *peer,
 		CK_LIST_INSERT_HEAD(&peer->p_routes, route, r_entry);
 	} else {
 		needfree = true;
+		wg_route_take(root, peer, route);
 	}
 	RADIX_NODE_HEAD_UNLOCK(root);
 	if (needfree) {
