@@ -1231,6 +1231,7 @@ wg_route_populate_aip4(struct wg_route *aip, const struct in_addr *addr,
 		p[i] = 0xff;
 	if ((mask % NBBY) != 0)
 		p[i] = (0xff00 >> (mask % NBBY)) & 0xff;
+	raddr->sin_addr.s_addr &= rmask->sin_addr.s_addr;
 }
 
 static void
@@ -1248,6 +1249,8 @@ wg_route_populate_aip6(struct wg_route *aip, const struct in6_addr *addr,
 
 	rmask->sin6_len = sizeof(*rmask);
 	in6_prefixlen2mask(&rmask->sin6_addr, mask);
+	for (int i = 0; i < 4; ++i)
+		raddr->sin6_addr.__u6_addr.__u6_addr32[i] &= rmask->sin6_addr.__u6_addr.__u6_addr32[i];
 }
 
 /* wg_route_take assumes that the caller guarantees the allowed-ip exists. */
