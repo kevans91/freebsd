@@ -2933,13 +2933,6 @@ wgc_get(struct wg_softc *sc, struct wg_data_io *wgd)
 	return (err);
 }
 
-static bool
-wg_allowedip_valid(const struct wg_allowedip *wip)
-{
-
-	return (true);
-}
-
 static int
 wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 {
@@ -3055,13 +3048,6 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 				memcpy(&aip.ip6, binary, sizeof(aip.ip6));
 			} else {
 				continue;
-			}
-
-			if (!wg_allowedip_valid(&aip)) {
-				if_printf(ifp, "%s allowedip %ju not valid\n",
-				    __func__, (uintmax_t)idx);
-				err = EBADMSG;
-				goto out;
 			}
 
 			if ((err = wg_route_add(&sc->sc_routes, peer, &aip)) != 0) {
