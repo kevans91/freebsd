@@ -1308,7 +1308,8 @@ wg_peer_remove(struct radix_node *rn, void *arg)
 
 	if (route->r_peer != peer)
 		return (0);
-	x = (struct radix_node *)rnh->rnh_deladdr(&route->r_addr, NULL, &rnh->rh);
+	x = (struct radix_node *)rnh->rnh_deladdr(&route->r_addr,
+	    &route->r_mask, &rnh->rh);
 	if (x != NULL)	 {
 		tbl->t_count--;
 		CK_LIST_REMOVE(route, r_entry);
