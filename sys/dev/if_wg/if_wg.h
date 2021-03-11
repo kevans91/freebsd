@@ -20,6 +20,21 @@
 #ifndef __IF_WG_H__
 #define __IF_WG_H__
 
+/* See TODO below; IPC stuff for userland, probably needs a better home. */
+typedef enum {
+	WGC_GET = 0,
+	WGC_SET = 1,
+} wg_cmd_t;
+
+struct wg_allowedip {
+	struct sockaddr_storage a_addr;
+	struct sockaddr_storage a_mask;
+};
+
+#define WG_KEY_SIZE	32
+
+#ifdef _KERNEL
+
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/time.h>
@@ -44,24 +59,13 @@
 
 /* TODO this what is left of if_wg_session.h. It will need looking at (as well
  * as the rest of this file). */
-struct wg_allowedip {
-	struct sockaddr_storage a_addr;
-	struct sockaddr_storage a_mask;
-};
-
 #ifndef ENOKEY
 #define	ENOKEY	ENOTCAPABLE
 #endif
-
-typedef enum {
-	WGC_GET = 0,
-	WGC_SET = 1,
-} wg_cmd_t;
 /* end TODO */
 
 #define UNIMPLEMENTED() panic("%s not implemented\n", __func__)
 
-#define WG_KEY_SIZE		 	32
 #define WG_MSG_PADDING_SIZE 		16
 
 /* Constant for session */
@@ -331,5 +335,7 @@ void wg_encrypt_dispatch(struct wg_softc *);
 void wg_decrypt_dispatch(struct wg_softc *);
 
 struct wg_tag *wg_tag_get(struct mbuf *m);
+
+#endif /* _KERNEL */
 
 #endif /* __IF_WG_H__ */

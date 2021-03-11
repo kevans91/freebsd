@@ -46,6 +46,8 @@ __FBSDID("$FreeBSD$");
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <dev/if_wg/if_wg.h>
+
 #include <assert.h>
 #include <ctype.h>
 #include <err.h>
@@ -65,40 +67,30 @@ __FBSDID("$FreeBSD$");
 
 #include "ifconfig.h"
 
-typedef enum {
-	WGC_GET = 0,
-	WGC_SET = 1,
-} wg_cmd_t;
-
 static nvlist_t *nvl_params;
 static bool do_peer;
 static int allowed_ips_count;
 static int allowed_ips_max;
-struct allowedip {
-	struct sockaddr_storage a_addr;
-	struct sockaddr_storage a_mask;
-};
-struct allowedip *allowed_ips;
+struct wg_allowedip *allowed_ips;
 
 #define	ALLOWEDIPS_START 16
-#define	WG_KEY_LEN 32
-#define	WG_KEY_LEN_BASE64 ((((WG_KEY_LEN) + 2) / 3) * 4 + 1)
-#define	WG_KEY_LEN_HEX (WG_KEY_LEN * 2 + 1)
+#define	WG_KEY_SIZE_BASE64 ((((WG_KEY_SIZE) + 2) / 3) * 4 + 1)
+#define	WG_KEY_SIZE_HEX (WG_KEY_SIZE * 2 + 1)
 #define	WG_MAX_STRLEN 64
 
 static bool
-key_from_base64(uint8_t key[static WG_KEY_LEN], const char *base64)
+key_from_base64(uint8_t key[static WG_KEY_SIZE], const char *base64)
 {
 
-	if (strlen(base64) != WG_KEY_LEN_BASE64 - 1) {
-		warnx("bad key len - need %d got %zu\n", WG_KEY_LEN_BASE64 - 1, strlen(base64));
+	if (strlen(base64) != WG_KEY_SIZE_BASE64 - 1) {
+		warnx("bad key len - need %d got %zu\n", WG_KEY_SIZE_BASE64 - 1, strlen(base64));
 		return false;
 	}
-	if (base64[WG_KEY_LEN_BASE64 - 2] != '=') {
-		warnx("bad key terminator, expected '=' got '%c'", base64[WG_KEY_LEN_BASE64 - 2]);
+	if (base64[WG_KEY_SIZE_BASE64 - 2] != '=') {
+		warnx("bad key terminator, expected '=' got '%c'", base64[WG_KEY_SIZE_BASE64 - 2]);
 		return false;
 	}
-	return (b64_pton(base64, key, WG_KEY_LEN));
+	return (b64_pton(base64, key, WG_KEY_SIZE));
 }
 
 static void
@@ -227,7 +219,7 @@ in6_mask2len(struct in6_addr *mask, u_char *lim0)
 }
 
 static bool
-parse_ip(struct allowedip *aip, const char *value)
+parse_ip(struct wg_allowedip *aip, const char *value)
 {
 	struct addrinfo hints, *res;
 	int err;
@@ -274,7 +266,7 @@ static void
 dump_peer(const nvlist_t *nvl_peer)
 {
 	const void *key;
-	const struct allowedip *aips;
+	const struct wg_allowedip *aips;
 	const struct sockaddr *endpoint;
 	char outbuf[WG_MAX_STRLEN];
 	char addr_buf[INET6_ADDRSTRLEN];
@@ -301,11 +293,11 @@ dump_peer(const nvlist_t *nvl_peer)
 	if (!nvlist_exists_binary(nvl_peer, "allowed-ips"))
 		return;
 	aips = nvlist_get_binary(nvl_peer, "allowed-ips", &size);
-	if (size == 0 || size % sizeof(struct allowedip) != 0) {
+	if (size == 0 || size % sizeof(struct wg_allowedip) != 0) {
 		errx(1, "size %zu not integer multiple of allowedip", size);
 	}
 	printf("AllowedIPs = ");
-	count = size / sizeof(struct allowedip);
+	count = size / sizeof(struct wg_allowedip);
 	for (int i = 0; i < count; i++) {
 		int mask;
 		sa_family_t family;
@@ -421,7 +413,7 @@ DECL_CMD_FUNC(peerstart, val, d)
 {
 	do_peer = true;
 	callback_register(peerfinish, NULL);
-	allowed_ips = malloc(ALLOWEDIPS_START * sizeof(struct allowedip));
+	allowed_ips = malloc(ALLOWEDIPS_START * sizeof(struct wg_allowedip));
 	allowed_ips_max = ALLOWEDIPS_START;
 	if (allowed_ips == NULL)
 		errx(1, "failed to allocate array for allowedips");
@@ -460,24 +452,24 @@ DECL_CMD_FUNC(setwglistenport, val, d)
 static
 DECL_CMD_FUNC(setwgprivkey, val, d)
 {
-	uint8_t key[WG_KEY_LEN];
+	uint8_t key[WG_KEY_SIZE];
 
 	if (!key_from_base64(key, val))
 		errx(1, "invalid key %s", val);
-	nvlist_add_binary(nvl_params, "private-key", key, WG_KEY_LEN);
+	nvlist_add_binary(nvl_params, "private-key", key, WG_KEY_SIZE);
 }
 
 static
 DECL_CMD_FUNC(setwgpubkey, val, d)
 {
-	uint8_t key[WG_KEY_LEN];
+	uint8_t key[WG_KEY_SIZE];
 
 	if (!do_peer)
 		errx(1, "setting public key only valid when adding peer");
 
 	if (!key_from_base64(key, val))
 		errx(1, "invalid key %s", val);
-	nvlist_add_binary(nvl_params, "public-key", key, WG_KEY_LEN);
+	nvlist_add_binary(nvl_params, "public-key", key, WG_KEY_SIZE);
 }
 
 static
@@ -506,7 +498,7 @@ DECL_CMD_FUNC(setallowedips, val, d)
 	char *base, *allowedip, *mask;
 	u_long ul;
 	char *endp;
-	struct allowedip *aip;
+	struct wg_allowedip *aip;
 
 	if (!do_peer)
 		errx(1, "setting allowed ip only valid when adding peer");
@@ -555,7 +547,7 @@ wireguard_status(int s)
 	size_t size;
 	void *packed;
 	nvlist_t *nvl;
-	char buf[WG_KEY_LEN_BASE64];
+	char buf[WG_KEY_SIZE_BASE64];
 	const void *key;
 	uint16_t listen_port;
 
