@@ -256,10 +256,10 @@ struct wg_route_table {
 };
 
 struct wg_route {
-	struct sockaddr_storage	addr;
-	struct sockaddr_storage	mask;
 	struct radix_node	 r_nodes[2];
 	CK_LIST_ENTRY(wg_route)	 r_entry;
+	struct sockaddr_storage	 r_addr;
+	struct sockaddr_storage	 r_mask;
 	struct wg_peer		*r_peer;
 };
 
@@ -1201,8 +1201,8 @@ wg_route_populate_aip4(struct wg_route *aip, const struct in_addr *addr,
 	uint8_t *p;
 	unsigned int i;
 
-	raddr = (struct sockaddr_in *)&aip->addr;
-	rmask = (struct sockaddr_in *)&aip->mask;
+	raddr = (struct sockaddr_in *)&aip->r_addr;
+	rmask = (struct sockaddr_in *)&aip->r_mask;
 
 	raddr->sin_len = sizeof(*raddr);
 	raddr->sin_family = AF_INET;
@@ -1222,8 +1222,8 @@ wg_route_populate_aip6(struct wg_route *aip, const struct in6_addr *addr,
 {
 	struct sockaddr_in6 *raddr, *rmask;
 
-	raddr = (struct sockaddr_in6 *)&aip->addr;
-	rmask = (struct sockaddr_in6 *)&aip->mask;
+	raddr = (struct sockaddr_in6 *)&aip->r_addr;
+	rmask = (struct sockaddr_in6 *)&aip->r_mask;
 
 	raddr->sin6_len = sizeof(*raddr);
 	raddr->sin6_family = AF_INET6;
@@ -1266,7 +1266,7 @@ wg_route_add(struct wg_route_table *tbl, struct wg_peer *peer,
 	route->r_peer = peer;
 
 	RADIX_NODE_HEAD_LOCK(root);
-	node = root->rnh_addaddr(&route->addr, &route->mask, &root->rh,
+	node = root->rnh_addaddr(&route->r_addr, &route->r_mask, &root->rh,
 							route->r_nodes);
 	if (node == route->r_nodes) {
 		tbl->t_count++;
@@ -1299,7 +1299,7 @@ wg_peer_remove(struct radix_node *rn, void *arg)
 
 	if (route->r_peer != peer)
 		return (0);
-	x = (struct radix_node *)rnh->rnh_deladdr(&route->addr, NULL, &rnh->rh);
+	x = (struct radix_node *)rnh->rnh_deladdr(&route->r_addr, NULL, &rnh->rh);
 	if (x != NULL)	 {
 		tbl->t_count--;
 		CK_LIST_REMOVE(route, r_entry);
@@ -2749,22 +2749,22 @@ wg_peer_to_export(struct wg_peer *peer, struct wg_peer_export *exp)
 
 	i = 0;
 	CK_LIST_FOREACH(rt, &peer->p_routes, r_entry) {
-		exp->aip[i].family = rt->addr.ss_family;
+		exp->aip[i].family = rt->r_addr.ss_family;
 		if (exp->aip[i].family == AF_INET) {
 			struct sockaddr_in *sin =
-			    (struct sockaddr_in *)&rt->addr;
+			    (struct sockaddr_in *)&rt->r_addr;
 
 			exp->aip[i].ip4 = sin->sin_addr;
 
-			sin = (struct sockaddr_in *)&rt->mask;
+			sin = (struct sockaddr_in *)&rt->r_mask;
 			exp->aip[i].cidr = in_mask2len(&sin->sin_addr);
 		} else if (exp->aip[i].family == AF_INET6) {
 			struct sockaddr_in6 *sin6 =
-			    (struct sockaddr_in6 *)&rt->addr;
+			    (struct sockaddr_in6 *)&rt->r_addr;
 
 			exp->aip[i].ip6 = sin6->sin6_addr;
 
-			sin6 = (struct sockaddr_in6 *)&rt->mask;
+			sin6 = (struct sockaddr_in6 *)&rt->r_mask;
 			exp->aip[i].cidr = in6_mask2len(&sin6->sin6_addr, NULL);
 		}
 		i++;
