@@ -38,8 +38,6 @@
 
 MALLOC_DECLARE(M_WG);
 
-#define CONTAINER_OF(a, b, c) __containerof((a), b, c)
-
 #include <crypto/siphash/siphash.h>
 typedef struct {
 	uint64_t	k0;
