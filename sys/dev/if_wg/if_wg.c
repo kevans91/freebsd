@@ -255,14 +255,9 @@ struct wg_route_table {
 	struct radix_node_head	*t_ip6;
 };
 
-struct wg_route_cidr {
-	/* TODO it might make sense to merge into wg_route? */
+struct wg_route {
 	struct sockaddr_storage	addr;
 	struct sockaddr_storage	mask;
-};
-
-struct wg_route {
-	struct wg_route_cidr	 r_cidr;
 	struct radix_node	 r_nodes[2];
 	CK_LIST_ENTRY(wg_route)	 r_entry;
 	struct wg_peer		*r_peer;
@@ -468,8 +463,8 @@ static int wg_queue_in(struct wg_peer *, struct mbuf *);
 static int wg_queue_out(struct wg_peer *, struct mbuf *);
 static int wg_route_init(struct wg_route_table *);
 static void wg_route_destroy(struct wg_route_table *);
-static void wg_route_populate_cidr4(struct wg_route_cidr *, const struct in_addr *, uint8_t);
-static void wg_route_populate_cidr6(struct wg_route_cidr *, const struct in6_addr *, uint8_t);
+static void wg_route_populate_aip4(struct wg_route *, const struct in_addr *, uint8_t);
+static void wg_route_populate_aip6(struct wg_route *, const struct in6_addr *, uint8_t);
 static int wg_route_add(struct wg_route_table *, struct wg_peer *, const struct wg_allowedip *);
 static int wg_peer_remove(struct radix_node *, void *);
 static int wg_route_delete(struct wg_route_table *, struct wg_peer *);
@@ -1199,16 +1194,13 @@ wg_route_destroy(struct wg_route_table *tbl)
 }
 
 static void
-wg_route_populate_cidr4(struct wg_route_cidr *cidr, const struct in_addr *addr,
+wg_route_populate_aip4(struct wg_route *aip, const struct in_addr *addr,
     uint8_t mask)
 {
 	struct sockaddr_in *raddr, *rmask;
 
-	raddr = (struct sockaddr_in *)&cidr->addr;
-	rmask = (struct sockaddr_in *)&cidr->mask;
-
-	memset(raddr, 0, sizeof(*raddr));
-	memset(rmask, 0, sizeof(*rmask));
+	raddr = (struct sockaddr_in *)&aip->addr;
+	rmask = (struct sockaddr_in *)&aip->mask;
 
 	raddr->sin_len = sizeof(*raddr);
 	raddr->sin_family = AF_INET;
@@ -1220,24 +1212,21 @@ wg_route_populate_cidr4(struct wg_route_cidr *cidr, const struct in_addr *addr,
 }
 
 static void
-wg_route_populate_cidr6(struct wg_route_cidr *cidr, const struct in6_addr *addr,
+wg_route_populate_aip6(struct wg_route *aip, const struct in6_addr *addr,
     uint8_t mask)
 {
 	struct sockaddr_in6 *raddr, *rmask;
 	u_char *cp;
 
-	raddr = (struct sockaddr_in6 *)&cidr->addr;
-	rmask = (struct sockaddr_in6 *)&cidr->mask;
-
-	memset(raddr, 0, sizeof(*raddr));
-	memset(rmask, 0, sizeof(*rmask));
+	raddr = (struct sockaddr_in6 *)&aip->addr;
+	rmask = (struct sockaddr_in6 *)&aip->mask;
 
 	raddr->sin6_len = sizeof(*raddr);
-	raddr->sin6_family = AF_INET;
+	raddr->sin6_family = AF_INET6;
 	raddr->sin6_addr = *addr;
 
 	rmask->sin6_len = sizeof(*rmask);
-	rmask->sin6_family = AF_INET;
+	rmask->sin6_family = AF_INET6;
 	if (mask == 0) {
 		return;
 	} else if (mask == 128) {
@@ -1257,7 +1246,6 @@ wg_route_add(struct wg_route_table *tbl, struct wg_peer *peer,
 	struct radix_node_head	*root;
 	struct wg_route *route;
 	sa_family_t family;
-	struct wg_route_cidr *cidr;
 	bool needfree = false;
 
 	family = aip->family;
@@ -1267,24 +1255,23 @@ wg_route_add(struct wg_route_table *tbl, struct wg_peer *peer,
 	}
 
 	route = malloc(sizeof(*route), M_WG, M_WAITOK|M_ZERO);
-	cidr = &route->r_cidr;
 	switch (family) {
 	case AF_INET:
 		root = tbl->t_ip;
 
-		wg_route_populate_cidr4(cidr, &aip->ip4, aip->cidr);
+		wg_route_populate_aip4(route, &aip->ip4, aip->cidr);
 		break;
 	case AF_INET6:
 		root = tbl->t_ip6;
 
-		wg_route_populate_cidr6(cidr, &aip->ip6, aip->cidr);
+		wg_route_populate_aip6(route, &aip->ip6, aip->cidr);
 		break;
 	}
 
 	route->r_peer = peer;
 
 	RADIX_NODE_HEAD_LOCK(root);
-	node = root->rnh_addaddr(&cidr->addr, &cidr->mask, &root->rh,
+	node = root->rnh_addaddr(&route->addr, &route->mask, &root->rh,
 							route->r_nodes);
 	if (node == route->r_nodes) {
 		tbl->t_count++;
@@ -1317,7 +1304,7 @@ wg_peer_remove(struct radix_node *rn, void *arg)
 
 	if (route->r_peer != peer)
 		return (0);
-	x = (struct radix_node *)rnh->rnh_deladdr(&route->r_cidr.addr, NULL, &rnh->rh);
+	x = (struct radix_node *)rnh->rnh_deladdr(&route->addr, NULL, &rnh->rh);
 	if (x != NULL)	 {
 		tbl->t_count--;
 		CK_LIST_REMOVE(route, r_entry);
