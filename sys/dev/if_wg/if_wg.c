@@ -1198,6 +1198,8 @@ wg_route_populate_aip4(struct wg_route *aip, const struct in_addr *addr,
     uint8_t mask)
 {
 	struct sockaddr_in *raddr, *rmask;
+	uint8_t *p;
+	unsigned int i;
 
 	raddr = (struct sockaddr_in *)&aip->addr;
 	rmask = (struct sockaddr_in *)&aip->mask;
@@ -1207,8 +1209,11 @@ wg_route_populate_aip4(struct wg_route *aip, const struct in_addr *addr,
 	raddr->sin_addr = *addr;
 
 	rmask->sin_len = sizeof(*rmask);
-	rmask->sin_family = AF_INET;
-	rmask->sin_addr.s_addr = ~0U << (32 - mask);
+	p = (uint8_t *)&rmask->sin_addr.s_addr;
+	for (i = 0; i < mask / NBBY; i++)
+		p[i] = 0xff;
+	if ((mask % NBBY) != 0)
+		p[i] = (0xff00 >> (mask % NBBY)) & 0xff;
 }
 
 static void
@@ -1216,7 +1221,6 @@ wg_route_populate_aip6(struct wg_route *aip, const struct in6_addr *addr,
     uint8_t mask)
 {
 	struct sockaddr_in6 *raddr, *rmask;
-	u_char *cp;
 
 	raddr = (struct sockaddr_in6 *)&aip->addr;
 	rmask = (struct sockaddr_in6 *)&aip->mask;
@@ -1226,16 +1230,7 @@ wg_route_populate_aip6(struct wg_route *aip, const struct in6_addr *addr,
 	raddr->sin6_addr = *addr;
 
 	rmask->sin6_len = sizeof(*rmask);
-	rmask->sin6_family = AF_INET6;
-	if (mask == 0) {
-		return;
-	} else if (mask == 128) {
-		memset(&rmask->sin6_addr, 0xff, sizeof(struct in6_addr));
-	}
-
-	for (cp = (u_char *)&rmask->sin6_addr; mask > 7; mask -= 8)
-		*cp++ = 0xff;
-	*cp = 0xff << (8 - mask);
+	in6_prefixlen2mask(&rmask->sin6_addr, mask);
 }
 
 static int
