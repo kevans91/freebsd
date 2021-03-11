@@ -2685,6 +2685,27 @@ wg_clone_destroy(struct ifnet *ifp)
 	atomic_add_int(&clone_count, -1);
 }
 
+static unsigned int
+in_mask2len(struct in_addr *mask)
+{
+	unsigned int x, y;
+	uint8_t *p;
+
+	p = (uint8_t *)mask;
+	for (x = 0; x < sizeof(*mask); x++) {
+		if (p[x] != 0xff)
+			break;
+	}
+	y = 0;
+	if (x < sizeof(*mask)) {
+		for (y = 0; y < NBBY; y++) {
+			if ((p[x] & (0x80 >> y)) == 0)
+				break;
+		}
+	}
+	return x * NBBY + y;
+}
+
 static int
 wg_peer_to_export(struct wg_peer *peer, struct wg_peer_export *exp)
 {
@@ -2728,7 +2749,25 @@ wg_peer_to_export(struct wg_peer *peer, struct wg_peer_export *exp)
 
 	i = 0;
 	CK_LIST_FOREACH(rt, &peer->p_routes, r_entry) {
-		memcpy(&exp->aip[i++], &rt->r_cidr, sizeof(*exp->aip));
+		exp->aip[i].family = rt->addr.ss_family;
+		if (exp->aip[i].family == AF_INET) {
+			struct sockaddr_in *sin =
+			    (struct sockaddr_in *)&rt->addr;
+
+			exp->aip[i].ip4 = sin->sin_addr;
+
+			sin = (struct sockaddr_in *)&rt->mask;
+			exp->aip[i].cidr = in_mask2len(&sin->sin_addr);
+		} else if (exp->aip[i].family == AF_INET6) {
+			struct sockaddr_in6 *sin6 =
+			    (struct sockaddr_in6 *)&rt->addr;
+
+			exp->aip[i].ip6 = sin6->sin6_addr;
+
+			sin6 = (struct sockaddr_in6 *)&rt->mask;
+			exp->aip[i].cidr = in6_mask2len(&sin6->sin6_addr, NULL);
+		}
+		i++;
 		if (i == exp->aip_count)
 			break;
 	}
@@ -2743,8 +2782,11 @@ static nvlist_t *
 wg_peer_export_to_nvl(struct wg_peer_export *exp)
 {
 	struct wg_timespec64 ts64;
-	nvlist_t *nvl;
+	nvlist_t *nvl, **nvl_aips;
+	size_t i;
+	uint16_t family;
 
+	nvl_aips = NULL;
 	if ((nvl = nvlist_create(0)) == NULL)
 		return (NULL);
 
@@ -2753,8 +2795,35 @@ wg_peer_export_to_nvl(struct wg_peer_export *exp)
 		nvlist_add_binary(nvl, "endpoint", &exp->endpoint,
 		    exp->endpoint_sz);
 
-	nvlist_add_binary(nvl, "allowed-ips", exp->aip,
-	    exp->aip_count * sizeof(*exp->aip));
+	if (exp->aip_count != 0) {
+		nvl_aips = mallocarray(exp->aip_count, sizeof(*nvl_aips),
+		    M_WG, M_WAITOK | M_ZERO);
+	}
+
+	for (i = 0; i < exp->aip_count; i++) {
+		nvl_aips[i] = nvlist_create(0);
+		if (nvl_aips[i] == NULL)
+			goto err;
+		family = exp->aip[i].family;
+		nvlist_add_number(nvl_aips[i], "cidr", exp->aip[i].cidr);
+		if (family == AF_INET)
+			nvlist_add_binary(nvl_aips[i], "ipv4",
+			    &exp->aip[i].ip4, sizeof(exp->aip[i].ip4));
+		else if (family == AF_INET6)
+			nvlist_add_binary(nvl_aips[i], "ipv6",
+			    &exp->aip[i].ip6, sizeof(exp->aip[i].ip6));
+	}
+
+	if (i != 0) {
+		nvlist_add_nvlist_array(nvl, "allowed-ips",
+		    (const nvlist_t *const *)nvl_aips, i);
+	}
+
+	for (i = 0; i < exp->aip_count; ++i)
+		nvlist_destroy(nvl_aips[i]);
+
+	free(nvl_aips, M_WG);
+	nvl_aips = NULL;
 
 	ts64.tv_sec = exp->last_handshake.tv_sec;
 	ts64.tv_nsec = exp->last_handshake.tv_nsec;
@@ -2770,6 +2839,14 @@ wg_peer_export_to_nvl(struct wg_peer_export *exp)
 		nvlist_add_number(nvl, "tx-bytes", exp->tx_bytes);
 
 	return (nvl);
+err:
+	for (i = 0; i < exp->aip_count && nvl_aips[i] != NULL; i++) {
+		nvlist_destroy(nvl_aips[i]);
+	}
+
+	free(nvl_aips, M_WG);
+	nvlist_destroy(nvl);
+	return (NULL);
 }
 
 static int
