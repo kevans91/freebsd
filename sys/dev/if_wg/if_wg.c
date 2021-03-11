@@ -3144,6 +3144,7 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 	nvlist_t *nvl;
 	ssize_t size;
 	int err;
+	bool running;
 
 	ifp = sc->sc_ifp;
 	if (wgd->wgd_size == 0 || wgd->wgd_data == NULL)
@@ -3167,13 +3168,19 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 			/*
 			 * Set listen port
 			 */
-		if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
+		mtx_lock(&sc->sc_mtx);
+		running = (sc->sc_ifp->if_drv_flags & IFF_DRV_RUNNING) != 0;
+		mtx_unlock(&sc->sc_mtx);
+		if (running)
+			if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
 		pause("link_down", hz/4);
 		wg_socket_reinit(sc, NULL, NULL);
 		sc->sc_socket.so_port = listen_port;
-		if ((err = wg_socket_init(sc)) != 0)
-			goto out;
-		if_link_state_change(sc->sc_ifp, LINK_STATE_UP);
+		if (running) {
+			if ((err = wg_socket_init(sc)) != 0)
+				goto out;
+			if_link_state_change(sc->sc_ifp, LINK_STATE_UP);
+		}
 	}
 	if (nvlist_exists_binary(nvl, "private-key")) {
 		struct noise_local *local;
