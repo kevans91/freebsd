@@ -249,7 +249,6 @@ wg_socket_reuse(struct wg_softc *sc, struct socket *so)
 {
 	struct sockopt sopt;
 	int error, val = 1;
-	struct ifnet *ifp;
 
 	bzero(&sopt, sizeof(sopt));
 	sopt.sopt_dir = SOPT_SET;
@@ -259,14 +258,14 @@ wg_socket_reuse(struct wg_softc *sc, struct socket *so)
 	sopt.sopt_valsize = sizeof(val);
 	error = sosetopt(so, &sopt);
 	if (error) {
-		ifp = iflib_get_ifp(sc->wg_ctx);
-		if_printf(ifp, "cannot set REUSEPORT socket opt: %d\n", error);
+		if_printf(sc->sc_ifp,
+		    "cannot set REUSEPORT socket opt: %d\n", error);
 	}
 	sopt.sopt_name = SO_REUSEADDR;
 	error = sosetopt(so, &sopt);
 	if (error) {
-		ifp = iflib_get_ifp(sc->wg_ctx);
-		if_printf(ifp, "cannot set REUSEADDDR socket opt: %d\n", error);
+		if_printf(sc->sc_ifp, "cannot set REUSEADDDR socket opt: %d\n",
+		    error);
 	}
 	return (error);
 }
@@ -281,7 +280,7 @@ wg_socket_init(struct wg_softc *sc)
 
 	so = &sc->sc_socket;
 	td = curthread;
-	ifp = iflib_get_ifp(sc->wg_ctx);
+	ifp = sc->sc_ifp;
 	rc = socreate(AF_INET, &so->so_so4, SOCK_DGRAM, IPPROTO_UDP, td->td_ucred, td);
 	if (rc) {
 		if_printf(ifp, "can't create AF_INET socket\n");
@@ -355,7 +354,7 @@ wg_socket_bind(struct wg_softc *sc, struct wg_socket *so)
 
 	td = curthread;
 	bzero(&laddr, sizeof(laddr));
-	ifp = iflib_get_ifp(sc->wg_ctx);
+	ifp = sc->sc_ifp;
 	sin = &laddr.in4;
 	sin->sin_len = sizeof(laddr.in4);
 	sin->sin_family = AF_INET;
@@ -1119,9 +1118,6 @@ struct wg_peer *
 wg_peer_alloc(struct wg_softc *sc)
 {
 	struct wg_peer *peer;
-	device_t dev;
-
-	dev = iflib_get_dev(sc->wg_ctx);
 
 	peer = malloc(sizeof(*peer), M_WG, M_WAITOK|M_ZERO);
 	peer->p_sc = sc;
@@ -1133,16 +1129,17 @@ wg_peer_alloc(struct wg_softc *sc)
 	wg_queue_init(&peer->p_decap_queue, "rxq");
 
 	GROUPTASK_INIT(&peer->p_send_initiation, 0, (gtask_fn_t *)wg_send_initiation, peer);
-	taskqgroup_attach(qgroup_if_io_tqg, &peer->p_send_initiation, peer, dev, NULL, "wg initiation");
+	taskqgroup_attach(qgroup_if_io_tqg, &peer->p_send_initiation, peer, NULL, NULL, "wg initiation");
 	GROUPTASK_INIT(&peer->p_send_keepalive, 0, (gtask_fn_t *)wg_send_keepalive, peer);
-	taskqgroup_attach(qgroup_if_io_tqg, &peer->p_send_keepalive, peer, dev, NULL, "wg keepalive");
+	taskqgroup_attach(qgroup_if_io_tqg, &peer->p_send_keepalive, peer, NULL, NULL, "wg keepalive");
 	GROUPTASK_INIT(&peer->p_clear_secrets, 0, (gtask_fn_t *)noise_remote_clear, &peer->p_remote);
-	taskqgroup_attach(qgroup_if_io_tqg, &peer->p_clear_secrets, &peer->p_remote, dev, NULL, "wg clear secrets");
+	taskqgroup_attach(qgroup_if_io_tqg, &peer->p_clear_secrets,
+	    &peer->p_remote, NULL, NULL, "wg clear secrets");
 
 	GROUPTASK_INIT(&peer->p_send, 0, (gtask_fn_t *)wg_deliver_out, peer);
-	taskqgroup_attach(qgroup_if_io_tqg, &peer->p_send, peer, dev, NULL, "wg send");
+	taskqgroup_attach(qgroup_if_io_tqg, &peer->p_send, peer, NULL, NULL, "wg send");
 	GROUPTASK_INIT(&peer->p_recv, 0, (gtask_fn_t *)wg_deliver_in, peer);
-	taskqgroup_attach(qgroup_if_io_tqg, &peer->p_recv, peer, dev, NULL, "wg recv");
+	taskqgroup_attach(qgroup_if_io_tqg, &peer->p_recv, peer, NULL, NULL, "wg recv");
 
 	wg_peer_timers_init(peer);
 

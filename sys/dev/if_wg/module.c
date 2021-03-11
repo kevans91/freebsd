@@ -46,23 +46,34 @@ __FBSDID("$FreeBSD$");
 #include <sys/smp.h>
 
 #include <net/if.h>
-#include <net/ethernet.h>
 #include <net/if_var.h>
-#include <net/iflib.h>
 #include <net/if_clone.h>
 #include <net/radix.h>
 #include <net/bpf.h>
 #include <net/mp_ring.h>
 
-#include "ifdi_if.h"
-
 #include "wg_noise.h"
 #include "crypto.h"
 #include "if_wg.h"
 
+static void wg_init(void *xsc);
+static int wg_ioctl(struct ifnet *, u_long, caddr_t);
+static int wg_transmit(struct ifnet *ifp, struct mbuf *m);
+static void wg_qflush(struct ifnet *ifp);
+static int wg_output(struct ifnet *ifp, struct mbuf *m,
+    const struct sockaddr *sa, struct route *rt);
+
+static int wg_up(struct wg_softc *sc);
+static void wg_down(struct wg_softc *sc);
+
 MALLOC_DEFINE(M_WG, "WG", "wireguard");
 
-#define	WG_CAPS		IFCAP_LINKSTATE
+static const char wgname[] = "wg";
+
+VNET_DEFINE_STATIC(struct if_clone *, wg_cloner);
+#define	V_wg_cloner	VNET(wg_cloner)
+
+#define	WG_CAPS		IFCAP_LINKSTATE | IFCAP_HWCSUM | IFCAP_HWCSUM_IPV6
 #define	ph_family	PH_loc.eight[5]
 
 /* TODO this is dumped in here from wg_module.h, so we can consolidate files.
@@ -158,7 +169,6 @@ wg_decrypt_dispatch(struct wg_softc *sc)
 static void
 crypto_taskq_setup(struct wg_softc *sc)
 {
-	device_t dev = iflib_get_dev(sc->wg_ctx);
 
 	sc->sc_encrypt = malloc(sizeof(struct grouptask)*mp_ncpus, M_WG, M_WAITOK);
 	sc->sc_decrypt = malloc(sizeof(struct grouptask)*mp_ncpus, M_WG, M_WAITOK);
@@ -166,10 +176,10 @@ crypto_taskq_setup(struct wg_softc *sc)
 	for (int i = 0; i < mp_ncpus; i++) {
 		GROUPTASK_INIT(&sc->sc_encrypt[i], 0,
 		     (gtask_fn_t *)wg_softc_encrypt, sc);
-		taskqgroup_attach_cpu(qgroup_if_io_tqg, &sc->sc_encrypt[i], sc,  i, dev, NULL, "wg encrypt");
+		taskqgroup_attach_cpu(qgroup_if_io_tqg, &sc->sc_encrypt[i], sc, i, NULL, NULL, "wg encrypt");
 		GROUPTASK_INIT(&sc->sc_decrypt[i], 0,
 		    (gtask_fn_t *)wg_softc_decrypt, sc);
-		taskqgroup_attach_cpu(qgroup_if_io_tqg, &sc->sc_decrypt[i], sc, i, dev, NULL, "wg decrypt");
+		taskqgroup_attach_cpu(qgroup_if_io_tqg, &sc->sc_decrypt[i], sc, i, NULL, NULL, "wg decrypt");
 	}
 }
 
@@ -185,12 +195,11 @@ crypto_taskq_destroy(struct wg_softc *sc)
 }
 
 static int
-wg_cloneattach(if_ctx_t ctx, struct if_clone *ifc, const char *name, caddr_t params)
+wg_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 {
-	struct wg_softc *sc = iflib_get_softc(ctx);
-	if_softc_ctx_t scctx;
-	device_t dev;
+	struct wg_softc *sc;
 	struct iovec iov;
+	struct ifnet *ifp;
 	nvlist_t *nvl;
 	void *packed;
 	struct noise_local *local;
@@ -202,7 +211,12 @@ wg_cloneattach(if_ctx_t ctx, struct if_clone *ifc, const char *name, caddr_t par
 	size_t size;
 
 	err = 0;
-	dev = iflib_get_dev(ctx);
+	packed = NULL;
+	sc = malloc(sizeof(*sc), M_WG, M_WAITOK | M_ZERO);
+	ifp = sc->sc_ifp = if_alloc(IFT_PPP);
+	ifp->if_softc = sc;
+	if_initname(ifp, wgname, unit);
+
 	if (params == NULL) {
 		key = NULL;
 		listen_port = 0;
@@ -210,8 +224,12 @@ wg_cloneattach(if_ctx_t ctx, struct if_clone *ifc, const char *name, caddr_t par
 		packed = NULL;
 		goto unpacked;
 	}
-	if (copyin(params, &iov, sizeof(iov)))
-		return (EFAULT);
+
+	if (copyin(params, &iov, sizeof(iov))) {
+		err = EFAULT;
+		goto out;
+	}
+
 	/* check that this is reasonable */
 	size = iov.iov_len;
 	packed = malloc(size, M_TEMP, M_WAITOK);
@@ -221,7 +239,7 @@ wg_cloneattach(if_ctx_t ctx, struct if_clone *ifc, const char *name, caddr_t par
 	}
 	nvl = nvlist_unpack(packed, size, 0);
 	if (nvl == NULL) {
-		device_printf(dev, "%s nvlist_unpack failed\n", __func__);
+		if_printf(ifp, "%s nvlist_unpack failed\n", __func__);
 		err = EBADMSG;
 		goto out;
 	}
@@ -231,13 +249,13 @@ wg_cloneattach(if_ctx_t ctx, struct if_clone *ifc, const char *name, caddr_t par
 	if (nvlist_exists_number(nvl, "listen-port"))
 		listen_port = nvlist_get_number(nvl, "listen-port");
 	if (!nvlist_exists_binary(nvl, "private-key")) {
-		device_printf(dev, "%s private-key not set\n", __func__);
+		if_printf(ifp, "%s private-key not set\n", __func__);
 		err = EBADMSG;
 		goto nvl_out;
 	}
 	key = nvlist_get_binary(nvl, "private-key", &size);
 	if (size != CURVE25519_KEY_SIZE) {
-		device_printf(dev, "%s bad length for private-key %zu\n", __func__, size);
+		if_printf(ifp, "%s bad length for private-key %zu\n", __func__, size);
 		err = EBADMSG;
 		goto nvl_out;
 	}
@@ -267,12 +285,9 @@ unpacked:
 		noise_local_unlock_identity(local);
 	}
 	atomic_add_int(&clone_count, 1);
-	scctx = sc->shared = iflib_get_softc_ctx(ctx);
-	scctx->isc_capenable = WG_CAPS;
-	scctx->isc_tx_csum_flags = CSUM_TCP | CSUM_UDP | CSUM_TSO | CSUM_IP6_TCP \
+	ifp->if_capabilities = ifp->if_capenable = WG_CAPS;
+	ifp->if_hwassist = CSUM_TCP | CSUM_UDP | CSUM_TSO | CSUM_IP6_TCP \
 		| CSUM_IP6_UDP | CSUM_IP6_TCP;
-	sc->wg_ctx = ctx;
-	sc->sc_ifp = iflib_get_ifp(ctx);
 
 	mbufq_init(&sc->sc_handshake_queue, MAX_QUEUED_INCOMING_HANDSHAKES);
 	mtx_init(&sc->sc_mtx, NULL, "wg softc lock",  MTX_DEF);
@@ -282,15 +297,42 @@ unpacked:
 	sc->sc_decap_ring = buf_ring_alloc(MAX_QUEUED_PACKETS, M_WG, M_WAITOK, &sc->sc_mtx);
 	GROUPTASK_INIT(&sc->sc_handshake, 0,
 	    (gtask_fn_t *)wg_softc_handshake_receive, sc);
-	taskqgroup_attach(qgroup_if_io_tqg, &sc->sc_handshake, sc, dev, NULL, "wg tx initiation");
+	taskqgroup_attach(qgroup_if_io_tqg, &sc->sc_handshake, sc, NULL, NULL, "wg tx initiation");
 	crypto_taskq_setup(sc);
- nvl_out:
+
+	wg_hashtable_init(&sc->sc_hashtable);
+	sc->sc_index = hashinit(HASHTABLE_INDEX_SIZE, M_DEVBUF, &sc->sc_index_mask);
+	wg_route_init(&sc->sc_routes);
+
+	if_setmtu(ifp, ETHERMTU - 80);
+	ifp->if_flags = IFF_BROADCAST | IFF_MULTICAST | IFF_NOARP;
+	ifp->if_init = wg_init;
+	ifp->if_qflush = wg_qflush;
+	ifp->if_transmit = wg_transmit;
+	ifp->if_output = wg_output;
+	ifp->if_ioctl = wg_ioctl;
+
+	if_attach(ifp);
+	bpfattach(ifp, DLT_NULL, sizeof(uint32_t));
+nvl_out:
 	if (nvl != NULL)
 		nvlist_destroy(nvl);
 out:
 	free(packed, M_TEMP);
+	if (err != 0) {
+		if_free(ifp);
+		free(sc, M_WG);
+	}
 	return (err);
 }
+
+static void
+wg_qflush(struct ifnet *ifp __unused)
+{
+
+
+}
+
 
 static int
 wg_transmit(struct ifnet *ifp, struct mbuf *m)
@@ -303,7 +345,6 @@ wg_transmit(struct ifnet *ifp, struct mbuf *m)
 	uint32_t af;
 	int rc;
 
-
 	/*
 	 * Work around lifetime issue in the ipv6 mld code.
 	 */
@@ -311,7 +352,7 @@ wg_transmit(struct ifnet *ifp, struct mbuf *m)
 		return (ENXIO);
 
 	rc = 0;
-	sc = iflib_get_softc(ifp->if_softc);
+	sc = ifp->if_softc;
 	if ((t = wg_tag_get(m)) == NULL) {
 		rc = ENOBUFS;
 		goto early_out;
@@ -359,47 +400,11 @@ wg_output(struct ifnet *ifp, struct mbuf *m, const struct sockaddr *sa, struct r
 	return (wg_transmit(ifp, m));
 }
 
-static int
-wg_attach_post(if_ctx_t ctx)
+static void
+wg_clone_destroy(struct ifnet *ifp)
 {
-	struct ifnet *ifp;
-	struct wg_softc *sc;
+	struct wg_softc *sc = ifp->if_softc;
 
-	sc = iflib_get_softc(ctx);
-	ifp = iflib_get_ifp(ctx);
-	if_setmtu(ifp, ETHERMTU - 80);
-
-	if_setflagbits(ifp, IFF_NOARP, IFF_POINTOPOINT);
-	ifp->if_transmit = wg_transmit;
-	ifp->if_output = wg_output;
-
-	wg_hashtable_init(&sc->sc_hashtable);
-	sc->sc_index = hashinit(HASHTABLE_INDEX_SIZE, M_DEVBUF, &sc->sc_index_mask);
-	wg_route_init(&sc->sc_routes);
-
-	return (0);
-}
-
-static int
-wg_mtu_set(if_ctx_t ctx, uint32_t mtu)
-{
-
-	return (0);
-}
-
-static int
-wg_set_promisc(if_ctx_t ctx, int flags)
-{
-
-	return (0);
-}
-
-static int
-wg_detach(if_ctx_t ctx)
-{
-	struct wg_softc *sc;
-
-	sc = iflib_get_softc(ctx);
 	if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
 	wg_socket_reinit(sc, NULL, NULL);
 
@@ -421,42 +426,12 @@ wg_detach(if_ctx_t ctx)
 
 	wg_route_destroy(&sc->sc_routes);
 	wg_hashtable_destroy(&sc->sc_hashtable);
+
+	ether_ifdetach(sc->sc_ifp);
+	if_free(sc->sc_ifp);
+	free(sc, M_WG);
+
 	atomic_add_int(&clone_count, -1);
-	return (0);
-}
-
-static void
-wg_init(if_ctx_t ctx)
-{
-	struct ifnet *ifp;
-	struct wg_softc *sc;
-	int rc;
-
-	if (iflib_in_detach(ctx))
-		return;
-
-	sc = iflib_get_softc(ctx);
-	ifp = iflib_get_ifp(ctx);
-	if (sc->sc_socket.so_so4 != NULL)
-		printf("XXX wg_init, socket non-NULL %p\n",
-		    sc->sc_socket.so_so4);
-	wg_socket_reinit(sc, NULL, NULL);
-	rc = wg_socket_init(sc);
-	if (rc)
-		return;
-	if_link_state_change(ifp, LINK_STATE_UP);
-}
-
-static void
-wg_stop(if_ctx_t ctx)
-{
-	struct wg_softc *sc;
-	struct ifnet *ifp;
-
-	sc  = iflib_get_softc(ctx);
-	ifp = iflib_get_ifp(ctx);
-	if_link_state_change(ifp, LINK_STATE_DOWN);
-	wg_socket_reinit(sc, NULL, NULL);
 }
 
 static int
@@ -639,7 +614,7 @@ wg_marshal_peers(struct wg_softc *sc, nvlist_t **nvlp, nvlist_t ***nvl_arrayp, i
 }
 
 static int
-wgc_get(struct wg_softc *sc, struct ifdrv *ifd)
+wgc_get(struct wg_softc *sc, struct wg_data_io *wgd)
 {
 	nvlist_t *nvl, **nvl_array;
 	void *packed;
@@ -669,20 +644,20 @@ wgc_get(struct wg_softc *sc, struct ifdrv *ifd)
 	packed = nvlist_pack(nvl, &size);
 	if (packed == NULL)
 		return (ENOMEM);
-	if (ifd->ifd_len == 0) {
-		ifd->ifd_len = size;
+	if (wgd->wgd_size == 0) {
+		wgd->wgd_size = size;
 		goto out;
 	}
-	if (ifd->ifd_len < size) {
+	if (wgd->wgd_size < size) {
 		err = ENOSPC;
 		goto out;
 	}
-	if (ifd->ifd_data == NULL) {
+	if (wgd->wgd_data == NULL) {
 		err = EFAULT;
 		goto out;
 	}
-	err = copyout(packed, ifd->ifd_data, size);
-	ifd->ifd_len = size;
+	err = copyout(packed, wgd->wgd_data, size);
+	wgd->wgd_size = size;
  out:
 	nvlist_destroy(nvl);
 	free(packed, M_NVLIST);
@@ -701,26 +676,26 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 {
 	uint8_t			 public[WG_KEY_SIZE];
 	const void *pub_key;
+	struct ifnet *ifp;
 	const struct sockaddr *endpoint;
 	int i, err, allowedip_count;
-	device_t dev;
 	size_t size;
 	struct wg_peer *peer = NULL;
 	bool need_insert = false;
-	dev = iflib_get_dev(sc->wg_ctx);
 
+	ifp = sc->sc_ifp;
 	if (!nvlist_exists_binary(nvl, "public-key")) {
-		device_printf(dev, "peer has no public-key\n");
+		if_printf(ifp, "peer has no public-key\n");
 		return (EINVAL);
 	}
 	pub_key = nvlist_get_binary(nvl, "public-key", &size);
 	if (size != CURVE25519_KEY_SIZE) {
-		device_printf(dev, "%s bad length for public-key %zu\n", __func__, size);
+		if_printf(ifp, "%s bad length for public-key %zu\n", __func__, size);
 		return (EINVAL);
 	}
 	if (noise_local_keys(&sc->sc_local, public, NULL) == 0 &&
 	    bcmp(public, pub_key, WG_KEY_SIZE) == 0) {
-		device_printf(dev, "public-key for peer already in use by host\n");
+		if_printf(ifp, "public-key for peer already in use by host\n");
 		return (EINVAL);
 	}
 	peer = wg_peer_lookup(sc, pub_key);
@@ -761,7 +736,7 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 	if (nvlist_exists_binary(nvl, "endpoint")) {
 		endpoint = nvlist_get_binary(nvl, "endpoint", &size);
 		if (size > sizeof(peer->p_endpoint.e_remote)) {
-			device_printf(dev, "%s bad length for endpoint %zu\n", __func__, size);
+			if_printf(ifp, "%s bad length for endpoint %zu\n", __func__, size);
 			err = EBADMSG;
 			goto out;
 		}
@@ -784,14 +759,14 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 
 		aip = aip_base = nvlist_get_binary(nvl, "allowed-ips", &size);
 		if (size % sizeof(struct wg_allowedip) != 0) {
-			device_printf(dev, "%s bad length for allowed-ips %zu not integer multiple of struct size\n", __func__, size);
+			if_printf(ifp, "%s bad length for allowed-ips %zu not integer multiple of struct size\n", __func__, size);
 			err = EBADMSG;
 			goto out;
 		}
 		allowedip_count = size/sizeof(struct wg_allowedip);
 		for (i = 0; i < allowedip_count; i++) {
 			if (!wg_allowedip_valid(&aip_base[i])) {
-				device_printf(dev, "%s allowedip %d not valid\n", __func__, i);
+				if_printf(ifp, "%s allowedip %d not valid\n", __func__, i);
 				err = EBADMSG;
 				goto out;
 			}
@@ -812,26 +787,26 @@ out:
 }
 
 static int
-wgc_set(struct wg_softc *sc, struct ifdrv *ifd)
+wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 {
 	uint8_t			 public[WG_KEY_SIZE];
+	struct ifnet *ifp;
 	void *nvlpacked;
 	nvlist_t *nvl;
-	device_t dev;
 	ssize_t size;
 	int err;
 
-	if (ifd->ifd_len == 0 || ifd->ifd_data == NULL)
+	ifp = sc->sc_ifp;
+	if (wgd->wgd_size == 0 || wgd->wgd_data == NULL)
 		return (EFAULT);
 
-	dev = iflib_get_dev(sc->wg_ctx);
-	nvlpacked = malloc(ifd->ifd_len, M_TEMP, M_WAITOK);
-	err = copyin(ifd->ifd_data, nvlpacked, ifd->ifd_len);
+	nvlpacked = malloc(wgd->wgd_size, M_TEMP, M_WAITOK);
+	err = copyin(wgd->wgd_data, nvlpacked, wgd->wgd_size);
 	if (err)
 		goto out;
-	nvl = nvlist_unpack(nvlpacked, ifd->ifd_len, 0);
+	nvl = nvlist_unpack(nvlpacked, wgd->wgd_size, 0);
 	if (nvl == NULL) {
-		device_printf(dev, "%s nvlist_unpack failed\n", __func__);
+		if_printf(ifp, "%s nvlist_unpack failed\n", __func__);
 		err = EBADMSG;
 		goto out;
 	}
@@ -849,14 +824,14 @@ wgc_set(struct wg_softc *sc, struct ifdrv *ifd)
 		sc->sc_socket.so_port = listen_port;
 		if ((err = wg_socket_init(sc)) != 0)
 			goto out;
-	   if_link_state_change(sc->sc_ifp, LINK_STATE_UP);
+		if_link_state_change(sc->sc_ifp, LINK_STATE_UP);
 	}
 	if (nvlist_exists_binary(nvl, "private-key")) {
 		struct noise_local *local;
 		const void *key = nvlist_get_binary(nvl, "private-key", &size);
 
 		if (size != CURVE25519_KEY_SIZE) {
-			device_printf(dev, "%s bad length for private-key %zu\n", __func__, size);
+			if_printf(ifp, "%s bad length for private-key %zu\n", __func__, size);
 			err = EBADMSG;
 			goto nvl_out;
 		}
@@ -898,108 +873,147 @@ out:
 }
 
 static int
-wg_priv_ioctl(if_ctx_t ctx, u_long command, caddr_t data)
+wg_up(struct wg_softc *sc)
 {
-	struct wg_softc *sc = iflib_get_softc(ctx);
-	struct ifdrv *ifd = (struct ifdrv *)data;
-	int ifd_cmd;
-
-	switch (command) {
-		case SIOCGDRVSPEC:
-		case SIOCSDRVSPEC:
-			ifd_cmd = ifd->ifd_cmd;
-			break;
-		default:
-			return (EINVAL);
-	}
-	switch (ifd_cmd) {
-		case WGC_GET:
-			return (wgc_get(sc, ifd));
-			break;
-		case WGC_SET:
-			if (priv_check(curthread, PRIV_NET_HWIOCTL))
-				return (EPERM);
-			return (wgc_set(sc, ifd));
-			break;
-	}
-	return (ENOTSUP);
-}
-
-static device_method_t wg_if_methods[] = {
-	DEVMETHOD(ifdi_cloneattach, wg_cloneattach),
-	DEVMETHOD(ifdi_attach_post, wg_attach_post),
-	DEVMETHOD(ifdi_detach, wg_detach),
-	DEVMETHOD(ifdi_init, wg_init),
-	DEVMETHOD(ifdi_stop, wg_stop),
-	DEVMETHOD(ifdi_priv_ioctl, wg_priv_ioctl),
-	DEVMETHOD(ifdi_mtu_set, wg_mtu_set),
-	DEVMETHOD(ifdi_promisc_set, wg_set_promisc),
-	DEVMETHOD_END
-};
-
-static driver_t wg_iflib_driver = {
-	"wg", wg_if_methods, sizeof(struct wg_softc)
-};
-
-char wg_driver_version[] = "0.0.1";
-
-static struct if_shared_ctx wg_sctx_init = {
-	.isc_magic = IFLIB_MAGIC,
-	.isc_driver_version = wg_driver_version,
-	.isc_driver = &wg_iflib_driver,
-	.isc_flags = IFLIB_PSEUDO,
-	.isc_name = "wg",
-};
-
-if_shared_ctx_t wg_sctx = &wg_sctx_init;
-static if_pseudo_t wg_pseudo;
-
-
-int
-wg_ctx_init(void)
-{
-	ratelimit_zone = uma_zcreate("wg ratelimit", sizeof(struct ratelimit),
-	     NULL, NULL, NULL, NULL, 0, 0);
-	return (0);
-}
-
-void
-wg_ctx_uninit(void)
-{
-	uma_zdestroy(ratelimit_zone);
-}
-
-static int
-wg_module_init(void)
-{
+	struct ifnet *ifp;
 	int rc;
 
-	if ((rc = wg_ctx_init()))
-		return (rc);
+	mtx_lock(&sc->sc_mtx);
+	ifp = sc->sc_ifp;
+	rc = (ifp->if_drv_flags & IFF_DRV_RUNNING) != 0;
+	ifp->if_drv_flags |= IFF_DRV_RUNNING;
+	mtx_unlock(&sc->sc_mtx);
+	if (rc != 0)
+		return (0);
 
-	wg_pseudo = iflib_clone_register(wg_sctx);
-	if (wg_pseudo == NULL)
-		return (ENXIO);
+	if (sc->sc_socket.so_so4 != NULL)
+		printf("XXX wg_init, socket non-NULL %p\n",
+		    sc->sc_socket.so_so4);
+	wg_socket_reinit(sc, NULL, NULL);
+	rc = wg_socket_init(sc);
+	if (rc != 0) {
+		mtx_lock(&sc->sc_mtx);
+		ifp->if_drv_flags &= ~IFF_DRV_RUNNING;
+		mtx_unlock(&sc->sc_mtx);
+	}
+	if_link_state_change(sc->sc_ifp, LINK_STATE_UP);
 
-	return (0);
+	return (rc);
+}
+
+static void
+wg_down(struct wg_softc *sc)
+{
+	struct ifnet *ifp;
+
+	ifp = sc->sc_ifp;
+	mtx_lock(&sc->sc_mtx);
+	if ((ifp->if_drv_flags & IFF_DRV_RUNNING) == 0) {
+		mtx_unlock(&sc->sc_mtx);
+		return;
+	}
+	mtx_unlock(&sc->sc_mtx);
+
+	if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
+	wg_socket_reinit(sc, NULL, NULL);
+
+	mtx_lock(&sc->sc_mtx);
+	ifp->if_drv_flags &= ~IFF_DRV_RUNNING;
+	mtx_unlock(&sc->sc_mtx);
+}
+
+static void
+wg_init(void *xsc)
+{
+	struct wg_softc *sc;
+
+	sc = xsc;
+	wg_up(sc);
+}
+
+int
+wg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
+{
+	struct wg_data_io *wgd = (struct wg_data_io *)data;
+	struct ifreq *ifr = (struct ifreq *)data;
+	struct wg_softc	*sc = ifp->if_softc;
+	int		 ret = 0;
+
+	switch (cmd) {
+	case SIOCSWG:
+		ret = wgc_set(sc, wgd);
+		break;
+	case SIOCGWG:
+		ret = wgc_get(sc, wgd);
+		break;
+	/* Interface IOCTLs */
+	case SIOCSIFADDR:
+		ifp->if_flags |= IFF_UP;
+		/* FALLTHROUGH */
+	case SIOCSIFFLAGS:
+		if ((ifp->if_flags & IFF_UP) != 0)
+			ret = wg_up(sc);
+		else
+			wg_down(sc);
+		break;
+	case SIOCSIFMTU:
+		/* Arbitrary limits */
+		if (ifr->ifr_mtu <= 0 || ifr->ifr_mtu > 9000)
+			ret = EINVAL;
+		else
+			ifp->if_mtu = ifr->ifr_mtu;
+		break;
+	case SIOCADDMULTI:
+	case SIOCDELMULTI:
+		break;
+	default:
+		ret = ENOTTY;
+	}
+
+	return ret;
+}
+
+static void
+vnet_wg_init(const void *unused __unused)
+{
+
+	V_wg_cloner = if_clone_simple(wgname, wg_clone_create, wg_clone_destroy,
+	    0);
+}
+VNET_SYSINIT(vnet_wg_init, SI_SUB_PROTO_IFATTACHDOMAIN, SI_ORDER_ANY,
+    vnet_wg_init, NULL);
+
+static void
+vnet_wg_uninit(const void *unused __unused)
+{
+
+	if_clone_detach(V_wg_cloner);
+}
+VNET_SYSUNINIT(vnet_wg_uninit, SI_SUB_PROTO_IFATTACHDOMAIN, SI_ORDER_ANY,
+    vnet_wg_uninit, NULL);
+
+static void
+wg_module_init(void)
+{
+
+	ratelimit_zone = uma_zcreate("wg ratelimit", sizeof(struct ratelimit),
+	     NULL, NULL, NULL, NULL, 0, 0);
 }
 
 static void
 wg_module_deinit(void)
 {
-	wg_ctx_uninit();
-	iflib_clone_deregister(wg_pseudo);
+
+	uma_zdestroy(ratelimit_zone);
 }
 
 static int
 wg_module_event_handler(module_t mod, int what, void *arg)
 {
-	int err;
 
 	switch (what) {
 		case MOD_LOAD:
-			if ((err = wg_module_init()) != 0)
-				return (err);
+			wg_module_init();
 			break;
 		case MOD_UNLOAD:
 			if (atomic_load_int(&clone_count) == 0)
@@ -1021,5 +1035,4 @@ static moduledata_t wg_moduledata = {
 
 DECLARE_MODULE(wg, wg_moduledata, SI_SUB_PSEUDO, SI_ORDER_ANY);
 MODULE_VERSION(wg, 1);
-MODULE_DEPEND(wg, iflib, 1, 1, 1);
 MODULE_DEPEND(wg, crypto, 1, 1, 1);

@@ -20,18 +20,24 @@
 #ifndef __IF_WG_H__
 #define __IF_WG_H__
 
-/* See TODO below; IPC stuff for userland, probably needs a better home. */
-typedef enum {
-	WGC_GET = 0,
-	WGC_SET = 1,
-} wg_cmd_t;
+#include <net/if.h>
+#include <netinet/in.h>
 
 struct wg_allowedip {
 	struct sockaddr_storage a_addr;
 	struct sockaddr_storage a_mask;
 };
 
+struct wg_data_io {
+	char	 wgd_name[IFNAMSIZ];
+	void	*wgd_data;
+	size_t	 wgd_size;
+};
+
 #define WG_KEY_SIZE	32
+
+#define SIOCSWG _IOWR('i', 210, struct wg_data_io)
+#define SIOCGWG _IOWR('i', 211, struct wg_data_io)
 
 #ifdef _KERNEL
 
@@ -256,9 +262,7 @@ struct wg_hashtable {
 
 /* Softc */
 struct wg_softc {
-	if_softc_ctx_t shared;
-	if_ctx_t wg_ctx;
-	struct ifnet 		 *sc_ifp;
+	struct ifnet		 *sc_ifp;
 	uint16_t		sc_incoming_port;
 	uint32_t		sc_user_cookie;
 
