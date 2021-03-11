@@ -326,36 +326,34 @@ dump_peer(const nvlist_t *nvl_peer)
 static int
 get_nvl_out_size(int sock, u_long op, size_t *size)
 {
-	struct ifdrv ifd;
+	struct wg_data_io wgd;
 	int err;
 
-	memset(&ifd, 0, sizeof(ifd));
+	memset(&wgd, 0, sizeof(wgd));
 
-	strlcpy(ifd.ifd_name, name, sizeof(ifd.ifd_name));
-	ifd.ifd_cmd = op;
-	ifd.ifd_len = 0;
-	ifd.ifd_data = NULL;
+	strlcpy(wgd.wgd_name, name, sizeof(wgd.wgd_name));
+	wgd.wgd_size = 0;
+	wgd.wgd_data = NULL;
 
-	err = ioctl(sock, SIOCGDRVSPEC, &ifd);
+	err = ioctl(sock, op, &wgd);
 	if (err)
 		return (err);
-	*size = ifd.ifd_len;
+	*size = wgd.wgd_size;
 	return (0);
 }
 
 static int
 do_cmd(int sock, u_long op, void *arg, size_t argsize, int set)
 {
-	struct ifdrv ifd;
+	struct wg_data_io wgd;
 
-	memset(&ifd, 0, sizeof(ifd));
+	memset(&wgd, 0, sizeof(wgd));
 
-	strlcpy(ifd.ifd_name, name, sizeof(ifd.ifd_name));
-	ifd.ifd_cmd = op;
-	ifd.ifd_len = argsize;
-	ifd.ifd_data = arg;
+	strlcpy(wgd.wgd_name, name, sizeof(wgd.wgd_name));
+	wgd.wgd_size = argsize;
+	wgd.wgd_data = arg;
 
-	return (ioctl(sock, set ? SIOCSDRVSPEC : SIOCGDRVSPEC, &ifd));
+	return (ioctl(sock, op, &wgd));
 }
 
 static
@@ -366,11 +364,11 @@ DECL_CMD_FUNC(peerlist, val, d)
 	const nvlist_t *nvl, *nvl_peer;
 	const nvlist_t *const *nvl_peerlist;
 
-	if (get_nvl_out_size(s, WGC_GET, &size))
+	if (get_nvl_out_size(s, SIOCGWG, &size))
 		errx(1, "can't get peer list size");
 	if ((packed = malloc(size)) == NULL)
 		errx(1, "malloc failed for peer list");
-	if (do_cmd(s, WGC_GET, packed, size, 0))
+	if (do_cmd(s, SIOCGWG, packed, size, 0))
 		errx(1, "failed to obtain peer list");
 
 	nvl = nvlist_unpack(packed, size, 0);
@@ -404,7 +402,7 @@ peerfinish(int s, void *arg)
 	nvlist_add_nvlist_array(nvl, "peers", (const nvlist_t * const *)nvl_array, 1);
 	packed = nvlist_pack(nvl, &size);
 
-	if (do_cmd(s, WGC_SET, packed, size, true))
+	if (do_cmd(s, SIOCSWG, packed, size, true))
 		errx(1, "failed to install peer");
 }
 
@@ -551,11 +549,11 @@ wireguard_status(int s)
 	const void *key;
 	uint16_t listen_port;
 
-	if (get_nvl_out_size(s, WGC_GET, &size))
+	if (get_nvl_out_size(s, SIOCGWG, &size))
 		return;
 	if ((packed = malloc(size)) == NULL)
 		return;
-	if (do_cmd(s, WGC_GET, packed, size, 0))
+	if (do_cmd(s, SIOCGWG, packed, size, 0))
 		return;
 	nvl = nvlist_unpack(packed, size, 0);
 	if (nvlist_exists_number(nvl, "listen-port")) {
