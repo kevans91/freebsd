@@ -300,6 +300,11 @@ dump_peer(const nvlist_t *nvl_peer)
 		b64_ntop((const uint8_t *)key, size, outbuf, WG_MAX_STRLEN);
 		printf("PublicKey = %s\n", outbuf);
 	}
+	if (nvlist_exists_binary(nvl_peer, "preshared-key")) {
+		key = nvlist_get_binary(nvl_peer, "preshared-key", &size);
+		b64_ntop((const uint8_t *)key, size, outbuf, WG_MAX_STRLEN);
+		printf("PresharedKey = %s\n", outbuf);
+	}
 	if (nvlist_exists_binary(nvl_peer, "endpoint")) {
 		endpoint = nvlist_get_binary(nvl_peer, "endpoint", &size);
 		sa_ntop(endpoint, addr_buf, &port);
@@ -515,6 +520,20 @@ DECL_CMD_FUNC(setwgpubkey, val, d)
 }
 
 static
+DECL_CMD_FUNC(setwgpresharedkey, val, d)
+{
+	uint8_t key[WG_KEY_SIZE];
+
+	if (!do_peer)
+		errx(1, "setting preshared-key only valid when adding peer");
+
+	if (!key_from_base64(key, val))
+		errx(1, "invalid key %s", val);
+	nvlist_add_binary(nvl_params, "preshared-key", key, WG_KEY_SIZE);
+}
+
+
+static
 DECL_CMD_FUNC(setwgpersistentkeepalive, val, d)
 {
 	unsigned long persistent_keepalive;
@@ -635,6 +654,7 @@ static struct cmd wireguard_cmds[] = {
     DEF_CMD("peer-list",  0, peerlist),
     DEF_CMD("peers",  0, peerlist),
     DEF_CMD("peer",  0, peerstart),
+    DEF_CMD_ARG("preshared-key",  setwgpresharedkey),
     DEF_CMD_ARG("public-key",  setwgpubkey),
     DEF_CMD_ARG("persistent-keepalive",  setwgpersistentkeepalive),
     DEF_CMD_ARG("allowed-ips",  setallowedips),
