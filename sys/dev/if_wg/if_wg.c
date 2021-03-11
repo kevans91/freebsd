@@ -411,6 +411,7 @@ struct wg_peer_export {
 	struct sockaddr_storage		endpoint;
 	struct timespec			last_handshake;
 	uint8_t				public_key[WG_KEY_SIZE];
+	uint8_t				preshared_key[NOISE_SYMMETRIC_KEY_LEN];
 	size_t				endpoint_sz;
 	struct wg_allowedip		*aip;
 	uint64_t			rx_bytes;
@@ -522,6 +523,7 @@ static int wg_transmit(struct ifnet *, struct mbuf *);
 static int wg_output(struct ifnet *, struct mbuf *, const struct sockaddr *, struct route *);
 static void wg_clone_destroy(struct ifnet *);
 static int wg_peer_to_export(struct wg_peer *, struct wg_peer_export *);
+static bool wgc_privileged(struct wg_softc *);
 static int wgc_get(struct wg_softc *, struct wg_data_io *);
 static int wgc_set(struct wg_softc *, struct wg_data_io *);
 static int wg_up(struct wg_softc *);
@@ -2744,12 +2746,14 @@ wg_peer_to_export(struct wg_peer *peer, struct wg_peer_export *exp)
 {
 	struct wg_endpoint *ep;
 	struct wg_route *rt;
+	struct noise_remote *remote;
 	int i;
 
 	/* Non-sleepable context. */
 	NET_EPOCH_ASSERT();
 
 	bzero(&exp->endpoint, sizeof(exp->endpoint));
+	remote = &peer->p_remote;
 	ep = &peer->p_endpoint;
 	if (ep->e_remote.r_sa.sa_family != 0) {
 		exp->endpoint_sz = (ep->e_remote.r_sa.sa_family == AF_INET) ?
@@ -2758,9 +2762,8 @@ wg_peer_to_export(struct wg_peer *peer, struct wg_peer_export *exp)
 		memcpy(&exp->endpoint, &ep->e_remote, exp->endpoint_sz);
 	}
 
-	memcpy(exp->public_key, peer->p_remote.r_public,
-	    sizeof(exp->public_key));
-
+	/* We always export it. */
+	(void)noise_remote_keys(remote, exp->public_key, exp->preshared_key);
 	exp->persistent_keepalive =
 	    peer->p_timers.t_persistent_keepalive_interval;
 	wg_timers_get_last_handshake(&peer->p_timers, &exp->last_handshake);
@@ -2812,7 +2815,7 @@ wg_peer_to_export(struct wg_peer *peer, struct wg_peer_export *exp)
 }
 
 static nvlist_t *
-wg_peer_export_to_nvl(struct wg_peer_export *exp)
+wg_peer_export_to_nvl(struct wg_softc *sc, struct wg_peer_export *exp)
 {
 	struct wg_timespec64 ts64;
 	nvlist_t *nvl, **nvl_aips;
@@ -2823,7 +2826,11 @@ wg_peer_export_to_nvl(struct wg_peer_export *exp)
 	if ((nvl = nvlist_create(0)) == NULL)
 		return (NULL);
 
-	nvlist_add_binary(nvl, "public-key", exp->public_key, WG_KEY_SIZE);
+	nvlist_add_binary(nvl, "public-key", exp->public_key,
+	    sizeof(exp->public_key));
+	if (wgc_privileged(sc))
+		nvlist_add_binary(nvl, "preshared-key", exp->preshared_key,
+		    sizeof(exp->preshared_key));
 	if (exp->endpoint_sz != 0)
 		nvlist_add_binary(nvl, "endpoint", &exp->endpoint,
 		    exp->endpoint_sz);
@@ -2938,7 +2945,7 @@ wg_marshal_peers(struct wg_softc *sc, nvlist_t **nvlp, nvlist_t ***nvl_arrayp, i
 	}
 
 	for (i = 0; i < peer_count; i++) {
-		nvl_array[i] = wg_peer_export_to_nvl(&wpe[i]);
+		nvl_array[i] = wg_peer_export_to_nvl(sc, &wpe[i]);
 		if (nvl_array[i] == NULL) {
 			printf("wg_peer_export_to_nvl failed on %d peer\n", i);
 			break;
@@ -2974,6 +2981,14 @@ wg_marshal_peers(struct wg_softc *sc, nvlist_t **nvlp, nvlist_t ***nvl_arrayp, i
 	return (err);
 }
 
+static bool
+wgc_privileged(struct wg_softc *sc)
+{
+
+	/* XXX */
+	return (curthread->td_ucred->cr_uid == 0);
+}
+
 static int
 wgc_get(struct wg_softc *sc, struct wg_data_io *wgd)
 {
@@ -2992,7 +3007,7 @@ wgc_get(struct wg_softc *sc, struct wg_data_io *wgd)
 		nvlist_add_number(nvl, "listen-port", sc->sc_socket.so_port);
 	if (sc->sc_local.l_has_identity) {
 		nvlist_add_binary(nvl, "public-key", sc->sc_local.l_public, WG_KEY_SIZE);
-		if (curthread->td_ucred->cr_uid == 0)
+		if (wgc_privileged(sc))
 			nvlist_add_binary(nvl, "private-key", sc->sc_local.l_private, WG_KEY_SIZE);
 	}
 	if (sc->sc_hashtable.h_num_peers > 0) {
