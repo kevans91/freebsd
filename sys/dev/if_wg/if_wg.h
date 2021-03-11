@@ -23,15 +23,6 @@
 #include <net/if.h>
 #include <netinet/in.h>
 
-struct wg_allowedip {
-	uint16_t family;
-	union {
-		struct in_addr ip4;
-		struct in6_addr ip6;
-	};
-	uint8_t cidr;
-};
-
 struct wg_data_io {
 	char	 wgd_name[IFNAMSIZ];
 	void	*wgd_data;

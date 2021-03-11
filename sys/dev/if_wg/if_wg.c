@@ -255,6 +255,15 @@ struct wg_route_table {
 	struct radix_node_head	*t_ip6;
 };
 
+struct wg_allowedip {
+	uint16_t family;
+	union {
+		struct in_addr ip4;
+		struct in6_addr ip6;
+	};
+	uint8_t cidr;
+};
+
 struct wg_route {
 	struct radix_node	 r_nodes[2];
 	CK_LIST_ENTRY(wg_route)	 r_entry;
