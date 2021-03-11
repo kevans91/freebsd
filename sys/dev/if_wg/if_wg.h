@@ -24,8 +24,12 @@
 #include <netinet/in.h>
 
 struct wg_allowedip {
-	struct sockaddr_storage a_addr;
-	struct sockaddr_storage a_mask;
+	uint16_t family;
+	union {
+		struct in_addr ip4;
+		struct in6_addr ip6;
+	};
+	uint8_t cidr;
 };
 
 struct wg_data_io {
@@ -225,9 +229,14 @@ struct wg_route_table {
 };
 struct wg_peer;
 
+struct wg_route_cidr {
+	struct sockaddr_storage		addr;
+	struct sockaddr_storage		mask;
+};
+
 struct wg_route {
+	struct wg_route_cidr		 r_cidr;
 	struct radix_node		 r_nodes[2];
-	struct wg_allowedip		 r_cidr;
 	CK_LIST_ENTRY(wg_route)	 r_entry;
 	struct wg_peer		*r_peer;
 };

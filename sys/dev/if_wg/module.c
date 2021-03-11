@@ -678,7 +678,7 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 	const void *pub_key;
 	struct ifnet *ifp;
 	const struct sockaddr *endpoint;
-	int i, err, allowedip_count;
+	int err;
 	size_t size;
 	struct wg_peer *peer = NULL;
 	bool need_insert = false;
@@ -754,26 +754,51 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 		pki = nvlist_get_number(nvl, "persistent-keepalive-interval");
 		wg_timers_set_persistent_keepalive(&peer->p_timers, pki);
 	}
-	if (nvlist_exists_binary(nvl, "allowed-ips")) {
-		const struct wg_allowedip *aip, *aip_base;
+	if (nvlist_exists_nvlist_array(nvl, "allowed-ips")) {
+		const void *binary;
+		const nvlist_t * const * aipl;
+		struct wg_allowedip aip;
+		size_t allowedip_count;
 
-		aip = aip_base = nvlist_get_binary(nvl, "allowed-ips", &size);
-		if (size % sizeof(struct wg_allowedip) != 0) {
-			if_printf(ifp, "%s bad length for allowed-ips %zu not integer multiple of struct size\n", __func__, size);
-			err = EBADMSG;
-			goto out;
-		}
-		allowedip_count = size/sizeof(struct wg_allowedip);
-		for (i = 0; i < allowedip_count; i++) {
-			if (!wg_allowedip_valid(&aip_base[i])) {
-				if_printf(ifp, "%s allowedip %d not valid\n", __func__, i);
+		aipl = nvlist_get_nvlist_array(nvl, "allowed-ips",
+		    &allowedip_count);
+		for (size_t idx = 0; idx < allowedip_count; idx++) {
+			if (!nvlist_exists_number(aipl[idx], "cidr"))
+				continue;
+			aip.cidr = nvlist_get_number(aipl[idx], "cidr");
+			if (nvlist_exists_binary(aipl[idx], "ipv4")) {
+				binary = nvlist_get_binary(aipl[idx], "ipv4", &size);
+				if (binary == NULL || aip.cidr > 32 /* XXX */) {
+					err = EINVAL;
+					goto out;
+				}
+
+				aip.family = AF_INET;
+				memcpy(&aip.ip4, binary, sizeof(aip.ip4));
+			} else if (nvlist_exists_binary(aipl[idx], "ipv6")) {
+				binary = nvlist_get_binary(aipl[idx], "ipv6", &size);
+				if (binary == NULL || aip.cidr > 128 /* XXX */) {
+					err = EINVAL;
+					goto out;
+				}
+
+				aip.family = AF_INET6;
+				memcpy(&aip.ip6, binary, sizeof(aip.ip6));
+			} else {
+				continue;
+			}
+
+			if (!wg_allowedip_valid(&aip)) {
+				if_printf(ifp, "%s allowedip %ju not valid\n",
+				    __func__, (uintmax_t)idx);
 				err = EBADMSG;
 				goto out;
 			}
-		}
-		for (int i = 0; i < allowedip_count; i++, aip++) {
-			if ((err = wg_route_add(&sc->sc_routes, peer, aip)) != 0) {
-				printf("route add %d failed -> %d\n", i, err);
+
+			if ((err = wg_route_add(&sc->sc_routes, peer, &aip)) != 0) {
+				/* XXX */
+				printf("route add %ju failed -> %d\n",
+				    (uintmax_t)idx, err);
 			}
 		}
 	}

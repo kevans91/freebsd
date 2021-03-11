@@ -861,33 +861,93 @@ wg_route_destroy(struct wg_route_table *tbl)
 #endif
 }
 
+static void
+wg_route_populate_cidr4(struct wg_route_cidr *cidr, const struct in_addr *addr,
+    uint8_t mask)
+{
+	struct sockaddr_in *raddr, *rmask;
+
+	raddr = (struct sockaddr_in *)&cidr->addr;
+	rmask = (struct sockaddr_in *)&cidr->mask;
+
+	memset(raddr, 0, sizeof(*raddr));
+	memset(rmask, 0, sizeof(*rmask));
+
+	raddr->sin_len = sizeof(*raddr);
+	raddr->sin_family = AF_INET;
+	raddr->sin_addr = *addr;
+
+	rmask->sin_len = sizeof(*rmask);
+	rmask->sin_family = AF_INET;
+	rmask->sin_addr.s_addr = ~0U << (32 - mask);
+}
+
+static void
+wg_route_populate_cidr6(struct wg_route_cidr *cidr, const struct in6_addr *addr,
+    uint8_t mask)
+{
+	struct sockaddr_in6 *raddr, *rmask;
+	u_char *cp;
+
+	raddr = (struct sockaddr_in6 *)&cidr->addr;
+	rmask = (struct sockaddr_in6 *)&cidr->mask;
+
+	memset(raddr, 0, sizeof(*raddr));
+	memset(rmask, 0, sizeof(*rmask));
+
+	raddr->sin6_len = sizeof(*raddr);
+	raddr->sin6_family = AF_INET;
+	raddr->sin6_addr = *addr;
+
+	rmask->sin6_len = sizeof(*rmask);
+	rmask->sin6_family = AF_INET;
+	if (mask == 0) {
+		return;
+	} else if (mask == 128) {
+		memset(&rmask->sin6_addr, 0xff, sizeof(struct in6_addr));
+	}
+
+	for (cp = (u_char *)&rmask->sin6_addr; mask > 7; mask -= 8)
+		*cp++ = 0xff;
+	*cp = 0xff << (8 - mask);
+}
+
 int
 wg_route_add(struct wg_route_table *tbl, struct wg_peer *peer,
-			 const struct wg_allowedip *cidr_)
+			 const struct wg_allowedip *aip)
 {
 	struct radix_node	*node;
 	struct radix_node_head	*root;
 	struct wg_route *route;
 	sa_family_t family;
-	struct wg_allowedip *cidr;
+	struct wg_route_cidr *cidr;
 	bool needfree = false;
 
-	family = cidr_->a_addr.ss_family;
-	if (family == AF_INET) {
-		root = tbl->t_ip;
-	} else if (family == AF_INET6) {
-		root = tbl->t_ip6;
-	} else {
-		printf("bad sa_family %d\n", cidr_->a_addr.ss_family);
+	family = aip->family;
+	if (family != AF_INET && family != AF_INET6) {
+		printf("bad sa_family %d\n", aip->family);
 		return (EINVAL);
 	}
+
 	route = malloc(sizeof(*route), M_WG, M_WAITOK|M_ZERO);
-	route->r_cidr = *cidr_;
-	route->r_peer = peer;
 	cidr = &route->r_cidr;
+	switch (family) {
+	case AF_INET:
+		root = tbl->t_ip;
+
+		wg_route_populate_cidr4(cidr, &aip->ip4, aip->cidr);
+		break;
+	case AF_INET6:
+		root = tbl->t_ip6;
+
+		wg_route_populate_cidr6(cidr, &aip->ip6, aip->cidr);
+		break;
+	}
+
+	route->r_peer = peer;
 
 	RADIX_NODE_HEAD_LOCK(root);
-	node = root->rnh_addaddr(&cidr->a_addr, &cidr->a_mask, &root->rh,
+	node = root->rnh_addaddr(&cidr->addr, &cidr->mask, &root->rh,
 							route->r_nodes);
 	if (node == route->r_nodes) {
 		tbl->t_count++;
@@ -920,7 +980,7 @@ wg_peer_remove(struct radix_node *rn, void *arg)
 
 	if (route->r_peer != peer)
 		return (0);
-	x = (struct radix_node *)rnh->rnh_deladdr(&route->r_cidr.a_addr, NULL, &rnh->rh);
+	x = (struct radix_node *)rnh->rnh_deladdr(&route->r_cidr.addr, NULL, &rnh->rh);
 	if (x != NULL)	 {
 		tbl->t_count--;
 		CK_LIST_REMOVE(route, r_entry);
