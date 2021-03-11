@@ -437,7 +437,7 @@ static struct wg_tag *wg_tag_get(struct mbuf *);
 static struct wg_endpoint *wg_mbuf_endpoint_get(struct mbuf *);
 static int wg_socket_reuse(struct wg_softc *, struct socket *);
 static int wg_socket_init(struct wg_softc *);
-static void wg_socket_reinit(struct wg_softc *, struct socket *, struct socket *);
+static void wg_socket_uninit(struct wg_softc *);
 static int wg_socket_bind(struct wg_softc *, struct wg_socket *);
 static int wg_send(struct wg_softc *, struct wg_endpoint *, struct mbuf *);
 static void wg_timers_event_data_sent(struct wg_timers *);
@@ -662,8 +662,7 @@ fail:
 }
 
 static void
-wg_socket_reinit(struct wg_softc *sc, struct socket *new4,
-    struct socket *new6)
+wg_socket_uninit(struct wg_softc *sc)
 {
 	struct wg_socket *so;
 
@@ -671,10 +670,10 @@ wg_socket_reinit(struct wg_softc *sc, struct socket *new4,
 
 	if (so->so_so4)
 		soclose(so->so_so4);
-	so->so_so4 = new4;
+	so->so_so4 = NULL;
 	if (so->so_so6)
 		soclose(so->so_so6);
-	so->so_so6 = new6;
+	so->so_so6 = NULL;
 }
 
 union wg_sockaddr {
@@ -2684,7 +2683,7 @@ wg_clone_destroy(struct ifnet *ifp)
 	struct wg_softc *sc = ifp->if_softc;
 
 	if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
-	wg_socket_reinit(sc, NULL, NULL);
+	wg_socket_uninit(sc);
 
 	/*
 	 * No guarantees that all traffic have passed until the epoch has
@@ -3191,7 +3190,7 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 		if (running)
 			if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
 		pause("link_down", hz/4);
-		wg_socket_reinit(sc, NULL, NULL);
+		wg_socket_uninit(sc);
 		sc->sc_socket.so_port = listen_port;
 		if (running) {
 			if ((err = wg_socket_init(sc)) != 0)
@@ -3262,7 +3261,7 @@ wg_up(struct wg_softc *sc)
 	if (sc->sc_socket.so_so4 != NULL)
 		printf("XXX wg_init, socket non-NULL %p\n",
 		    sc->sc_socket.so_so4);
-	wg_socket_reinit(sc, NULL, NULL);
+	wg_socket_uninit(sc);
 	rc = wg_socket_init(sc);
 	if (rc != 0) {
 		mtx_lock(&sc->sc_mtx);
@@ -3288,7 +3287,7 @@ wg_down(struct wg_softc *sc)
 	mtx_unlock(&sc->sc_mtx);
 
 	if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
-	wg_socket_reinit(sc, NULL, NULL);
+	wg_socket_uninit(sc);
 
 	mtx_lock(&sc->sc_mtx);
 	ifp->if_drv_flags &= ~IFF_DRV_RUNNING;
