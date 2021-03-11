@@ -450,6 +450,7 @@ static void wg_timers_event_handshake_responded(struct wg_timers *);
 static void wg_timers_event_handshake_complete(struct wg_timers *);
 static void wg_timers_event_session_derived(struct wg_timers *);
 static void wg_timers_event_want_initiation(struct wg_timers *);
+static void wg_timers_event_reset_handshake_last_sent(struct wg_timers *);
 static void wg_grouptask_enqueue(struct wg_peer *, struct grouptask *);
 static void wg_timers_run_send_initiation(struct wg_timers *, int);
 static void wg_timers_run_retry_handshake(struct wg_timers *);
@@ -902,6 +903,12 @@ wg_timers_event_want_initiation(struct wg_timers *t)
 		return;
 
 	wg_timers_run_send_initiation(t, 0);
+}
+
+static void
+wg_timers_event_reset_handshake_last_sent(struct wg_timers *t)
+{
+	t->t_handshake_last_sent.tv_sec -= (REKEY_TIMEOUT + 1);
 }
 
 static void
@@ -3219,6 +3226,13 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 		local = &sc->sc_local;
 		noise_local_lock_identity(local);
 		noise_local_set_private(local, key);
+		/* TODO: missing, but present in OpenBSD code.
+		 TAILQ_FOREACH(peer, &sc->sc_peer_seq, p_seq_entry) {
+                        noise_remote_precompute(&peer->p_remote);
+                        wg_timers_event_reset_handshake_last_sent(&peer->p_timers);
+                        noise_remote_expire_current(&peer->p_remote);
+                }
+		*/
 		cookie_checker_update(&sc->sc_cookie, public);
 		noise_local_unlock_identity(local);
 	}
@@ -3285,6 +3299,20 @@ wg_down(struct wg_softc *sc)
 		return;
 	}
 	mtx_unlock(&sc->sc_mtx);
+
+	/* TODO: missing, but present in OpenBSD:
+        TAILQ_FOREACH(peer, &sc->sc_peer_seq, p_seq_entry) {
+                mq_purge(&peer->p_stage_queue);
+                wg_timers_disable(&peer->p_timers);
+        }
+
+        taskq_barrier(wg_handshake_taskq);
+        TAILQ_FOREACH(peer, &sc->sc_peer_seq, p_seq_entry) {
+                noise_remote_clear(&peer->p_remote);
+                wg_timers_event_reset_handshake_last_sent(&peer->p_timers);
+        }
+
+	 */
 
 	if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
 	wg_socket_uninit(sc);
