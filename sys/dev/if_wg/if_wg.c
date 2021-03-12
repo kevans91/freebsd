@@ -45,6 +45,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/module.h>
 #include <sys/endian.h>
 #include <sys/kdb.h>
+#include <sys/sx.h>
 #include <sys/sysctl.h>
 #include <sys/gtaskqueue.h>
 #include <sys/smp.h>
@@ -300,6 +301,7 @@ struct wg_socket {
 };
 
 struct wg_softc {
+	LIST_ENTRY(wg_softc)	 sc_entry;
 	struct ifnet		*sc_ifp;
 	uint16_t		 sc_incoming_port;
 	uint32_t		 sc_user_cookie;
@@ -352,6 +354,11 @@ static int wireguard_debug;
 static volatile unsigned long peer_counter = 0;
 static struct timeval	underload_interval = { UNDERLOAD_TIMEOUT, 0 };
 static const char wgname[] = "wg";
+
+static struct sx wg_sx;
+SX_SYSINIT(wg_sx, &wg_sx, "wg_sx");
+
+static LIST_HEAD(, wg_softc)	wg_list = LIST_HEAD_INITIALIZER(wg_list);
 
 SYSCTL_NODE(_net, OID_AUTO, wg, CTLFLAG_RW, 0, "Wireguard");
 SYSCTL_INT(_net_wg, OID_AUTO, debug, CTLFLAG_RWTUN, &wireguard_debug, 0,
@@ -3278,6 +3285,10 @@ unpacked:
 
 	if_attach(ifp);
 	bpfattach(ifp, DLT_NULL, sizeof(uint32_t));
+
+	sx_xlock(&wg_sx);
+	LIST_INSERT_HEAD(&wg_list, sc, sc_entry);
+	sx_xunlock(&wg_sx);
 nvl_out:
 	if (nvl != NULL)
 		nvlist_destroy(nvl);
@@ -3295,6 +3306,10 @@ static void
 wg_clone_destroy(struct ifnet *ifp)
 {
 	struct wg_softc *sc = ifp->if_softc;
+
+	sx_xlock(&wg_sx);
+	LIST_REMOVE(sc, sc_entry);
+	sx_xunlock(&wg_sx);
 
 	if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
 	wg_socket_uninit(sc);
@@ -3402,6 +3417,8 @@ wg_module_deinit(void)
 {
 
 	uma_zdestroy(ratelimit_zone);
+
+	MPASS(LIST_EMPTY(&wg_list));
 }
 
 static int
