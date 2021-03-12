@@ -35,6 +35,8 @@ __FBSDID("$FreeBSD$");
 #include <sys/sockio.h>
 #include <sys/socketvar.h>
 #include <sys/errno.h>
+#include <sys/jail.h>
+#include <sys/priv.h>
 #include <sys/proc.h>
 #include <sys/lock.h>
 #include <sys/rwlock.h>
@@ -3024,11 +3026,13 @@ wg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct wg_data_io *wgd = (struct wg_data_io *)data;
 	struct ifreq *ifr = (struct ifreq *)data;
 	struct wg_softc	*sc = ifp->if_softc;
-	int		 ret = 0;
+	int ret = 0;
 
 	switch (cmd) {
 	case SIOCSWG:
-		ret = wgc_set(sc, wgd);
+		ret = priv_check(curthread, PRIV_NET_WG);
+		if (ret == 0)
+			ret = wgc_set(sc, wgd);
 		break;
 	case SIOCGWG:
 		ret = wgc_get(sc, wgd);
@@ -3334,12 +3338,17 @@ wg_qflush(struct ifnet *ifp __unused)
 
 }
 
+/*
+ * Privileged information (private-key, preshared-key) are only exported for
+ * root and jailed root by default.
+ */
 static bool
 wgc_privileged(struct wg_softc *sc)
 {
+	struct thread *td;
 
-	/* XXX */
-	return (curthread->td_ucred->cr_uid == 0);
+	td = curthread;
+	return (priv_check(td, PRIV_NET_WG) == 0);
 }
 
 static void
