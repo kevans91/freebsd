@@ -3102,9 +3102,6 @@ wg_up(struct wg_softc *sc)
 	if (rc != 0)
 		return (0);
 
-	if (sc->sc_socket.so_so4 != NULL)
-		printf("XXX wg_init, socket non-NULL %p\n",
-		    sc->sc_socket.so_so4);
 	wg_socket_uninit(sc);
 	rc = wg_socket_init(sc);
 	if (rc != 0) {
