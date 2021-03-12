@@ -93,7 +93,46 @@ wg_basic_cleanup()
 	vnet_cleanup
 }
 
+# The kernel is expecteld to silently ignore any attempt to add a peer with a
+# public key identical to the host's.
+atf_test_case "wg_key_peerdev_shared" "cleanup"
+wg_key_peerdev_shared_head()
+{
+	atf_set descr 'Create a wg(4) interface with a shared pubkey between device and a peer'
+	atf_set require.user root
+}
+
+wg_key_peerdev_shared_body()
+{
+	local epair pri1 pub1 wg1
+        local endpoint1 tunnel1
+
+	kldload -n if_wg
+
+	pri1=$(openssl rand -base64 32)
+
+	endpoint1=192.168.2.1
+	tunnel1=169.254.0.1
+
+	vnet_mkjail wgtest1
+
+	wg1=$(jexec wgtest1 ifconfig wg create listen-port 12345 private-key "$pri1")
+	pub1=$(jexec wgtest1 ifconfig $wg1 | awk '/public-key:/ {print $2}')
+
+	atf_check -s exit:0 \
+	    jexec wgtest1 ifconfig ${wg1} peer public-key "${pub1}" \
+	    allowed-ips "${tunnel1}/32"
+
+	atf_check -o empty jexec wgtest1 ifconfig ${wg1} peers
+}
+
+wg_key_peerdev_shared_cleanup()
+{
+	vnet_cleanup
+}
+
 atf_init_test_cases()
 {
 	atf_add_test_case "wg_basic"
+	atf_add_test_case "wg_key_peerdev_shared"
 }
