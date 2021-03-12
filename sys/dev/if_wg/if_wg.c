@@ -223,6 +223,7 @@ struct wg_peer {
 	SLIST_HEAD(,wg_index)		 p_unused_index;
 	struct wg_index			 p_index[3];
 
+	struct wg_queue	 		 p_stage_queue;
 	struct wg_queue	 		 p_encap_queue;
 	struct wg_queue	 		 p_decap_queue;
 
@@ -469,10 +470,12 @@ static int wg_timers_expired_handshake_last_sent(struct wg_timers *);
 static int wg_timers_check_handshake_last_sent(struct wg_timers *);
 static void wg_queue_init(struct wg_queue *, const char *);
 static void wg_queue_deinit(struct wg_queue *);
+static void wg_queue_purge(struct wg_queue *);
 static struct mbuf *wg_queue_dequeue(struct wg_queue *, struct wg_tag **);
 static int wg_queue_len(struct wg_queue *);
 static int wg_queue_in(struct wg_peer *, struct mbuf *);
-static int wg_queue_out(struct wg_peer *, struct mbuf *);
+static void wg_queue_out(struct wg_peer *);
+static void wg_queue_stage(struct wg_peer *, struct mbuf *);
 static int wg_route_init(struct wg_route_table *);
 static void wg_route_destroy(struct wg_route_table *);
 static void wg_route_populate_aip4(struct wg_route *, const struct in_addr *, uint8_t);
@@ -550,7 +553,8 @@ wg_peer_alloc(struct wg_softc *sc)
 	CK_LIST_INIT(&peer->p_routes);
 
 	rw_init(&peer->p_endpoint_lock, "wg_peer_endpoint");
-	wg_queue_init(&peer->p_encap_queue, "sendq");
+	wg_queue_init(&peer->p_stage_queue, "stageq");
+	wg_queue_init(&peer->p_encap_queue, "txq");
 	wg_queue_init(&peer->p_decap_queue, "rxq");
 
 	GROUPTASK_INIT(&peer->p_send_initiation, 0, (gtask_fn_t *)wg_send_initiation, peer);
@@ -698,8 +702,9 @@ wg_peer_destroy(struct wg_peer *peer)
 	taskqgroup_detach(qgroup_if_io_tqg, &peer->p_send_keepalive);
 	taskqgroup_detach(qgroup_if_io_tqg, &peer->p_recv);
 	taskqgroup_detach(qgroup_if_io_tqg, &peer->p_send);
-	wg_queue_deinit(&peer->p_encap_queue);
 	wg_queue_deinit(&peer->p_decap_queue);
+	wg_queue_deinit(&peer->p_encap_queue);
+	wg_queue_deinit(&peer->p_stage_queue);
 	NET_EPOCH_CALL(wg_peer_free_deferred, &peer->p_ctx);
 }
 
@@ -1439,6 +1444,7 @@ wg_timers_run_retry_handshake(struct wg_timers *t)
 			(unsigned long long) peer->p_id, MAX_TIMER_HANDSHAKES + 2);
 
 		callout_del(&t->t_send_keepalive);
+		wg_queue_purge(&peer->p_stage_queue);
 		if (!callout_pending(&t->t_zero_key_material))
 			callout_reset(&t->t_zero_key_material, REJECT_AFTER_TIME * 3 * hz,
 			    (timeout_t *)wg_timers_run_zero_key_material, t);
@@ -1579,8 +1585,10 @@ wg_send_keepalive(struct wg_peer *peer)
 	struct wg_tag *t;
 	struct epoch_tracker et;
 
-	if (wg_queue_len(&peer->p_encap_queue) != 0)
+	if (wg_queue_len(&peer->p_stage_queue) != 0) {
+		NET_EPOCH_ENTER(et);
 		goto send;
+	}
 	if ((m = m_gethdr(M_NOWAIT, MT_DATA)) == NULL)
 		return;
 	if ((t = wg_tag_get(m)) == NULL) {
@@ -1591,15 +1599,11 @@ wg_send_keepalive(struct wg_peer *peer)
 	t->t_mbuf = NULL;
 	t->t_done = 0;
 	t->t_mtu = 0; /* MTU == 0 OK for keepalive */
-send:
+
 	NET_EPOCH_ENTER(et);
-	if (m != NULL)
-		wg_queue_out(peer, m);
-	if (noise_remote_ready(&peer->p_remote) == 0) {
-		wg_encrypt_dispatch(peer->p_sc);
-	} else {
-		wg_timers_event_want_initiation(&peer->p_timers);
-	}
+	wg_queue_stage(peer, m);
+send:
+	wg_queue_out(peer);
 	NET_EPOCH_EXIT(et);
 }
 
@@ -2091,33 +2095,67 @@ wg_queue_in(struct wg_peer *peer, struct mbuf *m)
 	return (rc);
 }
 
-static int
-wg_queue_out(struct wg_peer *peer, struct mbuf *m)
+static void
+wg_queue_stage(struct wg_peer *peer, struct mbuf *m)
+{
+	struct wg_queue *q = &peer->p_stage_queue;
+	mtx_lock(&q->q_mtx);
+	STAILQ_INSERT_TAIL(&q->q.mq_head, m, m_stailqpkt);
+	q->q.mq_len++;
+	while (mbufq_full(&q->q)) {
+		m = mbufq_dequeue(&q->q);
+		if (m) {
+			m_freem(m);
+			if_inc_counter(peer->p_sc->sc_ifp, IFCOUNTER_OQDROPS, 1);
+		}
+	}
+	mtx_unlock(&q->q_mtx);
+}
+
+static void
+wg_queue_out(struct wg_peer *peer)
 {
 	struct buf_ring *parallel = peer->p_sc->sc_encap_ring;
 	struct wg_queue		*serial = &peer->p_encap_queue;
 	struct wg_tag		*t;
-	int rc;
+	struct mbufq		 staged;
+	struct mbuf		*m;
 
-	if ((t = wg_tag_get(m)) == NULL) {
-		wg_m_freem(m);
-		return (ENOMEM);
+	if (noise_remote_ready(&peer->p_remote) != 0) {
+		wg_timers_event_want_initiation(&peer->p_timers);
+		return;
 	}
-	t->t_peer = peer;
-	mtx_lock(&serial->q_mtx);
-	if ((rc = mbufq_enqueue(&serial->q, m)) == ENOBUFS) {
-		wg_m_freem(m);
-		if_inc_counter(peer->p_sc->sc_ifp, IFCOUNTER_OQDROPS, 1);
-	} else {
-		m->m_flags |= M_ENQUEUED;
-		rc = buf_ring_enqueue(parallel, m);
-		if (rc == ENOBUFS) {
-			t = wg_tag_get(m);
-			t->t_done = 1;
+
+	/* We first "steal" the staged queue to a local queue, so that we can do these
+	 * remaining operations without having to hold the staged queue mutex. */
+	STAILQ_INIT(&staged.mq_head);
+	mtx_lock(&peer->p_stage_queue.q_mtx);
+	STAILQ_SWAP(&staged.mq_head, &peer->p_stage_queue.q.mq_head, mbuf);
+	staged.mq_len = peer->p_stage_queue.q.mq_len;
+	peer->p_stage_queue.q.mq_len = 0;
+	staged.mq_maxlen = peer->p_stage_queue.q.mq_maxlen;
+	mtx_unlock(&peer->p_stage_queue.q_mtx);
+
+	while ((m = mbufq_dequeue(&staged)) != NULL) {
+		if ((t = wg_tag_get(m)) == NULL) {
+			wg_m_freem(m);
+			continue;
 		}
+		t->t_peer = peer;
+		mtx_lock(&serial->q_mtx);
+		if (mbufq_enqueue(&serial->q, m) != 0) {
+			wg_m_freem(m);
+			if_inc_counter(peer->p_sc->sc_ifp, IFCOUNTER_OQDROPS, 1);
+		} else {
+			m->m_flags |= M_ENQUEUED;
+			if (buf_ring_enqueue(parallel, m)) {
+				t = wg_tag_get(m);
+				t->t_done = 1;
+			}
+		}
+		mtx_unlock(&serial->q_mtx);
 	}
-	mtx_unlock(&serial->q_mtx);
-	return (rc);
+	wg_encrypt_dispatch(peer->p_sc);
 }
 
 static struct mbuf *
@@ -2139,7 +2177,7 @@ wg_queue_dequeue(struct wg_queue *q, struct wg_tag **t)
 static int
 wg_queue_len(struct wg_queue *q)
 {
-
+	//TODO: do we care about locking on this or is it fine if it races?
 	return (mbufq_len(&q->q));
 }
 
@@ -2151,12 +2189,18 @@ wg_queue_init(struct wg_queue *q, const char *name)
 }
 
 static void
-wg_queue_deinit(struct wg_queue*q)
+wg_queue_deinit(struct wg_queue *q)
+{
+	wg_queue_purge(q);
+	mtx_destroy(&q->q_mtx);
+}
+
+static void
+wg_queue_purge(struct wg_queue *q)
 {
 	mtx_lock(&q->q_mtx);
 	mbufq_drain(&q->q);
 	mtx_unlock(&q->q_mtx);
-	mtx_destroy(&q->q_mtx);
 }
 
 /* TODO Indexes */
@@ -2409,9 +2453,8 @@ wg_transmit(struct ifnet *ifp, struct mbuf *m)
 	t->t_done = 0;
 	t->t_mtu = ifp->if_mtu;
 
-	rc = wg_queue_out(peer, m);
-	if (rc == 0)
-		wg_encrypt_dispatch(peer->p_sc);
+	wg_queue_stage(peer, m);
+	wg_queue_out(peer);
 	NET_EPOCH_EXIT(et);
 	return (rc);
 err:
@@ -3061,7 +3104,7 @@ wg_down(struct wg_softc *sc)
 
 	/* TODO: missing, but present in OpenBSD:
         TAILQ_FOREACH(peer, &sc->sc_peer_seq, p_seq_entry) {
-                mq_purge(&peer->p_stage_queue);
+                wg_queue_purge(&peer->p_stage_queue);
                 wg_timers_disable(&peer->p_timers);
         }
 
