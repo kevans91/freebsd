@@ -301,6 +301,7 @@ struct wg_softc {
 	uint16_t		 sc_incoming_port;
 	uint32_t		 sc_user_cookie;
 
+	struct ucred		*sc_ucred;
 	struct wg_socket	 sc_socket;
 	struct wg_hashtable	 sc_hashtable;
 	struct wg_route_table	 sc_routes;
@@ -1018,16 +1019,28 @@ wg_socket_init(struct wg_softc *sc)
 	struct thread *td;
 	struct wg_socket *so;
 	struct ifnet *ifp;
+	struct ucred *cred;
 	int rc;
 
 	so = &sc->sc_socket;
 	td = curthread;
+	cred = sc->sc_ucred;
 	ifp = sc->sc_ifp;
-	rc = socreate(AF_INET, &so->so_so4, SOCK_DGRAM, IPPROTO_UDP, td->td_ucred, td);
+
+	/*
+	 * For socket creation, we use the creds of the thread that created the
+	 * tunnel rather than the current thread to maintain the semantics that
+	 * WireGuard has on Linux with network namespaces -- that the sockets
+	 * are created in their home vnet so that they can be configured and
+	 * functionally attached to a foreign vnet as the jail's only interface
+	 * to the network.
+	 */
+	rc = socreate(AF_INET, &so->so_so4, SOCK_DGRAM, IPPROTO_UDP, cred, td);
 	if (rc) {
 		if_printf(ifp, "can't create AF_INET socket\n");
 		return (rc);
 	}
+
 	rc = wg_socket_reuse(sc, so->so_so4);
 	if (rc)
 		goto fail;
@@ -1039,7 +1052,7 @@ wg_socket_init(struct wg_softc *sc)
 	 */
 	MPASS(rc == 0);
 
-	rc = socreate(AF_INET6, &so->so_so6, SOCK_DGRAM, IPPROTO_UDP, td->td_ucred, td);
+	rc = socreate(AF_INET6, &so->so_so6, SOCK_DGRAM, IPPROTO_UDP, cred, td);
 	if (rc) {
 		if_printf(ifp, "can't create AF_INET6 socket\n");
 
@@ -2034,7 +2047,6 @@ wg_deliver_in(struct wg_peer *peer)
 	struct wg_socket *so;
 	struct epoch_tracker et;
 	struct wg_tag *t;
-	struct inpcb *inp;
 	uint32_t af;
 	int version;
 
@@ -2072,15 +2084,13 @@ wg_deliver_in(struct wg_peer *peer)
 		if (version == IPVERSION) {
 			af = AF_INET;
 			BPF_MTAP2(sc->sc_ifp, &af, sizeof(af), m);
-			inp = sotoinpcb(so->so_so4);
-			CURVNET_SET(inp->inp_vnet);
+			CURVNET_SET(so->so_so4->so_vnet);
 			ip_input(m);
 			CURVNET_RESTORE();
 		} else if (version == 6) {
 			af = AF_INET6;
 			BPF_MTAP2(sc->sc_ifp, &af, sizeof(af), m);
-			inp = sotoinpcb(so->so_so6);
-			CURVNET_SET(inp->inp_vnet);
+			CURVNET_SET(so->so_so6->so_vnet);
 			ip6_input(m);
 			CURVNET_RESTORE();
 		} else
@@ -3156,6 +3166,7 @@ wg_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 	err = 0;
 	packed = NULL;
 	sc = malloc(sizeof(*sc), M_WG, M_WAITOK | M_ZERO);
+	sc->sc_ucred = crhold(curthread->td_ucred);
 	ifp = sc->sc_ifp = if_alloc(IFT_PPP);
 	ifp->if_softc = sc;
 	if_initname(ifp, wgname, unit);
@@ -3264,6 +3275,7 @@ nvl_out:
 out:
 	free(packed, M_TEMP);
 	if (err != 0) {
+		crfree(sc->sc_ucred);
 		if_free(ifp);
 		free(sc, M_WG);
 	}
@@ -3297,6 +3309,7 @@ wg_clone_destroy(struct ifnet *ifp)
 	wg_route_destroy(&sc->sc_routes);
 	wg_hashtable_destroy(&sc->sc_hashtable);
 
+	crfree(sc->sc_ucred);
 	ether_ifdetach(sc->sc_ifp);
 	if_free(sc->sc_ifp);
 	free(sc, M_WG);
