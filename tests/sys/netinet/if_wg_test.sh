@@ -131,8 +131,58 @@ wg_key_peerdev_shared_cleanup()
 	vnet_cleanup
 }
 
+# When a wg(8) interface has a private key reassigned that corresponds to the
+# public key already on a peer, the kernel is expected to deconfigure the peer
+# to resolve the conflict.
+atf_test_case "wg_key_peerdev_makeshared" "cleanup"
+wg_key_peerdev_makeshared_head()
+{
+	atf_set descr 'Create a wg(4) interface and assign peer key to device'
+	atf_set require.progs wg
+}
+
+wg_key_peerdev_makeshared_body()
+{
+	local epair pri1 pub1 pri2 wg1 wg2
+        local endpoint1 tunnel1
+
+	kldload -n if_wg
+
+	pri1=$(openssl rand -base64 32)
+	pri2=$(openssl rand -base64 32)
+
+	endpoint1=192.168.2.1
+	tunnel1=169.254.0.1
+
+	vnet_mkjail wgtest1
+
+	wg1=$(jexec wgtest1 ifconfig wg create listen-port 12345 private-key "$pri1")
+	pub1=$(jexec wgtest1 ifconfig $wg1 | awk '/public-key:/ {print $2}')
+
+	wg2=$(jexec wgtest1 ifconfig wg create listen-port 12345 private-key "$pri2")
+
+	atf_check -s exit:0 -o ignore \
+	    jexec wgtest1 ifconfig ${wg2} peer public-key "${pub1}" \
+	    allowed-ips "${tunnel1}/32"
+
+	atf_check -o not-empty jexec wgtest1 ifconfig ${wg2} peers
+
+	jexec wgtest1 sh -c "echo '${pri1}' > pri1"
+
+	atf_check -s exit:0 \
+	   jexec wgtest1 wg set ${wg2} private-key pri1
+
+	atf_check -o empty jexec wgtest1 ifconfig ${wg2} peers
+}
+
+wg_key_peerdev_makeshared_cleanup()
+{
+	vnet_cleanup
+}
+
 atf_init_test_cases()
 {
 	atf_add_test_case "wg_basic"
 	atf_add_test_case "wg_key_peerdev_shared"
+	atf_add_test_case "wg_key_peerdev_makeshared"
 }
