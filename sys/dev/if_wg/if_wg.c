@@ -3176,7 +3176,7 @@ wg_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 	packed = NULL;
 	sc = malloc(sizeof(*sc), M_WG, M_WAITOK | M_ZERO);
 	sc->sc_ucred = crhold(curthread->td_ucred);
-	ifp = sc->sc_ifp = if_alloc(IFT_PPP);
+	ifp = sc->sc_ifp = if_alloc(IFT_WIREGUARD);
 	ifp->if_softc = sc;
 	if_initname(ifp, wgname, unit);
 
