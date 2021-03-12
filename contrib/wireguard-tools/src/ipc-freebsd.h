@@ -1,272 +1,14 @@
-// SPDX-License-Identifier: BSD-2-Clause
+// SPDX-License-Identifier: MIT
 /*
- * Copyright (c) 2020 Rubicon Communications, LLC (Netgate)
- * Copyright (C) 2015-2020 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
+ * Copyright (C) 2015-2021 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
  *
  */
 
-#include <sys/param.h>
 #include <sys/nv.h>
 #include <sys/sockio.h>
-#include <assert.h>
-#include <ctype.h>
-#include <err.h>
+#include <dev/if_wg/if_wg.h>
 
 #define IPC_SUPPORTS_KERNEL_INTERFACE
-
-#define	satosin(sa)	((struct sockaddr_in *)(sa))
-#define	satosin6(sa)	((struct sockaddr_in6 *)(sa))
-
-typedef enum {
-	/* TODO: these should be 0x1 and 0x2, since no other commands should be defined. */
-	WGC_GET = 0x5,
-	WGC_SET = 0x6,
-} wg_cmd_t;
-
-struct allowedip {
-	struct sockaddr_storage a_addr;
-	struct sockaddr_storage a_mask;
-};
-
-static void in_len2mask(struct in_addr *mask, unsigned int len)
-{
-	unsigned int i;
-	uint8_t *p;
-
-	p = (uint8_t *)mask;
-	memset(mask, 0, sizeof(*mask));
-	for (i = 0; i < len / NBBY; i++)
-		p[i] = 0xff;
-	if (len % NBBY)
-		p[i] = (0xff00 >> (len % NBBY)) & 0xff;
-}
-
-static unsigned int in_mask2len(struct in_addr *mask)
-{
-	unsigned int x, y;
-	uint8_t *p;
-
-	p = (uint8_t *)mask;
-	for (x = 0; x < sizeof(*mask); x++) {
-		if (p[x] != 0xff)
-			break;
-	}
-	y = 0;
-	if (x < sizeof(*mask)) {
-		for (y = 0; y < NBBY; y++) {
-			if ((p[x] & (0x80 >> y)) == 0)
-				break;
-		}
-	}
-	return x * NBBY + y;
-}
-
-static void in6_prefixlen2mask(struct in6_addr *maskp, unsigned int len)
-{
-	static const uint8_t maskarray[NBBY] = { 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe, 0xff };
-	int bytelen, bitlen, i;
-
-	if (len > 128)
-		return;
-
-	memset(maskp, 0, sizeof(*maskp));
-	bytelen = len / NBBY;
-	bitlen = len % NBBY;
-	for (i = 0; i < bytelen; i++)
-		maskp->s6_addr[i] = 0xff;
-	if (bitlen)
-		maskp->s6_addr[bytelen] = maskarray[bitlen - 1];
-}
-
-static int in6_mask2len(struct in6_addr *mask, uint8_t *lim0)
-{
-	int x = 0, y;
-	uint8_t *lim = lim0, *p;
-
-	/* Ignore the scope_id part. */
-	if (lim0 == NULL || (uint64_t)(lim0 - (uint8_t *)mask) > sizeof(*mask))
-		lim = (uint8_t *)mask + sizeof(*mask);
-	for (p = (uint8_t *)mask; p < lim; ++x, ++p) {
-		if (*p != 0xff)
-			break;
-	}
-	y = 0;
-	if (p < lim) {
-		for (y = 0; y < NBBY; ++y) {
-			if ((*p & (0x80 >> y)) == 0)
-				break;
-		}
-	}
-
-	/* When the limit pointer is given, do a stricter check on the remaining bits. */
-	if (p < lim) {
-		if (y != 0 && (*p & (0x00ff >> y)) != 0)
-			return -1;
-		for (p = p + 1; p < lim; ++p)
-			if (*p != 0)
-				return -1;
-	}
-
-	return x * NBBY + y;
-}
-
-static nvlist_t *pack_peer(struct wgpeer *peer)
-{
-	nvlist_t *nvl_peer = nvlist_create(0);
-	int aip_count = 0;
-	struct allowedip *aips, *paips;
-	struct wgallowedip *aip;
-
-	if (!nvl_peer)
-		return NULL;
-	for_each_wgallowedip(peer, aip)
-		aip_count++;
-	if (aip_count) {
-		paips = aips = calloc(sizeof(*aips), aip_count);
-		if (!aips) {
-			nvlist_destroy(nvl_peer);
-			return NULL;
-		}
-	}
-	nvlist_add_binary(nvl_peer, "public-key", peer->public_key, WG_KEY_LEN);
-	if (peer->flags & WGPEER_HAS_PRESHARED_KEY)
-		nvlist_add_binary(nvl_peer, "pre-shared-key", peer->preshared_key, WG_KEY_LEN); /* TODO: preshared-key instead of pre-shared-key */
-	if (peer->flags & WGPEER_HAS_PERSISTENT_KEEPALIVE_INTERVAL)
-		nvlist_add_number(nvl_peer, "persistent-keepalive-interval", peer->persistent_keepalive_interval);
-	if (peer->endpoint.addr.sa_family == AF_INET || peer->endpoint.addr.sa_family == AF_INET6)
-		nvlist_add_binary(nvl_peer, "endpoint", &peer->endpoint.addr, peer->endpoint.addr.sa_len);
-	nvlist_add_bool(nvl_peer, "replace-allowedips", !!(peer->flags & WGPEER_REPLACE_ALLOWEDIPS));
-	nvlist_add_bool(nvl_peer, "peer-remove", !!(peer->flags & WGPEER_REMOVE_ME));
-	for_each_wgallowedip(peer, aip) {
-		void *addr;
-
-		paips->a_addr.ss_family = aip->family;
-		if (aip->family == AF_INET) {
-			in_len2mask((struct in_addr *)&((struct sockaddr *)&paips->a_mask)->sa_data, aip->cidr);
-			addr = &satosin(&paips->a_addr)->sin_addr;
-			memcpy(addr, &aip->ip4, sizeof(aip->ip4));
-			paips->a_addr.ss_len = sizeof(struct sockaddr_in);
-		} else if (aip->family == AF_INET6) {
-			in6_prefixlen2mask((struct in6_addr *)&((struct sockaddr *)&paips->a_mask)->sa_data, aip->cidr);
-			addr = &satosin6(&paips->a_addr)->sin6_addr;
-			memcpy(addr, &aip->ip6, sizeof(aip->ip6));
-			paips->a_addr.ss_len = sizeof(struct sockaddr_in6);
-
-		}
-		paips++;
-	}
-	nvlist_add_binary(nvl_peer, "allowed-ips", aips, sizeof(*aips) *aip_count);
-	return nvl_peer;
-}
-
-static struct wgpeer *unpack_peer(const nvlist_t *nvl_peer)
-{
-	const void *key;
-	const struct allowedip *aips;
-	const struct sockaddr *endpoint;
-	struct wgpeer *peer;
-	struct wgallowedip *aip;
-	size_t size;
-	int count, val;
-
-	if (!(peer = calloc(sizeof(*peer), 1)))
-		return NULL;
-	if (nvlist_exists_binary(nvl_peer, "public-key")) {
-		key = nvlist_get_binary(nvl_peer, "public-key", &size);
-		memcpy(peer->public_key, key, sizeof(peer->public_key));
-		peer->flags |= WGPEER_HAS_PUBLIC_KEY;
-	}
-	if (nvlist_exists_binary(nvl_peer, "pre-shared-key")) { /* TODO: preshared-key instead of pre-shared-key */
-		key = nvlist_get_binary(nvl_peer, "pre-shared-key", &size);
-		memcpy(peer->preshared_key, key, sizeof(peer->preshared_key));
-		peer->flags |= WGPEER_HAS_PRESHARED_KEY;
-	}
-	if (nvlist_exists_number(nvl_peer, "persistent-keepalive-interval")) {
-		val = nvlist_get_number(nvl_peer, "persistent-keepalive-interval");
-		peer->persistent_keepalive_interval = val;
-		peer->flags |= WGPEER_HAS_PERSISTENT_KEEPALIVE_INTERVAL;
-	}
-	if (nvlist_exists_binary(nvl_peer, "endpoint")) {
-		endpoint = nvlist_get_binary(nvl_peer, "endpoint", &size);
-		if (size <= sizeof(peer->endpoint))
-			memcpy(&peer->endpoint.addr, endpoint, size);
-	}
-	if (nvlist_exists_number(nvl_peer, "rx_bytes"))
-		peer->rx_bytes = nvlist_get_number(nvl_peer, "rx_bytes");
-	if (nvlist_exists_number(nvl_peer, "tx_bytes"))
-		peer->tx_bytes = nvlist_get_number(nvl_peer, "tx_bytes");
-	if (nvlist_exists_binary(nvl_peer, "last_handshake"))
-		peer->last_handshake_time = *(const struct timespec64 *)nvlist_get_binary(nvl_peer, "last_handshake", &size);
-
-	if (!nvlist_exists_binary(nvl_peer, "allowed-ips"))
-		return peer;
-	aips = nvlist_get_binary(nvl_peer, "allowed-ips", &size);
-	if (size == 0 || size % sizeof(struct allowedip) != 0)
-		return peer;
-
-	count = size / sizeof(struct allowedip);
-	aip = calloc(sizeof(*aip), count);
-	if (!aip)
-		return peer;
-
-	for (int i = 0; i < count; ++i, ++aip, ++aips) {
-		sa_family_t family;
-		void *bitmask;
-		struct sockaddr *sa;
-
-		if (peer->first_allowedip == NULL)
-			peer->first_allowedip = aip;
-		else
-			peer->last_allowedip->next_allowedip = aip;
-		peer->last_allowedip = aip;
-
-		sa = __DECONST(void *, &aips->a_addr);
-		bitmask = __DECONST(void *,
-		    ((const struct sockaddr *)&aips->a_mask)->sa_data);
-		aip->family = family = aips->a_addr.ss_family;
-
-		if (family == AF_INET) {
-			aip->cidr = in_mask2len(bitmask);
-			memcpy(&aip->ip4, &satosin(sa)->sin_addr, sizeof(aip->ip4));
-		} else if (family == AF_INET6) {
-			aip->cidr = in6_mask2len(bitmask, NULL);
-			memcpy(&aip->ip6, &satosin6(sa)->sin6_addr, sizeof(aip->ip6));
-		}
-	}
-	return peer;
-}
-
-static bool get_nvl_out_size(int sock, const char *ifname, u_long op, size_t *size)
-{
-	struct ifdrv ifd = { .ifd_cmd = op };
-
-	strlcpy(ifd.ifd_name, ifname, sizeof(ifd.ifd_name));
-	if (ioctl(sock, SIOCGDRVSPEC, &ifd))
-		return false;
-	*size = ifd.ifd_len;
-	return true;
-}
-
-static bool do_cmd(int sock, const char *ifname, u_long op, void *arg, size_t argsize, int set)
-{
-	struct ifdrv ifd = { .ifd_cmd = op, .ifd_len = argsize, .ifd_data = arg };
-
-	strlcpy(ifd.ifd_name, ifname, sizeof(ifd.ifd_name));
-	return !ioctl(sock, set ? SIOCSDRVSPEC : SIOCGDRVSPEC, &ifd);
-}
-
-static bool is_match(const char *name)
-{
-	errno = ENOENT;
-	if (strncmp("wg", name, 2))
-		return false;
-	if (strlen(name) < 3)
-		return false;
-	if (!isdigit(name[2]))
-		return false;
-	errno = 0;
-	return true;
-}
 
 static int get_dgram_socket(void)
 {
@@ -309,121 +51,300 @@ out:
 
 static int kernel_get_device(struct wgdevice **device, const char *ifname)
 {
-	size_t size;
-	void *packed = NULL;
-	nvlist_t *nvl = NULL;
-	const nvlist_t * const *nvl_peerlist;
-	const void *key;
+	struct wg_data_io wgd = { 0 };
+	nvlist_t *nvl_device = NULL;
+	const nvlist_t *const *nvl_peers;
 	struct wgdevice *dev = NULL;
-	struct wgpeer *peer;
-	size_t peercount;
-	int rc = 0, s = get_dgram_socket();
+	size_t size, peer_count, i;
+	uint64_t number;
+	const void *binary;
+	int ret = 0, s;
 
 	*device = NULL;
+	s = get_dgram_socket();
 	if (s < 0)
-		return -errno;
-	if (!is_match(ifname))
-		return -errno;
-	if (!get_nvl_out_size(s, ifname, WGC_GET, &size))
-		return -errno;
+		goto err;
 
-	if (!(packed = malloc(size)))
-		return -errno;
-	if (!do_cmd(s, ifname , WGC_GET, packed, size, 0)) {
-		rc = -errno;
-		goto out;
-	}
-	if (!(dev = calloc(1, sizeof(*dev))))
-		goto out;
+	strlcpy(wgd.wgd_name, ifname, sizeof(wgd.wgd_name));
+	if (ioctl(s, SIOCGWG, &wgd) < 0)
+		goto err;
 
+	wgd.wgd_data = malloc(wgd.wgd_size);
+	if (!wgd.wgd_data)
+		goto err;
+	if (ioctl(s, SIOCGWG, &wgd) < 0)
+		goto err;
+
+	dev = calloc(1, sizeof(*dev));
+	if (!dev)
+		goto err;
 	strlcpy(dev->name, ifname, sizeof(dev->name));
-	nvl = nvlist_unpack(packed, size, 0);
+	nvl_device = nvlist_unpack(wgd.wgd_data, wgd.wgd_size, 0);
+	if (!nvl_device)
+		goto err;
 
-	if (nvlist_exists_number(nvl, "listen-port")) {
-		dev->listen_port = nvlist_get_number(nvl, "listen-port");
-		dev->flags |= WGDEVICE_HAS_LISTEN_PORT;
+	if (nvlist_exists_number(nvl_device, "listen-port")) {
+		number = nvlist_get_number(nvl_device, "listen-port");
+		if (number <= UINT16_MAX) {
+			dev->listen_port = number;
+			dev->flags |= WGDEVICE_HAS_LISTEN_PORT;
+		}
 	}
-	if (nvlist_exists_binary(nvl, "public-key")) {
-		key = nvlist_get_binary(nvl, "public-key", &size);
-		memcpy(dev->public_key, key, sizeof(dev->public_key));
-		dev->flags |= WGDEVICE_HAS_PUBLIC_KEY;
+	if (nvlist_exists_number(nvl_device, "user-cookie")) {
+		number = nvlist_get_number(nvl_device, "user-cookie");
+		if (number <= UINT32_MAX) {
+			dev->fwmark = number;
+			dev->flags |= WGDEVICE_HAS_FWMARK;
+		}
 	}
-	if (nvlist_exists_binary(nvl, "private-key")) {
-		key = nvlist_get_binary(nvl, "private-key", &size);
-		memcpy(dev->private_key, key, sizeof(dev->private_key));
-		dev->flags |= WGDEVICE_HAS_PRIVATE_KEY;
+	if (nvlist_exists_binary(nvl_device, "public-key")) {
+		binary = nvlist_get_binary(nvl_device, "public-key", &size);
+		if (binary && size == sizeof(dev->public_key)) {
+			memcpy(dev->public_key, binary, sizeof(dev->public_key));
+			dev->flags |= WGDEVICE_HAS_PUBLIC_KEY;
+		}
 	}
-	if (!nvlist_exists_nvlist_array(nvl, "peer-list"))
-		goto success;
-	nvl_peerlist = nvlist_get_nvlist_array(nvl, "peer-list", &peercount);
-	for (size_t i = 0; i < peercount; ++i, ++nvl_peerlist) {
-		peer = unpack_peer(*nvl_peerlist);
+	if (nvlist_exists_binary(nvl_device, "private-key")) {
+		binary = nvlist_get_binary(nvl_device, "private-key", &size);
+		if (binary && size == sizeof(dev->private_key)) {
+			memcpy(dev->private_key, binary, sizeof(dev->private_key));
+			dev->flags |= WGDEVICE_HAS_PRIVATE_KEY;
+		}
+	}
+	if (!nvlist_exists_nvlist_array(nvl_device, "peers"))
+		goto skip_peers;
+	nvl_peers = nvlist_get_nvlist_array(nvl_device, "peers", &peer_count);
+	if (!nvl_peers)
+		goto skip_peers;
+	for (i = 0; i < peer_count; ++i) {
+		struct wgpeer *peer;
+		struct wgallowedip *aip;
+		const nvlist_t *const *nvl_aips;
+		size_t aip_count, j;
+
+		peer = calloc(1, sizeof(*peer));
 		if (!peer)
-			goto success;
+			goto err_peer;
+		if (nvlist_exists_binary(nvl_peers[i], "public-key")) {
+			binary = nvlist_get_binary(nvl_peers[i], "public-key", &size);
+			if (binary && size == sizeof(peer->public_key)) {
+				memcpy(peer->public_key, binary, sizeof(peer->public_key));
+				peer->flags |= WGPEER_HAS_PUBLIC_KEY;
+			}
+		}
+		if (nvlist_exists_binary(nvl_peers[i], "preshared-key")) {
+			binary = nvlist_get_binary(nvl_peers[i], "preshared-key", &size);
+			if (binary && size == sizeof(peer->preshared_key)) {
+				memcpy(peer->preshared_key, binary, sizeof(peer->preshared_key));
+				if (!key_is_zero(peer->preshared_key))
+					peer->flags |= WGPEER_HAS_PRESHARED_KEY;
+			}
+		}
+		if (nvlist_exists_number(nvl_peers[i], "persistent-keepalive-interval")) {
+			number = nvlist_get_number(nvl_peers[i], "persistent-keepalive-interval");
+			if (number <= UINT16_MAX) {
+				peer->persistent_keepalive_interval = number;
+				peer->flags |= WGPEER_HAS_PERSISTENT_KEEPALIVE_INTERVAL;
+			}
+		}
+		if (nvlist_exists_binary(nvl_peers[i], "endpoint")) {
+			const struct sockaddr *endpoint = nvlist_get_binary(nvl_peers[i], "endpoint", &size);
+			if (endpoint && size <= sizeof(peer->endpoint) && size >= sizeof(peer->endpoint.addr) &&
+			    (endpoint->sa_family == AF_INET || endpoint->sa_family == AF_INET6))
+				memcpy(&peer->endpoint.addr, endpoint, size);
+		}
+		if (nvlist_exists_number(nvl_peers[i], "rx-bytes"))
+			peer->rx_bytes = nvlist_get_number(nvl_peers[i], "rx-bytes");
+		if (nvlist_exists_number(nvl_peers[i], "tx-bytes"))
+			peer->tx_bytes = nvlist_get_number(nvl_peers[i], "tx-bytes");
+		if (nvlist_exists_binary(nvl_peers[i], "last-handshake-time")) {
+			binary = nvlist_get_binary(nvl_peers[i], "last-handshake-time", &size);
+			if (binary && size == sizeof(peer->last_handshake_time))
+				memcpy(&peer->last_handshake_time, binary, sizeof(peer->last_handshake_time));
+		}
+
+		if (!nvlist_exists_nvlist_array(nvl_peers[i], "allowed-ips"))
+			goto skip_allowed_ips;
+		nvl_aips = nvlist_get_nvlist_array(nvl_peers[i], "allowed-ips", &aip_count);
+		if (!aip_count || !nvl_aips)
+			goto skip_allowed_ips;
+		for (j = 0; j < aip_count; ++j) {
+			aip = calloc(1, sizeof(*aip));
+			if (!aip)
+				goto err_allowed_ips;
+			if (!nvlist_exists_number(nvl_aips[j], "cidr"))
+				continue;
+			number = nvlist_get_number(nvl_aips[j], "cidr");
+			if (nvlist_exists_binary(nvl_aips[j], "ipv4")) {
+				binary = nvlist_get_binary(nvl_aips[j], "ipv4", &size);
+				if (!binary || number > 32) {
+					ret = EINVAL;
+					goto err_allowed_ips;
+				}
+				aip->family = AF_INET;
+				aip->cidr = number;
+				memcpy(&aip->ip4, binary, sizeof(aip->ip4));
+			} else if (nvlist_exists_binary(nvl_aips[j], "ipv6")) {
+				binary = nvlist_get_binary(nvl_aips[j], "ipv6", &size);
+				if (!binary || number > 128) {
+					ret = EINVAL;
+					goto err_allowed_ips;
+				}
+				aip->family = AF_INET6;
+				aip->cidr = number;
+				memcpy(&aip->ip6, binary, sizeof(aip->ip6));
+			} else
+				continue;
+
+			if (!peer->first_allowedip)
+				peer->first_allowedip = aip;
+			else
+				peer->last_allowedip->next_allowedip = aip;
+			peer->last_allowedip = aip;
+			continue;
+
+		err_allowed_ips:
+			if (!ret)
+				ret = -errno;
+			free(aip);
+			goto err_peer;
+		}
+	skip_allowed_ips:
 		if (!dev->first_peer)
 			dev->first_peer = peer;
 		else
 			dev->last_peer->next_peer = peer;
 		dev->last_peer = peer;
+		continue;
+
+	err_peer:
+		if (!ret)
+			ret = -errno;
+		free(peer);
+		goto err;
 	}
-success:
+
+skip_peers:
+	free(wgd.wgd_data);
+	nvlist_destroy(nvl_device);
 	*device = dev;
-out:
-	free(packed);
-	nvlist_destroy(nvl);
-	return -rc;
+	return 0;
+
+err:
+	if (!ret)
+		ret = -errno;
+	free(wgd.wgd_data);
+	nvlist_destroy(nvl_device);
+	free(dev);
+	return ret;
 }
 
 
 static int kernel_set_device(struct wgdevice *dev)
 {
+	struct wg_data_io wgd = { 0 };
+	nvlist_t *nvl_device = NULL, **nvl_peers = NULL;
+	size_t peer_count = 0, i = 0;
 	struct wgpeer *peer;
-	nvlist_t *nvl, **nvl_array;
-	void *packed;
-	int i, peer_count = 0;
-	size_t size;
-	int rc, s = get_dgram_socket();
+	int ret = 0, s;
+
+	strlcpy(wgd.wgd_name, dev->name, sizeof(wgd.wgd_name));
+
+	nvl_device = nvlist_create(0);
+	if (!nvl_device)
+		goto err;
 
 	for_each_wgpeer(dev, peer)
-		peer_count++;
-	nvl = nvlist_create(0);
+		++peer_count;
 	if (peer_count) {
-		nvl_array = calloc(sizeof(void *), peer_count);
-		if (!nvl_array)
-			return -errno;
-	}
-	if (!(nvl = nvlist_create(0))) {
-		free(nvl_array);
-		return -errno;
+		nvl_peers = calloc(peer_count, sizeof(*nvl_peers));
+		if (!nvl_peers)
+			goto err;
 	}
 	if (dev->flags & WGDEVICE_HAS_PRIVATE_KEY)
-		nvlist_add_binary(nvl, "private-key", dev->private_key, WG_KEY_LEN);
+		nvlist_add_binary(nvl_device, "private-key", dev->private_key, sizeof(dev->private_key));
 	if (dev->flags & WGDEVICE_HAS_LISTEN_PORT)
-		nvlist_add_number(nvl, "listen-port", dev->listen_port);
+		nvlist_add_number(nvl_device, "listen-port", dev->listen_port);
 	if (dev->flags & WGDEVICE_HAS_FWMARK)
-		nvlist_add_number(nvl, "user-cookie", dev->fwmark);
-	nvlist_add_bool(nvl, "replace-peers", !!(dev->flags & WGDEVICE_REPLACE_PEERS));
+		nvlist_add_number(nvl_device, "user-cookie", dev->fwmark);
+	if (dev->flags & WGDEVICE_REPLACE_PEERS)
+		nvlist_add_bool(nvl_device, "replace-peers", true);
 
-	i = 0;
 	for_each_wgpeer(dev, peer) {
-		nvl_array[i] = pack_peer(peer);
-		if (!nvl_array[i])
-			break;
+		size_t aip_count = 0, j = 0;
+		nvlist_t **nvl_aips = NULL;
+		struct wgallowedip *aip;
+
+		nvl_peers[i]  = nvlist_create(0);
+		if (!nvl_peers[i])
+			goto err_peer;
+		for_each_wgallowedip(peer, aip)
+			++aip_count;
+		if (aip_count) {
+			nvl_aips = calloc(aip_count, sizeof(*nvl_aips));
+			if (!nvl_aips)
+				goto err_peer;
+		}
+		nvlist_add_binary(nvl_peers[i], "public-key", peer->public_key, sizeof(peer->public_key));
+		if (peer->flags & WGPEER_HAS_PRESHARED_KEY)
+			nvlist_add_binary(nvl_peers[i], "preshared-key", peer->preshared_key, sizeof(peer->preshared_key));
+		if (peer->flags & WGPEER_HAS_PERSISTENT_KEEPALIVE_INTERVAL)
+			nvlist_add_number(nvl_peers[i], "persistent-keepalive-interval", peer->persistent_keepalive_interval);
+		if (peer->endpoint.addr.sa_family == AF_INET || peer->endpoint.addr.sa_family == AF_INET6)
+			nvlist_add_binary(nvl_peers[i], "endpoint", &peer->endpoint.addr, peer->endpoint.addr.sa_len);
+		if (peer->flags & WGPEER_REPLACE_ALLOWEDIPS)
+			nvlist_add_bool(nvl_peers[i], "replace-allowedips", true);
+		if (peer->flags & WGPEER_REMOVE_ME)
+			nvlist_add_bool(nvl_peers[i], "remove", true);
+		for_each_wgallowedip(peer, aip) {
+			nvl_aips[j] = nvlist_create(0);
+			if (!nvl_aips[j])
+				goto err_peer;
+			nvlist_add_number(nvl_aips[j], "cidr", aip->cidr);
+			if (aip->family == AF_INET)
+				nvlist_add_binary(nvl_aips[j], "ipv4", &aip->ip4, sizeof(aip->ip4));
+			else if (aip->family == AF_INET6)
+				nvlist_add_binary(nvl_aips[j], "ipv6", &aip->ip6, sizeof(aip->ip6));
+			++j;
+		}
+		if (j) {
+			nvlist_add_nvlist_array(nvl_peers[i], "allowed-ips", (const nvlist_t *const *)nvl_aips, j);
+			for (j = 0; j < aip_count; ++j)
+				nvlist_destroy(nvl_aips[j]);
+			free(nvl_aips);
+		}
 		++i;
+		continue;
+
+	err_peer:
+		ret = -errno;
+		for (j = 0; j < aip_count && nvl_aips; ++j)
+			nvlist_destroy(nvl_aips[j]);
+		free(nvl_aips);
+		nvlist_destroy(nvl_peers[i]);
+		goto err;
 	}
-	if (i > 0)
-		nvlist_add_nvlist_array(nvl, "peer-list", (const nvlist_t * const *)nvl_array, i);
-	packed = nvlist_pack(nvl, &size);
-	if (!do_cmd(s, dev->name, WGC_SET, packed, size, true)) {
-		rc = -errno;
-		goto out;
+	if (i) {
+		nvlist_add_nvlist_array(nvl_device, "peers", (const nvlist_t *const *)nvl_peers, i);
+		for (i = 0; i < peer_count; ++i)
+			nvlist_destroy(nvl_peers[i]);
+		free(nvl_peers);
 	}
-	rc = 0;
-out:
-	/* TODO: does nvl_array or peer or anything else leak? does this function leak? */
-	free(packed);
-	nvlist_destroy(nvl);
-	if (peer_count)
-		free(nvl_array);
-	return rc;
+	wgd.wgd_data = nvlist_pack(nvl_device, &wgd.wgd_size);
+	nvlist_destroy(nvl_device);
+	if (!wgd.wgd_data)
+		goto err;
+	s = get_dgram_socket();
+	if (s < 0)
+		return -errno;
+	return ioctl(s, SIOCSWG, &wgd);
+
+err:
+	if (!ret)
+		ret = -errno;
+	for (i = 0; i < peer_count && nvl_peers; ++i)
+		nvlist_destroy(nvl_peers[i]);
+	free(nvl_peers);
+	nvlist_destroy(nvl_device);
+	return ret;
 }
