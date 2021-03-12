@@ -438,7 +438,6 @@ static void m_calchdrlen(struct mbuf *);
 static struct wg_tag *wg_tag_get(struct mbuf *);
 static struct wg_endpoint *wg_mbuf_endpoint_get(struct mbuf *);
 static void wg_peer_remove_all(struct wg_softc *, bool);
-static int wg_socket_reuse(struct wg_softc *, struct socket *);
 static int wg_socket_init(struct wg_softc *);
 static void wg_socket_uninit(struct wg_softc *);
 static int wg_socket_bind(struct wg_softc *, struct wg_socket *);
@@ -986,33 +985,6 @@ wg_route_delete(struct wg_route_table *tbl, struct wg_peer *peer)
 	return (0);
 }
 
-/* TODO Socket */
-static int
-wg_socket_reuse(struct wg_softc *sc, struct socket *so)
-{
-	struct sockopt sopt;
-	int error, val = 1;
-
-	bzero(&sopt, sizeof(sopt));
-	sopt.sopt_dir = SOPT_SET;
-	sopt.sopt_level = SOL_SOCKET;
-	sopt.sopt_name = SO_REUSEPORT;
-	sopt.sopt_val = &val;
-	sopt.sopt_valsize = sizeof(val);
-	error = sosetopt(so, &sopt);
-	if (error) {
-		if_printf(sc->sc_ifp,
-		    "cannot set REUSEPORT socket opt: %d\n", error);
-	}
-	sopt.sopt_name = SO_REUSEADDR;
-	error = sosetopt(so, &sopt);
-	if (error) {
-		if_printf(sc->sc_ifp, "cannot set REUSEADDDR socket opt: %d\n",
-		    error);
-	}
-	return (error);
-}
-
 static int
 wg_socket_init(struct wg_softc *sc)
 {
@@ -1041,11 +1013,7 @@ wg_socket_init(struct wg_softc *sc)
 		return (rc);
 	}
 
-	rc = wg_socket_reuse(sc, so->so_so4);
-	if (rc)
-		goto fail;
 	rc = udp_set_kernel_tunneling(so->so_so4, wg_input, NULL, sc);
-	if_printf(ifp, "sc=%p\n", sc);
 	/*
 	 * udp_set_kernel_tunneling can only fail if there is already a tunneling function set.
 	 * This should never happen with a new socket.
@@ -1056,12 +1024,6 @@ wg_socket_init(struct wg_softc *sc)
 	if (rc) {
 		if_printf(ifp, "can't create AF_INET6 socket\n");
 
-		goto fail;
-	}
-	rc = wg_socket_reuse(sc, so->so_so6);
-	if (rc) {
-		SOCK_LOCK(so->so_so6);
-		sofree(so->so_so6);
 		goto fail;
 	}
 	rc = udp_set_kernel_tunneling(so->so_so6, wg_input, NULL, sc);
