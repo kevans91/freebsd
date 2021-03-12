@@ -84,8 +84,8 @@ wg_basic_body()
 	    jexec wgtest2 ifconfig $wg2 inet $tunnel2
 
 	# Generous timeout since the handshake takes some time.
-	atf_check -s exit:0 -o ignore jexec wgtest1 ping -c 3 -t 5 $tunnel2
-	atf_check -s exit:0 -o ignore jexec wgtest2 ping -c 3 -t 5 $tunnel1
+	atf_check -s exit:0 -o ignore jexec wgtest1 ping -o -t 5 -i 0.25 $tunnel2
+	atf_check -s exit:0 -o ignore jexec wgtest2 ping -o -t 5 -i 0.25 $tunnel1
 }
 
 wg_basic_cleanup()
