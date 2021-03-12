@@ -1117,6 +1117,9 @@ wg_socket_bind(struct wg_softc *sc, struct wg_socket *so)
 	struct sockaddr_in *sin;
 	struct sockaddr_in6 *sin6;
 	struct ifnet *ifp;
+	in_port_t port;
+
+	port = so->so_port;
 
 	td = curthread;
 	bzero(&laddr, sizeof(laddr));
@@ -1124,7 +1127,7 @@ wg_socket_bind(struct wg_softc *sc, struct wg_socket *so)
 	sin = &laddr.in4;
 	sin->sin_len = sizeof(laddr.in4);
 	sin->sin_family = AF_INET;
-	sin->sin_port = htons(so->so_port);
+	sin->sin_port = htons(port);
 	sin->sin_addr = (struct in_addr) { 0 };
 
 	if ((rc = sobind(so->so_so4, &laddr.sa, td)) != 0) {
@@ -1141,19 +1144,21 @@ wg_socket_bind(struct wg_softc *sc, struct wg_socket *so)
 			return (rc);
 		}
 
-		so->so_port = ntohs(sin->sin_port);
+		port = ntohs(sin->sin_port);
 		free(sin, M_SONAME);
 	}
 
 	sin6 = &laddr.in6;
 	sin6->sin6_len = sizeof(laddr.in6);
 	sin6->sin6_family = AF_INET6;
-	sin6->sin6_port = htons(so->so_port);
+	sin6->sin6_port = htons(port);
 	sin6->sin6_addr = (struct in6_addr) { .s6_addr = { 0 } };
 
 	rc = sobind(so->so_so6, &laddr.sa, td);
 	if (rc)
 		if_printf(ifp, "can't bind AF_INET6 socket %d\n", rc);
+	else
+		so->so_port = port;
 	return (rc);
 }
 
