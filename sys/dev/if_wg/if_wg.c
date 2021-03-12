@@ -2700,6 +2700,7 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 	}
 	if (nvlist_exists_binary(nvl, "private-key")) {
 		struct noise_local *local;
+		struct wg_peer *peer;
 		const void *key = nvlist_get_binary(nvl, "private-key", &size);
 
 		if (size != CURVE25519_KEY_SIZE) {
@@ -2713,6 +2714,12 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 			err = EBADMSG;
 			goto nvl_out;
 		}
+
+		if ((peer = wg_peer_lookup(sc, public)) != NULL) {
+			wg_hashtable_peer_remove(&sc->sc_hashtable, peer);
+			wg_peer_destroy(peer);
+		}
+
 		/*
 		 * set private key
 		 */
