@@ -1010,6 +1010,7 @@ wg_socket_init(struct wg_softc *sc)
 	struct wg_socket *so;
 	struct ifnet *ifp;
 	struct ucred *cred;
+	struct socket *so4, *so6;
 	int rc;
 
 	so = &sc->sc_socket;
@@ -1029,36 +1030,59 @@ wg_socket_init(struct wg_softc *sc)
 	 * functionally attached to a foreign vnet as the jail's only interface
 	 * to the network.
 	 */
-	rc = socreate(AF_INET, &so->so_so4, SOCK_DGRAM, IPPROTO_UDP, cred, td);
+	rc = socreate(AF_INET, &so4, SOCK_DGRAM, IPPROTO_UDP, cred, td);
 	if (rc) {
 		crfree(cred);
 		if_printf(ifp, "can't create AF_INET socket\n");
 		return (rc);
 	}
 
-	rc = udp_set_kernel_tunneling(so->so_so4, wg_input, NULL, sc);
+	rc = udp_set_kernel_tunneling(so4, wg_input, NULL, sc);
 	/*
 	 * udp_set_kernel_tunneling can only fail if there is already a tunneling function set.
 	 * This should never happen with a new socket.
 	 */
 	MPASS(rc == 0);
 
-	rc = socreate(AF_INET6, &so->so_so6, SOCK_DGRAM, IPPROTO_UDP, cred, td);
+	rc = socreate(AF_INET6, &so6, SOCK_DGRAM, IPPROTO_UDP, cred, td);
 	if (rc) {
 		if_printf(ifp, "can't create AF_INET6 socket\n");
 
 		goto fail;
 	}
-	rc = udp_set_kernel_tunneling(so->so_so6, wg_input, NULL, sc);
+	rc = udp_set_kernel_tunneling(so6, wg_input, NULL, sc);
 	MPASS(rc == 0);
 
+	mtx_lock(&sc->sc_mtx);
+	/* If we started dying in the process, just drop these sockets. */
+	if ((sc->sc_flags & WGF_DYING) != 0) {
+		mtx_unlock(&sc->sc_mtx);
+
+		SOCK_LOCK(so4);
+		sofree(so4);
+
+		SOCK_LOCK(so6);
+		sofree(so6);
+
+		crfree(cred);
+		return (EBUSY);
+	}
+
+	so->so_so4 = so4;
+	so->so_so6 = so6;
+
+	mtx_unlock(&sc->sc_mtx);
+
+	/*
+	 * No lock; maybe the interface gets downed before we bind -- meh.
+	 */
 	rc = wg_socket_bind(sc, so);
 
 	crfree(cred);
 	return (rc);
 fail:
-	SOCK_LOCK(so->so_so4);
-	sofree(so->so_so4);
+	SOCK_LOCK(so4);
+	sofree(so4);
 	crfree(cred);
 	return (rc);
 }
