@@ -3319,7 +3319,7 @@ wg_clone_destroy(struct ifnet *ifp)
 	wg_hashtable_destroy(&sc->sc_hashtable);
 
 	crfree(sc->sc_ucred);
-	ether_ifdetach(sc->sc_ifp);
+	if_detach(sc->sc_ifp);
 	if_free(sc->sc_ifp);
 	free(sc, M_WG);
 
