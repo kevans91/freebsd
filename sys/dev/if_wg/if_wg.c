@@ -530,6 +530,7 @@ static int wgc_get(struct wg_softc *, struct wg_data_io *);
 static int wgc_set(struct wg_softc *, struct wg_data_io *);
 static int wg_up(struct wg_softc *);
 static void wg_down(struct wg_softc *);
+static void wg_reassign(struct ifnet *, struct vnet *, char *unused);
 static void wg_init(void *);
 static int wg_ioctl(struct ifnet *, u_long, caddr_t);
 static void vnet_wg_init(const void *);
@@ -3249,6 +3250,7 @@ unpacked:
 	if_setmtu(ifp, ETHERMTU - 80);
 	ifp->if_flags = IFF_BROADCAST | IFF_MULTICAST | IFF_NOARP;
 	ifp->if_init = wg_init;
+	ifp->if_reassign = wg_reassign;
 	ifp->if_qflush = wg_qflush;
 	ifp->if_transmit = wg_transmit;
 	ifp->if_output = wg_output;
@@ -3320,6 +3322,16 @@ wgc_privileged(struct wg_softc *sc)
 
 	/* XXX */
 	return (curthread->td_ucred->cr_uid == 0);
+}
+
+static void
+wg_reassign(struct ifnet *ifp, struct vnet *new_vnet __unused,
+    char *unused __unused)
+{
+	struct wg_softc *sc;
+
+	sc = ifp->if_softc;
+	wg_down(sc);
 }
 
 static void
