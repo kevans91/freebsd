@@ -305,6 +305,7 @@ struct wg_softc {
 	struct ifnet		*sc_ifp;
 	uint16_t		 sc_incoming_port;
 	uint32_t		 sc_user_cookie;
+	int			 sc_flags;
 
 	struct ucred		*sc_ucred;
 	struct wg_socket	 sc_socket;
@@ -331,6 +332,8 @@ struct wg_softc {
 	volatile u_int		 sc_peer_count;
 };
 
+#define	WGF_DYING	0x0001
+
 /* TODO the following defines are freebsd specific, we should see what is
  * necessary and cleanup from there (i suspect a lot can be junked). */
 
@@ -354,6 +357,7 @@ static int wireguard_debug;
 static volatile unsigned long peer_counter = 0;
 static struct timeval	underload_interval = { UNDERLOAD_TIMEOUT, 0 };
 static const char wgname[] = "wg";
+static unsigned wg_osd_jail_slot;
 
 static struct sx wg_sx;
 SX_SYSINIT(wg_sx, &wg_sx, "wg_sx");
@@ -1010,8 +1014,12 @@ wg_socket_init(struct wg_softc *sc)
 
 	so = &sc->sc_socket;
 	td = curthread;
-	cred = sc->sc_ucred;
 	ifp = sc->sc_ifp;
+	mtx_lock(&sc->sc_mtx);
+	if (sc->sc_ucred == NULL)
+		return (EBUSY);
+	cred = crhold(sc->sc_ucred);
+	mtx_unlock(&sc->sc_mtx);
 
 	/*
 	 * For socket creation, we use the creds of the thread that created the
@@ -1023,6 +1031,7 @@ wg_socket_init(struct wg_softc *sc)
 	 */
 	rc = socreate(AF_INET, &so->so_so4, SOCK_DGRAM, IPPROTO_UDP, cred, td);
 	if (rc) {
+		crfree(cred);
 		if_printf(ifp, "can't create AF_INET socket\n");
 		return (rc);
 	}
@@ -1044,10 +1053,13 @@ wg_socket_init(struct wg_softc *sc)
 	MPASS(rc == 0);
 
 	rc = wg_socket_bind(sc, so);
+
+	crfree(cred);
 	return (rc);
 fail:
 	SOCK_LOCK(so->so_so4);
 	sofree(so->so_so4);
+	crfree(cred);
 	return (rc);
 }
 
@@ -3078,6 +3090,11 @@ wg_up(struct wg_softc *sc)
 	int rc;
 
 	mtx_lock(&sc->sc_mtx);
+	/* Jail's being removed, no more wg_up(). */
+	if ((sc->sc_flags & WGF_DYING) != 0) {
+		mtx_unlock(&sc->sc_mtx);
+		return (EBUSY);
+	}
 	ifp = sc->sc_ifp;
 	rc = (ifp->if_drv_flags & IFF_DRV_RUNNING) != 0;
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
@@ -3306,8 +3323,15 @@ static void
 wg_clone_destroy(struct ifnet *ifp)
 {
 	struct wg_softc *sc = ifp->if_softc;
+	struct ucred *cred;
 
 	sx_xlock(&wg_sx);
+	mtx_lock(&sc->sc_mtx);
+	sc->sc_flags |= WGF_DYING;
+	cred = sc->sc_ucred;
+	sc->sc_ucred = NULL;
+	mtx_unlock(&sc->sc_mtx);
+
 	LIST_REMOVE(sc, sc_entry);
 	sx_xunlock(&wg_sx);
 
@@ -3333,7 +3357,8 @@ wg_clone_destroy(struct ifnet *ifp)
 	wg_route_destroy(&sc->sc_routes);
 	wg_hashtable_destroy(&sc->sc_hashtable);
 
-	crfree(sc->sc_ucred);
+	if (cred != NULL)
+		crfree(cred);
 	if_detach(sc->sc_ifp);
 	if_free(sc->sc_ifp);
 	free(sc, M_WG);
@@ -3404,12 +3429,57 @@ vnet_wg_uninit(const void *unused __unused)
 VNET_SYSUNINIT(vnet_wg_uninit, SI_SUB_PROTO_IFATTACHDOMAIN, SI_ORDER_ANY,
     vnet_wg_uninit, NULL);
 
+static int
+wg_prison_remove(void *obj, void *data __unused)
+{
+	const struct prison *pr = obj;
+	struct wg_softc *sc;
+	struct ucred *cred;
+
+	/*
+	 * Do a pass through all if_wg interfaces and release creds on any from
+	 * the jail that are supposed to be going away.  This will, in turn, let
+	 * the jail die so that we don't end up with Schrödinger's jail.
+	 */
+	sx_slock(&wg_sx);
+	LIST_FOREACH(sc, &wg_list, sc_entry) {
+		cred = NULL;
+
+		mtx_lock(&sc->sc_mtx);
+		if ((sc->sc_flags & WGF_DYING) == 0 && sc->sc_ucred != NULL &&
+		    sc->sc_ucred->cr_prison == pr) {
+			cred = sc->sc_ucred;
+			sc->sc_ucred = NULL;
+
+			sc->sc_flags |= WGF_DYING;
+			if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
+			/* Have to kill the sockets, as they also hold refs. */
+			wg_socket_uninit(sc);
+		}
+		mtx_unlock(&sc->sc_mtx);
+
+		if (cred != NULL) {
+			CURVNET_SET(sc->sc_ifp->if_vnet);
+			if_purgeaddrs(sc->sc_ifp);
+			CURVNET_RESTORE();
+			crfree(cred);
+		}
+	}
+	sx_sunlock(&wg_sx);
+
+	return (0);
+}
+
 static void
 wg_module_init(void)
 {
+	osd_method_t methods[PR_MAXMETHOD] = {
+		[PR_METHOD_REMOVE] = wg_prison_remove,
+	};
 
 	ratelimit_zone = uma_zcreate("wg ratelimit", sizeof(struct ratelimit),
 	     NULL, NULL, NULL, NULL, 0, 0);
+	wg_osd_jail_slot = osd_jail_register(NULL, methods);
 }
 
 static void
@@ -3417,6 +3487,7 @@ wg_module_deinit(void)
 {
 
 	uma_zdestroy(ratelimit_zone);
+	osd_jail_deregister(wg_osd_jail_slot);
 
 	MPASS(LIST_EMPTY(&wg_list));
 }
