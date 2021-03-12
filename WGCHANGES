@@ -1,0 +1,16 @@
+The following user-visible changes have occurred in this branch:
+- Packets are now correctly staged for processing once the handshake has
+  completed, resulting in less packet loss in the interim.
+- Various race conditions have been resolved, particularly w.r.t. socket and
+  packet lifetime (panics)
+- Various tests have been added to assure correct functionality and tooling
+  conformance.
+- if_wg has become vnet-friendly
+- if_wg now maintains the semantics observed on Linux with net namespaces;
+  notably, sockets are created in the interface's home vnet so that it can
+  act as the sole network connection for a jail
+- if_wg no longer fails to remove peer allowed-ips of 0.0.0.0/0
+- if_wg now exports via ioctl a format accepted and supported by the upstream
+  wireguard-tools
+- if_wg now conforms to the WireGuard protocol and is more closely aligned with
+  the upstream security auditing guidelines
