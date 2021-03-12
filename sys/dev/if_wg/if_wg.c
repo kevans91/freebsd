@@ -3204,70 +3204,17 @@ static int
 wg_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 {
 	struct wg_softc *sc;
-	struct iovec iov;
 	struct ifnet *ifp;
-	nvlist_t *nvl;
-	void *packed;
-	struct noise_local *local;
-	uint8_t			 public[WG_KEY_SIZE];
-	struct noise_upcall	 noise_upcall;
+	struct noise_upcall noise_upcall;
 	int err;
-	uint16_t listen_port;
-	const void *key;
-	size_t size;
 
 	err = 0;
-	packed = NULL;
 	sc = malloc(sizeof(*sc), M_WG, M_WAITOK | M_ZERO);
 	sc->sc_ucred = crhold(curthread->td_ucred);
 	ifp = sc->sc_ifp = if_alloc(IFT_WIREGUARD);
 	ifp->if_softc = sc;
 	if_initname(ifp, wgname, unit);
 
-	if (params == NULL) {
-		key = NULL;
-		listen_port = 0;
-		nvl = NULL;
-		packed = NULL;
-		goto unpacked;
-	}
-
-	if (copyin(params, &iov, sizeof(iov))) {
-		err = EFAULT;
-		goto out;
-	}
-
-	/* check that this is reasonable */
-	size = iov.iov_len;
-	packed = malloc(size, M_TEMP, M_WAITOK);
-	if (copyin(iov.iov_base, packed, size)) {
-		err = EFAULT;
-		goto out;
-	}
-	nvl = nvlist_unpack(packed, size, 0);
-	if (nvl == NULL) {
-		if_printf(ifp, "%s nvlist_unpack failed\n", __func__);
-		err = EBADMSG;
-		goto out;
-	}
-
-	/* wg_socket_bind() will update with the chosen port if omitted. */
-	listen_port = 0;
-	if (nvlist_exists_number(nvl, "listen-port"))
-		listen_port = nvlist_get_number(nvl, "listen-port");
-	if (!nvlist_exists_binary(nvl, "private-key")) {
-		if_printf(ifp, "%s private-key not set\n", __func__);
-		err = EBADMSG;
-		goto nvl_out;
-	}
-	key = nvlist_get_binary(nvl, "private-key", &size);
-	if (size != CURVE25519_KEY_SIZE) {
-		if_printf(ifp, "%s bad length for private-key %zu\n", __func__, size);
-		err = EBADMSG;
-		goto nvl_out;
-	}
-unpacked:
-	local = &sc->sc_local;
 	noise_upcall.u_arg = sc;
 	noise_upcall.u_remote_get =
 		(struct noise_remote *(*)(void *, uint8_t *))wg_remote_get;
@@ -3275,22 +3222,11 @@ unpacked:
 		(uint32_t (*)(void *, struct noise_remote *))wg_index_set;
 	noise_upcall.u_index_drop =
 		(void (*)(void *, uint32_t))wg_index_drop;
-	noise_local_init(local, &noise_upcall);
+	noise_local_init(&sc->sc_local, &noise_upcall);
 	cookie_checker_init(&sc->sc_cookie, ratelimit_zone);
 
-	sc->sc_socket.so_port = listen_port;
+	sc->sc_socket.so_port = 0;
 
-	if (key != NULL) {
-		/* TODO this is temp code, should not be released */
-		if (!curve25519_generate_public(public, key)) {
-			err = EBADMSG;
-			goto nvl_out;
-		}
-		noise_local_lock_identity(local);
-		noise_local_set_private(local, key);
-		cookie_checker_update(&sc->sc_cookie, public);
-		noise_local_unlock_identity(local);
-	}
 	atomic_add_int(&clone_count, 1);
 	ifp->if_capabilities = ifp->if_capenable = WG_CAPS;
 	ifp->if_hwassist = CSUM_TCP | CSUM_UDP | CSUM_TSO | CSUM_IP6_TCP \
@@ -3326,16 +3262,13 @@ unpacked:
 	sx_xlock(&wg_sx);
 	LIST_INSERT_HEAD(&wg_list, sc, sc_entry);
 	sx_xunlock(&wg_sx);
-nvl_out:
-	if (nvl != NULL)
-		nvlist_destroy(nvl);
-out:
-	free(packed, M_TEMP);
+
 	if (err != 0) {
 		crfree(sc->sc_ucred);
 		if_free(ifp);
 		free(sc, M_WG);
 	}
+
 	return (err);
 }
 
