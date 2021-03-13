@@ -3304,7 +3304,9 @@ wg_clone_destroy(struct ifnet *ifp)
 
 	taskqgroup_drain_all(qgroup_if_io_tqg);
 	pause("link_down", hz/4);
+	sx_xlock(&sc->sc_lock);
 	wg_peer_remove_all(sc, true);
+	sx_xunlock(&sc->sc_lock);
 	sx_destroy(&sc->sc_lock);
 	rw_destroy(&sc->sc_index_lock);
 	taskqgroup_detach(qgroup_if_io_tqg, &sc->sc_handshake);
