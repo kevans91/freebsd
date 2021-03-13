@@ -3005,6 +3005,8 @@ wgc_get(struct wg_softc *sc, struct wg_data_io *wgd)
 	if (nvl == NULL)
 		return (ENOMEM);
 
+	sx_slock(&sc->sc_lock);
+
 	err = 0;
 	packed = NULL;
 	if (sc->sc_socket.so_port != 0)
@@ -3017,30 +3019,35 @@ wgc_get(struct wg_softc *sc, struct wg_data_io *wgd)
 	if (sc->sc_hashtable.h_num_peers > 0) {
 		err = wg_marshal_peers(sc, NULL, &nvl_array, &peer_count);
 		if (err)
-			goto out;
+			goto out_nvl;
 		nvlist_add_nvlist_array(nvl, "peers",
 		    (const nvlist_t * const *)nvl_array, peer_count);
 	}
 	packed = nvlist_pack(nvl, &size);
-	if (packed == NULL)
-		return (ENOMEM);
+	if (packed == NULL) {
+		err = ENOMEM;
+		goto out_nvl;
+	}
 	if (wgd->wgd_size == 0) {
 		wgd->wgd_size = size;
-		goto out;
+		goto out_packed;
 	}
 	if (wgd->wgd_size < size) {
 		err = ENOSPC;
-		goto out;
+		goto out_packed;
 	}
 	if (wgd->wgd_data == NULL) {
 		err = EFAULT;
-		goto out;
+		goto out_packed;
 	}
 	err = copyout(packed, wgd->wgd_data, size);
 	wgd->wgd_size = size;
- out:
-	nvlist_destroy(nvl);
+
+out_packed:
 	free(packed, M_NVLIST);
+out_nvl:
+	nvlist_destroy(nvl);
+	sx_sunlock(&sc->sc_lock);
 	return (err);
 }
 
