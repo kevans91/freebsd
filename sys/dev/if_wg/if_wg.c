@@ -668,7 +668,7 @@ wg_peer_free_deferred(epoch_context_t ctx)
 	rw_destroy(&peer->p_endpoint_lock);
 	zfree(peer, M_WG);
 
-	*peercnt--;
+	(*peercnt)--;
 	if (*peercnt == 0)
 		wakeup(__DEVOLATILE(u_int *, peercnt));
 }
@@ -3548,8 +3548,7 @@ wg_peer_remove_all(struct wg_softc *sc, bool drain)
 		wg_peer_destroy(peer);
 	}
 
-	/* TODO md - currently broken peer removing */
-	if (drain && 0) {
+	if (drain) {
 		error = EWOULDBLOCK;
 
 		/*
