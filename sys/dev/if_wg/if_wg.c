@@ -2960,14 +2960,29 @@ wg_marshal_peers(struct wg_softc *sc, nvlist_t **nvlp, nvlist_t ***nvl_arrayp, i
 	}
 
 	for (i = 0; i < peer_count; i++) {
-		nvl_array[i] = wg_peer_export_to_nvl(sc, &wpe[i]);
-		if (nvl_array[i] == NULL) {
+		int idx;
+
+		/*
+		 * Peers are added to the list in reverse order, effectively,
+		 * because it's simpler/quicker to add at the head every time.
+		 *
+		 * Export them in reverse order.  No worries if we fail mid-way
+		 * through, the cleanup below will DTRT.
+		 */
+		idx = peer_count - i - 1;
+		nvl_array[idx] = wg_peer_export_to_nvl(sc, &wpe[i]);
+		if (nvl_array[idx] == NULL) {
+			/* Debug output in the correct order. */
 			printf("wg_peer_export_to_nvl failed on %d peer\n", i);
 			break;
 		}
 	}
 
-	if (nvl) {
+	if (i < peer_count) {
+		/* Error! */
+		*peer_countp = 0;
+		err = ENOMEM;
+	} else if (nvl) {
 		nvlist_add_nvlist_array(nvl, "peers",
 		    (const nvlist_t * const *)nvl_array, peer_count);
 		if ((err = nvlist_error(nvl))) {
@@ -2981,6 +2996,7 @@ wg_marshal_peers(struct wg_softc *sc, nvlist_t **nvlp, nvlist_t ***nvl_arrayp, i
 	err = 0;
  out:
 	if (err != 0) {
+		/* Note that nvl_array is populated in reverse order. */
 		for (i = 0; i < peer_count; i++) {
 			nvlist_destroy(nvl_array[i]);
 		}
