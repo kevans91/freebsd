@@ -4,7 +4,8 @@ The following user-visible changes have occurred in this branch:
 - Various race conditions have been resolved, particularly w.r.t. socket and
   packet lifetime (panics)
 - Various tests have been added to assure correct functionality and tooling
-  conformance.
+  conformance
+- Many security issues have been addressed
 - if_wg has become vnet-friendly
 - if_wg now maintains the semantics observed on Linux with net namespaces;
   notably, sockets are created in the interface's home vnet so that it can
