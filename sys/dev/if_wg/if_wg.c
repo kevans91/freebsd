@@ -2629,7 +2629,7 @@ out:
 static int
 wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 {
-	uint8_t			 public[WG_KEY_SIZE];
+	uint8_t public[WG_KEY_SIZE], private[WG_KEY_SIZE];
 	struct ifnet *ifp;
 	void *nvlpacked;
 	nvlist_t *nvl;
@@ -2672,42 +2672,45 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 		}
 	}
 	if (nvlist_exists_binary(nvl, "private-key")) {
-		struct noise_local *local;
-		struct wg_peer *peer;
 		const void *key = nvlist_get_binary(nvl, "private-key", &size);
 
-		if (size != CURVE25519_KEY_SIZE) {
-			if_printf(ifp, "%s bad length for private-key %zu\n", __func__, size);
-			err = EBADMSG;
-			goto nvl_out;
-		}
+		if (noise_local_keys(&sc->sc_local, NULL, private) != 0 ||
+		    timingsafe_bcmp(private, key, WG_KEY_SIZE) != 0) {
+			struct noise_local *local;
+			struct wg_peer *peer;
+			struct wg_hashtable *ht = &sc->sc_hashtable;
+			bool has_identity;
 
-		/* TODO this is temp code, should not be released */
-		if (!curve25519_generate_public(public, key)) {
-			err = EBADMSG;
-			goto nvl_out;
-		}
+			if (curve25519_generate_public(public, key)) {
+				/* Peer conflict: remove conflicting peer. */
+				if ((peer = wg_peer_lookup(sc, public)) !=
+				    NULL) {
+					wg_hashtable_peer_remove(ht,
+					    peer);
+					wg_peer_destroy(peer);
+				}
+			}
 
-		if ((peer = wg_peer_lookup(sc, public)) != NULL) {
-			wg_hashtable_peer_remove(&sc->sc_hashtable, peer);
-			wg_peer_destroy(peer);
+			/*
+			 * Set the private key and invalidate all existing
+			 * handshakes.
+			 */
+			local = &sc->sc_local;
+			noise_local_lock_identity(local);
+			/* Note: we might be removing the private key. */
+			has_identity = noise_local_set_private(local, key) == 0;
+			mtx_lock(&ht->h_mtx);
+			CK_LIST_FOREACH(peer, &ht->h_peers_list, p_entry) {
+				noise_remote_precompute(&peer->p_remote);
+				wg_timers_event_reset_handshake_last_sent(
+				    &peer->p_timers);
+				noise_remote_expire_current(&peer->p_remote);
+			}
+			mtx_unlock(&ht->h_mtx);
+			cookie_checker_update(&sc->sc_cookie,
+			    has_identity ? public : NULL);
+			noise_local_unlock_identity(local);
 		}
-
-		/*
-		 * set private key
-		 */
-		local = &sc->sc_local;
-		noise_local_lock_identity(local);
-		noise_local_set_private(local, key);
-		/* TODO: missing, but present in OpenBSD code.
-		 TAILQ_FOREACH(peer, &sc->sc_peer_seq, p_seq_entry) {
-                        noise_remote_precompute(&peer->p_remote);
-                        wg_timers_event_reset_handshake_last_sent(&peer->p_timers);
-                        noise_remote_expire_current(&peer->p_remote);
-                }
-		*/
-		cookie_checker_update(&sc->sc_cookie, public);
-		noise_local_unlock_identity(local);
 	}
 	if (nvlist_exists_number(nvl, "user-cookie")) {
 		sc->sc_user_cookie = nvlist_get_number(nvl, "user-cookie");
@@ -2724,7 +2727,7 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 			wg_peer_add(sc, nvl_peers[i]);
 		}
 	}
-nvl_out:
+
 	nvlist_destroy(nvl);
 out:
 	free(nvlpacked, M_TEMP);
