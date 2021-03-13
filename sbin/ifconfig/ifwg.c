@@ -67,10 +67,13 @@ __FBSDID("$FreeBSD$");
 
 #include "ifconfig.h"
 
-static nvlist_t *nvl_device, *nvl_peer;
+static void wgfinish(int s, void *arg);
+
+static bool wgfinish_registered;
+
 static int allowed_ips_count;
 static int allowed_ips_max;
-static nvlist_t **allowed_ips;
+static nvlist_t **allowed_ips, *nvl_peer;
 
 #define	ALLOWEDIPS_START 16
 #define	WG_KEY_SIZE_BASE64 ((((WG_KEY_SIZE) + 2) / 3) * 4 + 1)
@@ -83,6 +86,27 @@ struct allowedip {
 		struct in6_addr ip6;
 	};
 };
+
+static void
+register_wgfinish(void)
+{
+
+	if (wgfinish_registered)
+		return;
+	callback_register(wgfinish, NULL);
+	wgfinish_registered = true;
+}
+
+static nvlist_t *
+nvl_device(void)
+{
+	static nvlist_t *_nvl_device;
+
+	if (_nvl_device == NULL)
+		_nvl_device = nvlist_create(0);
+	register_wgfinish();
+	return (_nvl_device);
+}
 
 static bool
 key_from_base64(uint8_t key[static WG_KEY_SIZE], const char *base64)
@@ -126,7 +150,7 @@ parse_endpoint(const char *endpoint_)
 	err = getaddrinfo(endpoint, port, &hints, &res);
 	if (err)
 		errx(1, "%s", gai_strerror(err));
-	nvlist_add_binary(nvl_device, "endpoint", res->ai_addr, res->ai_addrlen);
+	nvlist_add_binary(nvl_peer, "endpoint", res->ai_addr, res->ai_addrlen);
 	freeaddrinfo(res);
 	free(base);
 }
@@ -424,37 +448,41 @@ DECL_CMD_FUNC(peerlist, val, d)
 }
 
 static void
-peerfinish(int s, void *arg)
+wgfinish(int s, void *arg)
 {
 	void *packed;
 	size_t size;
+	static nvlist_t *nvl_dev;
 
-	if (nvl_peer == NULL)
-		return;
-	if (!nvlist_exists_binary(nvl_peer, "public-key"))
-		errx(1, "must specify a public-key for adding peer");
-	if (allowed_ips_count != 0) {
-		nvlist_add_nvlist_array(nvl_peer, "allowed-ips",
-		    (const nvlist_t * const *)allowed_ips, allowed_ips_count);
-		for (size_t i = 0; i < allowed_ips_count; i++) {
-			nvlist_destroy(allowed_ips[i]);
+	nvl_dev = nvl_device();
+	if (nvl_peer != NULL) {
+		if (!nvlist_exists_binary(nvl_peer, "public-key"))
+			errx(1, "must specify a public-key for adding peer");
+		if (allowed_ips_count != 0) {
+			nvlist_add_nvlist_array(nvl_peer, "allowed-ips",
+			    (const nvlist_t * const *)allowed_ips,
+			    allowed_ips_count);
+			for (size_t i = 0; i < allowed_ips_count; i++) {
+				nvlist_destroy(allowed_ips[i]);
+			}
+
+			free(allowed_ips);
 		}
 
-		free(allowed_ips);
+		nvlist_add_nvlist_array(nvl_dev, "peers",
+		    (const nvlist_t * const *)&nvl_peer, 1);
 	}
 
-	nvlist_add_nvlist_array(nvl_device, "peers",
-	    (const nvlist_t * const *)&nvl_peer, 1);
-	packed = nvlist_pack(nvl_device, &size);
+	packed = nvlist_pack(nvl_dev, &size);
 
 	if (do_cmd(s, SIOCSWG, packed, size, true))
-		errx(1, "failed to install peer");
+		errx(1, "failed to configure");
 }
 
 static
 DECL_CMD_FUNC(peerstart, val, d)
 {
-	callback_register(peerfinish, NULL);
+	register_wgfinish();
 	nvl_peer = nvlist_create(0);
 	allowed_ips = calloc(ALLOWEDIPS_START, sizeof(*allowed_ips));
 	allowed_ips_max = ALLOWEDIPS_START;
@@ -489,7 +517,7 @@ DECL_CMD_FUNC(setwglistenport, val, d)
 		errx(1, "unknown family");
 	}
 	ul = ntohs((u_short)ul);
-	nvlist_add_number(nvl_device, "listen-port", ul);
+	nvlist_add_number(nvl_device(), "listen-port", ul);
 }
 
 static
@@ -499,7 +527,7 @@ DECL_CMD_FUNC(setwgprivkey, val, d)
 
 	if (!key_from_base64(key, val))
 		errx(1, "invalid key %s", val);
-	nvlist_add_binary(nvl_device, "private-key", key, WG_KEY_SIZE);
+	nvlist_add_binary(nvl_device(), "private-key", key, WG_KEY_SIZE);
 }
 
 static
@@ -644,8 +672,8 @@ wireguard_status(int s)
 }
 
 static struct cmd wireguard_cmds[] = {
-    DEF_CLONE_CMD_ARG("listen-port",  setwglistenport),
-    DEF_CLONE_CMD_ARG("private-key",  setwgprivkey),
+    DEF_CMD_ARG("listen-port",  setwglistenport),
+    DEF_CMD_ARG("private-key",  setwgprivkey),
     /* XXX peer-list is deprecated. */
     DEF_CMD("peer-list",  0, peerlist),
     DEF_CMD("peers",  0, peerlist),
@@ -666,25 +694,10 @@ static struct afswtch af_wireguard = {
 static void
 wg_create(int s, struct ifreq *ifr)
 {
-	struct iovec iov;
-	void *packed;
-	size_t size;
 
 	setproctitle("ifconfig %s create ...\n", name);
-	if (!nvlist_exists_binary(nvl_device, "private-key"))
-		goto legacy;
 
-	packed = nvlist_pack(nvl_device, &size);
-	if (packed == NULL)
-		errx(1, "failed to setup create request");
-	iov.iov_len = size;
-	iov.iov_base = packed;
-	ifr->ifr_data = (caddr_t)&iov;
-	if (ioctl(s, SIOCIFCREATE2, ifr) < 0)
-		err(1, "SIOCIFCREATE2");
-	return;
-legacy:
-	ifr->ifr_data == NULL;
+	ifr->ifr_data = NULL;
 	if (ioctl(s, SIOCIFCREATE, ifr) < 0)
 		err(1, "SIOCIFCREATE");
 }
@@ -694,7 +707,6 @@ wireguard_ctor(void)
 {
 	int i;
 
-	nvl_device = nvlist_create(0);
 	for (i = 0; i < nitems(wireguard_cmds);  i++)
 		cmd_register(&wireguard_cmds[i]);
 	af_register(&af_wireguard);
