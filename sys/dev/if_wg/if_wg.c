@@ -2034,6 +2034,7 @@ static void
 wg_deliver_in(struct wg_peer *peer)
 {
 	struct mbuf *m;
+	struct ifnet *ifp;
 	struct wg_softc *sc;
 	struct wg_socket *so;
 	struct epoch_tracker et;
@@ -2048,6 +2049,7 @@ wg_deliver_in(struct wg_peer *peer)
 		goto done;
 
 	so = &sc->sc_socket;
+	ifp = sc->sc_ifp;
 
 	while ((m = wg_queue_dequeue(&peer->p_decap_queue, &t)) != NULL) {
 		/* t_mbuf will contain the encrypted packet */
@@ -2070,18 +2072,18 @@ wg_deliver_in(struct wg_peer *peer)
 		counter_u64_add(peer->p_rx_bytes, m->m_pkthdr.len);
 
 		m->m_flags &= ~(M_MCAST | M_BCAST);
-		m->m_pkthdr.rcvif = sc->sc_ifp;
+		m->m_pkthdr.rcvif = ifp;
 		version = mtod(m, struct ip *)->ip_v;
 		if (version == IPVERSION) {
 			af = AF_INET;
-			BPF_MTAP2(sc->sc_ifp, &af, sizeof(af), m);
-			CURVNET_SET(so->so_so4->so_vnet);
+			BPF_MTAP2(ifp, &af, sizeof(af), m);
+			CURVNET_SET(ifp->if_vnet);
 			ip_input(m);
 			CURVNET_RESTORE();
 		} else if (version == 6) {
 			af = AF_INET6;
-			BPF_MTAP2(sc->sc_ifp, &af, sizeof(af), m);
-			CURVNET_SET(so->so_so6->so_vnet);
+			BPF_MTAP2(ifp, &af, sizeof(af), m);
+			CURVNET_SET(ifp->if_vnet);
 			ip6_input(m);
 			CURVNET_RESTORE();
 		} else
@@ -3391,6 +3393,7 @@ wg_prison_remove(void *obj, void *data __unused)
 	const struct prison *pr = obj;
 	struct wg_softc *sc;
 	struct ucred *cred;
+	bool dying;
 
 	/*
 	 * Do a pass through all if_wg interfaces and release creds on any from
@@ -3402,16 +3405,28 @@ wg_prison_remove(void *obj, void *data __unused)
 		cred = NULL;
 
 		sx_xlock(&sc->sc_lock);
-		if ((sc->sc_flags & WGF_DYING) == 0 && sc->sc_ucred != NULL &&
+		dying = (sc->sc_flags & WGF_DYING) != 0;
+		if (!dying && sc->sc_ucred != NULL &&
 		    sc->sc_ucred->cr_prison == pr) {
+			/* Home jail is going away. */
 			cred = sc->sc_ucred;
 			sc->sc_ucred = NULL;
 
 			sc->sc_flags |= WGF_DYING;
+		}
+
+		/*
+		 * If this is our foreign vnet going away, we'll also down the
+		 * link and kill the socket because traffic needs to stop.  Any
+		 * address will be revoked in the rehoming process.
+		 */
+		if (cred != NULL || (!dying &&
+		    sc->sc_ifp->if_vnet == pr->pr_vnet)) {
 			if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
 			/* Have to kill the sockets, as they also hold refs. */
 			wg_socket_uninit(sc);
 		}
+
 		sx_xunlock(&sc->sc_lock);
 
 		if (cred != NULL) {
