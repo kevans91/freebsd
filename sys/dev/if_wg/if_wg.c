@@ -394,29 +394,6 @@ struct crypt_queue {
 	};
 };
 
-#define __ATOMIC_LOAD_SIZE						\
-	({									\
-	switch (size) {							\
-	case 1: *(uint8_t *)res = *(volatile uint8_t *)p; break;		\
-	case 2: *(uint16_t *)res = *(volatile uint16_t *)p; break;		\
-	case 4: *(uint32_t *)res = *(volatile uint32_t *)p; break;		\
-	case 8: *(uint64_t *)res = *(volatile uint64_t *)p; break;		\
-	}								\
-})
-
-static inline void
-__atomic_load_acq_size(volatile void *p, void *res, int size)
-{
-	__ATOMIC_LOAD_SIZE;
-}
-
-#define atomic_load_acq(x)						\
-	({											\
-	union { __typeof(x) __val; char __c[1]; } __u;			\
-	__atomic_load_acq_size(&(x), __u.__c, sizeof(x));		\
-	__u.__val;												\
-})
-
 struct wg_timespec64 {
 	uint64_t	tv_sec;
 	uint64_t	tv_nsec;
@@ -2490,7 +2467,7 @@ wg_transmit(struct ifnet *ifp, struct mbuf *m)
 		goto err;
 	}
 
-	family = atomic_load_acq(peer->p_endpoint.e_remote.r_sa.sa_family);
+	family = peer->p_endpoint.e_remote.r_sa.sa_family;
 	if (__predict_false(family != AF_INET && family != AF_INET6)) {
 		rc = EHOSTUNREACH;
 		/* XXX log */
