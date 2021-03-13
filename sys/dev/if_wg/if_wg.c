@@ -3081,6 +3081,8 @@ wg_up(struct wg_softc *sc)
 	if ((sc->sc_flags & WGF_DYING) != 0)
 		goto out;
 
+	/* Silent success if we're already running. */
+	rc = 0;
 	if (ifp->if_drv_flags & IFF_DRV_RUNNING)
 		goto out;
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
