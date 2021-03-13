@@ -67,8 +67,7 @@ __FBSDID("$FreeBSD$");
 
 #include "ifconfig.h"
 
-static nvlist_t *nvl_params;
-static bool do_peer;
+static nvlist_t *nvl_device, *nvl_peer;
 static int allowed_ips_count;
 static int allowed_ips_max;
 static nvlist_t **allowed_ips;
@@ -127,7 +126,7 @@ parse_endpoint(const char *endpoint_)
 	err = getaddrinfo(endpoint, port, &hints, &res);
 	if (err)
 		errx(1, "%s", gai_strerror(err));
-	nvlist_add_binary(nvl_params, "endpoint", res->ai_addr, res->ai_addrlen);
+	nvlist_add_binary(nvl_device, "endpoint", res->ai_addr, res->ai_addrlen);
 	freeaddrinfo(res);
 	free(base);
 }
@@ -283,7 +282,7 @@ sa_ntop(const struct sockaddr *sa, char *buf, int *port)
 }
 
 static void
-dump_peer(const nvlist_t *nvl_peer)
+dump_peer(const nvlist_t *nvl_peer_cfg)
 {
 	const void *key;
 	const struct sockaddr *endpoint;
@@ -295,30 +294,31 @@ dump_peer(const nvlist_t *nvl_peer)
 	const nvlist_t * const *nvl_aips;
 
 	printf("[Peer]\n");
-	if (nvlist_exists_binary(nvl_peer, "public-key")) {
-		key = nvlist_get_binary(nvl_peer, "public-key", &size);
+	if (nvlist_exists_binary(nvl_peer_cfg, "public-key")) {
+		key = nvlist_get_binary(nvl_peer_cfg, "public-key", &size);
 		b64_ntop((const uint8_t *)key, size, outbuf, WG_MAX_STRLEN);
 		printf("PublicKey = %s\n", outbuf);
 	}
-	if (nvlist_exists_binary(nvl_peer, "preshared-key")) {
-		key = nvlist_get_binary(nvl_peer, "preshared-key", &size);
+	if (nvlist_exists_binary(nvl_peer_cfg, "preshared-key")) {
+		key = nvlist_get_binary(nvl_peer_cfg, "preshared-key", &size);
 		b64_ntop((const uint8_t *)key, size, outbuf, WG_MAX_STRLEN);
 		printf("PresharedKey = %s\n", outbuf);
 	}
-	if (nvlist_exists_binary(nvl_peer, "endpoint")) {
-		endpoint = nvlist_get_binary(nvl_peer, "endpoint", &size);
+	if (nvlist_exists_binary(nvl_peer_cfg, "endpoint")) {
+		endpoint = nvlist_get_binary(nvl_peer_cfg, "endpoint", &size);
 		sa_ntop(endpoint, addr_buf, &port);
 		printf("Endpoint = %s:%d\n", addr_buf, ntohs(port));
 	}
-	if (nvlist_exists_number(nvl_peer, "persistent-keepalive-interval")) {
-		persistent_keepalive = nvlist_get_number(nvl_peer,
+	if (nvlist_exists_number(nvl_peer_cfg,
+	    "persistent-keepalive-interval")) {
+		persistent_keepalive = nvlist_get_number(nvl_peer_cfg,
 		    "persistent-keepalive-interval");
 		printf("PersistentKeepalive = %d\n", persistent_keepalive);
 	}
-	if (!nvlist_exists_nvlist_array(nvl_peer, "allowed-ips"))
+	if (!nvlist_exists_nvlist_array(nvl_peer_cfg, "allowed-ips"))
 		return;
 
-	nvl_aips = nvlist_get_nvlist_array(nvl_peer, "allowed-ips", &aip_count);
+	nvl_aips = nvlist_get_nvlist_array(nvl_peer_cfg, "allowed-ips", &aip_count);
 	if (nvl_aips == NULL || aip_count == 0)
 		return;
 
@@ -403,7 +403,7 @@ DECL_CMD_FUNC(peerlist, val, d)
 {
 	size_t size, peercount;
 	void *packed;
-	const nvlist_t *nvl, *nvl_peer;
+	const nvlist_t *nvl;
 	const nvlist_t *const *nvl_peerlist;
 
 	if (get_nvl_out_size(s, SIOCGWG, &size))
@@ -419,26 +419,22 @@ DECL_CMD_FUNC(peerlist, val, d)
 	nvl_peerlist = nvlist_get_nvlist_array(nvl, "peers", &peercount);
 
 	for (int i = 0; i < peercount; i++, nvl_peerlist++) {
-		nvl_peer = *nvl_peerlist;
-		dump_peer(nvl_peer);
+		dump_peer(*nvl_peerlist);
 	}
 }
 
 static void
 peerfinish(int s, void *arg)
 {
-	nvlist_t *nvl, **nvl_array;
 	void *packed;
 	size_t size;
 
-	if ((nvl = nvlist_create(0)) == NULL)
-		errx(1, "failed to allocate nvlist");
-	if ((nvl_array = calloc(sizeof(void *), 1)) == NULL)
-		errx(1, "failed to allocate nvl_array");
-	if (!nvlist_exists_binary(nvl_params, "public-key"))
+	if (nvl_peer == NULL)
+		return;
+	if (!nvlist_exists_binary(nvl_peer, "public-key"))
 		errx(1, "must specify a public-key for adding peer");
 	if (allowed_ips_count != 0) {
-		nvlist_add_nvlist_array(nvl_params, "allowed-ips",
+		nvlist_add_nvlist_array(nvl_peer, "allowed-ips",
 		    (const nvlist_t * const *)allowed_ips, allowed_ips_count);
 		for (size_t i = 0; i < allowed_ips_count; i++) {
 			nvlist_destroy(allowed_ips[i]);
@@ -447,9 +443,9 @@ peerfinish(int s, void *arg)
 		free(allowed_ips);
 	}
 
-	nvl_array[0] = nvl_params;
-	nvlist_add_nvlist_array(nvl, "peers", (const nvlist_t * const *)nvl_array, 1);
-	packed = nvlist_pack(nvl, &size);
+	nvlist_add_nvlist_array(nvl_device, "peers",
+	    (const nvlist_t * const *)&nvl_peer, 1);
+	packed = nvlist_pack(nvl_device, &size);
 
 	if (do_cmd(s, SIOCSWG, packed, size, true))
 		errx(1, "failed to install peer");
@@ -458,8 +454,8 @@ peerfinish(int s, void *arg)
 static
 DECL_CMD_FUNC(peerstart, val, d)
 {
-	do_peer = true;
 	callback_register(peerfinish, NULL);
+	nvl_peer = nvlist_create(0);
 	allowed_ips = calloc(ALLOWEDIPS_START, sizeof(*allowed_ips));
 	allowed_ips_max = ALLOWEDIPS_START;
 	if (allowed_ips == NULL)
@@ -493,7 +489,7 @@ DECL_CMD_FUNC(setwglistenport, val, d)
 		errx(1, "unknown family");
 	}
 	ul = ntohs((u_short)ul);
-	nvlist_add_number(nvl_params, "listen-port", ul);
+	nvlist_add_number(nvl_device, "listen-port", ul);
 }
 
 static
@@ -503,7 +499,7 @@ DECL_CMD_FUNC(setwgprivkey, val, d)
 
 	if (!key_from_base64(key, val))
 		errx(1, "invalid key %s", val);
-	nvlist_add_binary(nvl_params, "private-key", key, WG_KEY_SIZE);
+	nvlist_add_binary(nvl_device, "private-key", key, WG_KEY_SIZE);
 }
 
 static
@@ -511,12 +507,12 @@ DECL_CMD_FUNC(setwgpubkey, val, d)
 {
 	uint8_t key[WG_KEY_SIZE];
 
-	if (!do_peer)
+	if (nvl_peer == NULL)
 		errx(1, "setting public key only valid when adding peer");
 
 	if (!key_from_base64(key, val))
 		errx(1, "invalid key %s", val);
-	nvlist_add_binary(nvl_params, "public-key", key, WG_KEY_SIZE);
+	nvlist_add_binary(nvl_peer, "public-key", key, WG_KEY_SIZE);
 }
 
 static
@@ -524,12 +520,12 @@ DECL_CMD_FUNC(setwgpresharedkey, val, d)
 {
 	uint8_t key[WG_KEY_SIZE];
 
-	if (!do_peer)
+	if (nvl_peer == NULL)
 		errx(1, "setting preshared-key only valid when adding peer");
 
 	if (!key_from_base64(key, val))
 		errx(1, "invalid key %s", val);
-	nvlist_add_binary(nvl_params, "preshared-key", key, WG_KEY_SIZE);
+	nvlist_add_binary(nvl_peer, "preshared-key", key, WG_KEY_SIZE);
 }
 
 
@@ -539,7 +535,7 @@ DECL_CMD_FUNC(setwgpersistentkeepalive, val, d)
 	unsigned long persistent_keepalive;
 	char *endp;
 
-	if (!do_peer)
+	if (nvl_peer == NULL)
 		errx(1, "setting persistent keepalive only valid when adding peer");
 
 	errno = 0;
@@ -549,7 +545,7 @@ DECL_CMD_FUNC(setwgpersistentkeepalive, val, d)
 	if (persistent_keepalive > USHRT_MAX)
 		errx(1, "persistent-keepalive '%lu' too large",
 		    persistent_keepalive);
-	nvlist_add_number(nvl_params, "persistent-keepalive-interval",
+	nvlist_add_number(nvl_peer, "persistent-keepalive-interval",
 	    persistent_keepalive);
 }
 
@@ -563,7 +559,7 @@ DECL_CMD_FUNC(setallowedips, val, d)
 	nvlist_t *nvl_aip;
 	uint16_t family;
 
-	if (!do_peer)
+	if (nvl_peer == NULL)
 		errx(1, "setting allowed ip only valid when adding peer");
 	if (allowed_ips_count == allowed_ips_max) {
 		allowed_ips_max *= 2;
@@ -609,7 +605,7 @@ out:
 static
 DECL_CMD_FUNC(setendpoint, val, d)
 {
-	if (!do_peer)
+	if (nvl_peer == NULL)
 		errx(1, "setting endpoint only valid when adding peer");
 	parse_endpoint(val);
 }
@@ -675,10 +671,10 @@ wg_create(int s, struct ifreq *ifr)
 	size_t size;
 
 	setproctitle("ifconfig %s create ...\n", name);
-	if (!nvlist_exists_binary(nvl_params, "private-key"))
+	if (!nvlist_exists_binary(nvl_device, "private-key"))
 		goto legacy;
 
-	packed = nvlist_pack(nvl_params, &size);
+	packed = nvlist_pack(nvl_device, &size);
 	if (packed == NULL)
 		errx(1, "failed to setup create request");
 	iov.iov_len = size;
@@ -698,7 +694,7 @@ wireguard_ctor(void)
 {
 	int i;
 
-	nvl_params = nvlist_create(0);
+	nvl_device = nvlist_create(0);
 	for (i = 0; i < nitems(wireguard_cmds);  i++)
 		cmd_register(&wireguard_cmds[i]);
 	af_register(&af_wireguard);
