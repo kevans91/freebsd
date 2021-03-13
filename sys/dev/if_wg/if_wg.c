@@ -452,6 +452,7 @@ static void wg_timers_run_new_handshake(struct wg_timers *);
 static void wg_timers_run_zero_key_material(struct wg_timers *);
 static void wg_timers_run_persistent_keepalive(struct wg_timers *);
 static void wg_peer_timers_init(struct wg_peer *);
+static void wg_timers_enable(struct wg_timers *);
 static void wg_timers_disable(struct wg_timers *);
 static void wg_timers_set_persistent_keepalive(struct wg_timers *, uint16_t);
 static int wg_timers_get_persistent_keepalive(struct wg_timers *, uint16_t *);
@@ -1235,6 +1236,15 @@ wg_peer_timers_init(struct wg_peer *peer)
 	callout_init(&t->t_new_handshake, true);
 	callout_init(&t->t_zero_key_material, true);
 	callout_init(&t->t_persistent_keepalive, true);
+}
+
+static void
+wg_timers_enable(struct wg_timers *t)
+{
+	rw_wlock(&t->t_lock);
+	t->t_disabled = 0;
+	rw_wunlock(&t->t_lock);
+	wg_timers_run_persistent_keepalive(t);
 }
 
 static void
@@ -3119,7 +3129,9 @@ wg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 static int
 wg_up(struct wg_softc *sc)
 {
+	struct wg_hashtable *ht = &sc->sc_hashtable;
 	struct ifnet *ifp = sc->sc_ifp;
+	struct wg_peer *peer;
 	int rc = EBUSY;
 
 	sx_xlock(&sc->sc_lock);
@@ -3131,14 +3143,20 @@ wg_up(struct wg_softc *sc)
 		goto out;
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
 
-	/* TODO deal with sending keepalive if required (see openbsd) */
 	wg_socket_uninit(sc);
 	rc = wg_socket_init(sc);
-	if (rc != 0)
-		ifp->if_drv_flags &= ~IFF_DRV_RUNNING;
+	if (rc == 0) {
+		mtx_lock(&ht->h_mtx);
+		CK_LIST_FOREACH(peer, &ht->h_peers_list, p_entry) {
+			wg_timers_enable(&peer->p_timers);
+			wg_queue_out(peer);
+		}
+		mtx_unlock(&ht->h_mtx);
 
-	/* TODO this should probably only occur if we open a socket? */
-	if_link_state_change(sc->sc_ifp, LINK_STATE_UP);
+		if_link_state_change(sc->sc_ifp, LINK_STATE_UP);
+	} else {
+		ifp->if_drv_flags &= ~IFF_DRV_RUNNING;
+	}
 out:
 	sx_xunlock(&sc->sc_lock);
 	return (rc);
@@ -3147,7 +3165,9 @@ out:
 static void
 wg_down(struct wg_softc *sc)
 {
+	struct wg_hashtable *ht = &sc->sc_hashtable;
 	struct ifnet *ifp = sc->sc_ifp;
+	struct wg_peer *peer;
 
 	sx_xlock(&sc->sc_lock);
 	if (!(ifp->if_drv_flags & IFF_DRV_RUNNING)) {
@@ -3158,18 +3178,21 @@ wg_down(struct wg_softc *sc)
 
 	sx_downgrade(&sc->sc_lock);
 
-	/* TODO: missing, but present in OpenBSD:
-        TAILQ_FOREACH(peer, &sc->sc_peer_seq, p_seq_entry) {
+	mtx_lock(&ht->h_mtx);
+	CK_LIST_FOREACH(peer, &ht->h_peers_list, p_entry) {
                 wg_queue_purge(&peer->p_stage_queue);
                 wg_timers_disable(&peer->p_timers);
-        }
+	}
+	mtx_unlock(&ht->h_mtx);
 
-        taskq_barrier(wg_handshake_taskq);
-        TAILQ_FOREACH(peer, &sc->sc_peer_seq, p_seq_entry) {
+	mbufq_drain(&sc->sc_handshake_queue);
+
+	mtx_lock(&ht->h_mtx);
+	CK_LIST_FOREACH(peer, &ht->h_peers_list, p_entry) {
                 noise_remote_clear(&peer->p_remote);
                 wg_timers_event_reset_handshake_last_sent(&peer->p_timers);
-        }
-	*/
+	}
+	mtx_unlock(&ht->h_mtx);
 
 	if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
 	wg_socket_uninit(sc);
