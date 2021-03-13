@@ -328,7 +328,7 @@ struct wg_softc {
 	LIST_HEAD(,wg_index)	*sc_index;
 	u_long			 sc_index_mask;
 
-	struct rwlock		 sc_lock;
+	struct sx		 sc_lock;
 	volatile u_int		 sc_peer_count;
 };
 
@@ -537,7 +537,7 @@ wg_peer_alloc(struct wg_softc *sc)
 {
 	struct wg_peer *peer;
 
-	rw_assert_wrlock(&sc->sc_lock);
+	sx_assert(&sc->sc_lock, SX_XLOCKED);
 
 	peer = malloc(sizeof(*peer), M_WG, M_WAITOK|M_ZERO);
 	peer->p_sc = sc;
@@ -993,7 +993,7 @@ wg_socket_init(struct wg_softc *sc)
 	struct socket *so4, *so6;
 	int rc;
 
-	rw_assert_wrlock(&sc->sc_lock);
+	sx_assert(&sc->sc_lock, SX_XLOCKED);
 
 	so = &sc->sc_socket;
 	td = curthread;
@@ -2510,7 +2510,7 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 	struct wg_peer *peer = NULL;
 	bool need_insert = false;
 
-	rw_assert_wrlock(&sc->sc_lock);
+	sx_assert(&sc->sc_lock, SX_XLOCKED);
 
 	ifp = sc->sc_ifp;
 	if (!nvlist_exists_binary(nvl, "public-key")) {
@@ -2641,7 +2641,7 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 	if (wgd->wgd_size == 0 || wgd->wgd_data == NULL)
 		return (EFAULT);
 
-	rw_enter_write(&sc->sc_lock);
+	sx_xlock(&sc->sc_lock);
 
 	nvlpacked = malloc(wgd->wgd_size, M_TEMP, M_WAITOK);
 	err = copyin(wgd->wgd_data, nvlpacked, wgd->wgd_size);
@@ -2728,7 +2728,7 @@ nvl_out:
 	nvlist_destroy(nvl);
 out:
 	free(nvlpacked, M_TEMP);
-	rw_exit_write(&sc->sc_lock);
+	sx_xunlock(&sc->sc_lock);
 	return (err);
 }
 
@@ -3094,7 +3094,7 @@ wg_up(struct wg_softc *sc)
 	struct ifnet *ifp = sc->sc_ifp;
 	int rc = EBUSY;
 
-	rw_enter_write(&sc->sc_lock);
+	sx_xlock(&sc->sc_lock);
 	/* Jail's being removed, no more wg_up(). */
 	if ((sc->sc_flags & WGF_DYING) != 0)
 		goto out;
@@ -3112,7 +3112,7 @@ wg_up(struct wg_softc *sc)
 	/* TODO this should probably only occur if we open a socket? */
 	if_link_state_change(sc->sc_ifp, LINK_STATE_UP);
 out:
-	rw_exit_write(&sc->sc_lock);
+	sx_xunlock(&sc->sc_lock);
 	return (rc);
 }
 
@@ -3121,14 +3121,14 @@ wg_down(struct wg_softc *sc)
 {
 	struct ifnet *ifp = sc->sc_ifp;
 
-	rw_enter_write(&sc->sc_lock);
+	sx_xlock(&sc->sc_lock);
 	if (!(ifp->if_drv_flags & IFF_DRV_RUNNING)) {
-		rw_exit_write(&sc->sc_lock);
+		sx_xunlock(&sc->sc_lock);
 		return;
 	}
 	ifp->if_drv_flags &= ~IFF_DRV_RUNNING;
 
-	rw_downgrade(&sc->sc_lock);
+	sx_downgrade(&sc->sc_lock);
 
 	/* TODO: missing, but present in OpenBSD:
         TAILQ_FOREACH(peer, &sc->sc_peer_seq, p_seq_entry) {
@@ -3146,7 +3146,7 @@ wg_down(struct wg_softc *sc)
 	if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
 	wg_socket_uninit(sc);
 
-	rw_exit_read(&sc->sc_lock);
+	sx_sunlock(&sc->sc_lock);
 }
 
 static void
@@ -3210,7 +3210,7 @@ wg_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 		| CSUM_IP6_UDP | CSUM_IP6_TCP;
 
 	mbufq_init(&sc->sc_handshake_queue, MAX_QUEUED_INCOMING_HANDSHAKES);
-	rw_init(&sc->sc_lock, "wg softc lock");
+	sx_init(&sc->sc_lock, "wg softc lock");
 	rw_init(&sc->sc_index_lock, "wg index lock");
 	sc->sc_peer_count = 0;
 	sc->sc_encap_ring = buf_ring_alloc(MAX_QUEUED_PACKETS, M_WG, M_WAITOK, NULL);
@@ -3256,11 +3256,11 @@ wg_clone_destroy(struct ifnet *ifp)
 	struct ucred *cred;
 
 	sx_xlock(&wg_sx);
-	rw_enter_write(&sc->sc_lock);
+	sx_xlock(&sc->sc_lock);
 	sc->sc_flags |= WGF_DYING;
 	cred = sc->sc_ucred;
 	sc->sc_ucred = NULL;
-	rw_exit_write(&sc->sc_lock);
+	sx_xunlock(&sc->sc_lock);
 
 	LIST_REMOVE(sc, sc_entry);
 	sx_xunlock(&wg_sx);
@@ -3277,7 +3277,7 @@ wg_clone_destroy(struct ifnet *ifp)
 	taskqgroup_drain_all(qgroup_if_io_tqg);
 	pause("link_down", hz/4);
 	wg_peer_remove_all(sc, true);
-	rw_destroy(&sc->sc_lock);
+	sx_destroy(&sc->sc_lock);
 	rw_destroy(&sc->sc_index_lock);
 	taskqgroup_detach(qgroup_if_io_tqg, &sc->sc_handshake);
 	crypto_taskq_destroy(sc);
@@ -3375,7 +3375,7 @@ wg_prison_remove(void *obj, void *data __unused)
 	LIST_FOREACH(sc, &wg_list, sc_entry) {
 		cred = NULL;
 
-		rw_enter_write(&sc->sc_lock);
+		sx_xlock(&sc->sc_lock);
 		if ((sc->sc_flags & WGF_DYING) == 0 && sc->sc_ucred != NULL &&
 		    sc->sc_ucred->cr_prison == pr) {
 			cred = sc->sc_ucred;
@@ -3386,7 +3386,7 @@ wg_prison_remove(void *obj, void *data __unused)
 			/* Have to kill the sockets, as they also hold refs. */
 			wg_socket_uninit(sc);
 		}
-		rw_exit_write(&sc->sc_lock);
+		sx_xunlock(&sc->sc_lock);
 
 		if (cred != NULL) {
 			CURVNET_SET(sc->sc_ifp->if_vnet);
@@ -3496,7 +3496,7 @@ wg_peer_remove_all(struct wg_softc *sc, bool drain)
 	struct wg_peer *peer, *tpeer;
 	int error;
 
-	rw_assert_wrlock(&sc->sc_lock);
+	sx_assert(&sc->sc_lock, SX_XLOCKED);
 
 	CK_LIST_FOREACH_SAFE(peer, &sc->sc_hashtable.h_peers_list,
 	    p_entry, tpeer) {
