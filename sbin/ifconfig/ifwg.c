@@ -482,12 +482,26 @@ wgfinish(int s, void *arg)
 static
 DECL_CMD_FUNC(peerstart, val, d)
 {
+
+	if (nvl_peer != NULL)
+		errx(1, "cannot both add and remove a peer");
 	register_wgfinish();
 	nvl_peer = nvlist_create(0);
 	allowed_ips = calloc(ALLOWEDIPS_START, sizeof(*allowed_ips));
 	allowed_ips_max = ALLOWEDIPS_START;
 	if (allowed_ips == NULL)
 		errx(1, "failed to allocate array for allowedips");
+}
+
+static
+DECL_CMD_FUNC(peerdel, val, d)
+{
+
+	if (nvl_peer != NULL)
+		errx(1, "cannot both add and remove a peer");
+	register_wgfinish();
+	nvl_peer = nvlist_create(0);
+	nvlist_add_bool(nvl_peer, "remove", true);
 }
 
 static
@@ -678,6 +692,7 @@ static struct cmd wireguard_cmds[] = {
     DEF_CMD("peer-list",  0, peerlist),
     DEF_CMD("peers",  0, peerlist),
     DEF_CMD("peer",  0, peerstart),
+    DEF_CMD("-peer",  0, peerdel),
     DEF_CMD_ARG("preshared-key",  setwgpresharedkey),
     DEF_CMD_ARG("public-key",  setwgpubkey),
     DEF_CMD_ARG("persistent-keepalive",  setwgpersistentkeepalive),
