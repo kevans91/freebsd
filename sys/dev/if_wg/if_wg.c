@@ -506,7 +506,7 @@ static void wg_decap(struct wg_softc *, struct mbuf *);
 static void wg_softc_handshake_receive(struct wg_softc *);
 static void wg_softc_decrypt(struct wg_softc *);
 static void wg_softc_encrypt(struct wg_softc *);
-static struct noise_remote *wg_remote_get(struct wg_softc *, uint8_t [CURVE25519_KEY_SIZE]);
+static struct noise_remote *wg_remote_get(struct wg_softc *, uint8_t [NOISE_PUBLIC_KEY_LEN]);
 static uint32_t wg_index_set(struct wg_softc *, struct noise_remote *);
 static struct noise_remote *wg_index_get(struct wg_softc *, uint32_t);
 static void wg_index_drop(struct wg_softc *, uint32_t);
@@ -2484,7 +2484,7 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 		return (EINVAL);
 	}
 	pub_key = nvlist_get_binary(nvl, "public-key", &size);
-	if (size != CURVE25519_KEY_SIZE) {
+	if (size != WG_KEY_SIZE) {
 		return (EINVAL);
 	}
 	if (noise_local_keys(&sc->sc_local, public, NULL) == 0 &&
@@ -2520,7 +2520,7 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 	if (nvlist_exists_binary(nvl, "endpoint")) {
 		endpoint = nvlist_get_binary(nvl, "endpoint", &size);
 		if (size > sizeof(peer->p_endpoint.e_remote)) {
-			err = EBADMSG;
+			err = EINVAL;
 			goto out;
 		}
 		memcpy(&peer->p_endpoint.e_remote, endpoint, size);
@@ -2529,16 +2529,23 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 		const void *key;
 
 		key = nvlist_get_binary(nvl, "preshared-key", &size);
+		if (size != WG_KEY_SIZE) {
+			err = EINVAL;
+			goto out;
+		}
 		noise_remote_set_psk(&peer->p_remote, key);
 	}
 	if (nvlist_exists_number(nvl, "persistent-keepalive-interval")) {
-		uint16_t pki;
-
-		pki = nvlist_get_number(nvl, "persistent-keepalive-interval");
+		uint64_t pki = nvlist_get_number(nvl, "persistent-keepalive-interval");
+		if (pki > UINT16_MAX) {
+			err = EINVAL;
+			goto out;
+		}
 		wg_timers_set_persistent_keepalive(&peer->p_timers, pki);
 	}
 	if (nvlist_exists_nvlist_array(nvl, "allowed-ips")) {
 		const void *binary;
+		uint64_t cidr;
 		const nvlist_t * const * aipl;
 		struct wg_allowedip aip;
 		size_t allowedip_count;
@@ -2548,28 +2555,27 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 		for (size_t idx = 0; idx < allowedip_count; idx++) {
 			if (!nvlist_exists_number(aipl[idx], "cidr"))
 				continue;
-			aip.cidr = nvlist_get_number(aipl[idx], "cidr");
+			cidr = nvlist_get_number(aipl[idx], "cidr");
 			if (nvlist_exists_binary(aipl[idx], "ipv4")) {
 				binary = nvlist_get_binary(aipl[idx], "ipv4", &size);
-				if (binary == NULL || aip.cidr > 32 /* XXX */) {
+				if (binary == NULL || cidr > 32 || size != sizeof(aip.ip4)) {
 					err = EINVAL;
 					goto out;
 				}
-
 				aip.family = AF_INET;
 				memcpy(&aip.ip4, binary, sizeof(aip.ip4));
 			} else if (nvlist_exists_binary(aipl[idx], "ipv6")) {
 				binary = nvlist_get_binary(aipl[idx], "ipv6", &size);
-				if (binary == NULL || aip.cidr > 128 /* XXX */) {
+				if (binary == NULL || cidr > 128 || size != sizeof(aip.ip6)) {
 					err = EINVAL;
 					goto out;
 				}
-
 				aip.family = AF_INET6;
 				memcpy(&aip.ip6, binary, sizeof(aip.ip6));
 			} else {
 				continue;
 			}
+			aip.cidr = cidr;
 
 			if ((err = wg_aip_add(&sc->sc_aips, peer, &aip)) != 0) {
 				goto out;
@@ -2615,7 +2621,11 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 		nvlist_get_bool(nvl, "replace-peers"))
 		wg_peer_remove_all(sc, false);
 	if (nvlist_exists_number(nvl, "listen-port")) {
-		in_port_t new_port = nvlist_get_number(nvl, "listen-port");
+		uint64_t new_port = nvlist_get_number(nvl, "listen-port");
+		if (new_port > UINT16_MAX) {
+			err = EINVAL;
+			goto out;
+		}
 		if (new_port != sc->sc_socket.so_port) {
 			if ((ifp->if_drv_flags & IFF_DRV_RUNNING) != 0) {
 				if ((err = wg_socket_init(sc, new_port)) != 0)
@@ -2626,6 +2636,10 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 	}
 	if (nvlist_exists_binary(nvl, "private-key")) {
 		const void *key = nvlist_get_binary(nvl, "private-key", &size);
+		if (size != WG_KEY_SIZE) {
+			err = EINVAL;
+			goto out;
+		}
 
 		if (noise_local_keys(&sc->sc_local, NULL, private) != 0 ||
 		    timingsafe_bcmp(private, key, WG_KEY_SIZE) != 0) {
@@ -2665,9 +2679,14 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 		}
 	}
 	if (nvlist_exists_number(nvl, "user-cookie")) {
-		sc->sc_user_cookie = nvlist_get_number(nvl, "user-cookie");
+		uint64_t user_cookie = nvlist_get_number(nvl, "user-cookie");
+		if (user_cookie > UINT32_MAX) {
+			err = EINVAL;
+			goto out;
+		}
+		sc->sc_user_cookie = user_cookie;
 		/*
-		 * setsockopt
+		 * TODO: setsockopt?
 		 */
 	}
 	if (nvlist_exists_nvlist_array(nvl, "peers")) {
@@ -2676,7 +2695,9 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 
 		nvl_peers = nvlist_get_nvlist_array(nvl, "peers", &peercount);
 		for (int i = 0; i < peercount; i++) {
-			wg_peer_add(sc, nvl_peers[i]);
+			err = wg_peer_add(sc, nvl_peers[i]);
+			if (err != 0)
+				goto out;
 		}
 	}
 
