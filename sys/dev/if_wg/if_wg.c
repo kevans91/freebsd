@@ -2599,7 +2599,6 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 	nvlist_t *nvl;
 	ssize_t size;
 	int err;
-	bool running;
 
 	ifp = sc->sc_ifp;
 	if (wgd->wgd_size == 0 || wgd->wgd_data == NULL)
@@ -2620,18 +2619,17 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 		nvlist_get_bool(nvl, "replace-peers"))
 		wg_peer_remove_all(sc, false);
 	if (nvlist_exists_number(nvl, "listen-port")) {
-		int listen_port = nvlist_get_number(nvl, "listen-port");
-		/* TODO this down/up logic doesn't really make sense. */
-		running = (sc->sc_ifp->if_drv_flags & IFF_DRV_RUNNING) != 0;
-		if (running)
-			if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
-		pause("link_down", hz/4);
-		wg_socket_uninit(sc);
-		sc->sc_socket.so_port = listen_port;
-		if (running) {
-			if ((err = wg_socket_init(sc)) != 0)
+		in_port_t new_port = nvlist_get_number(nvl, "listen-port");
+		if (new_port != sc->sc_socket.so_port) {
+			/* XXX: this could create problems, because threads
+			 * may well be using the socket that we're destroying.
+			 * So, this needs  either epoch tracking or a straight
+			 * up lock. */
+			wg_socket_uninit(sc);
+			sc->sc_socket.so_port = new_port;
+			if ((sc->sc_ifp->if_drv_flags & IFF_DRV_RUNNING) != 0 &&
+			    (err = wg_socket_init(sc)) != 0)
 				goto out;
-			if_link_state_change(sc->sc_ifp, LINK_STATE_UP);
 		}
 	}
 	if (nvlist_exists_binary(nvl, "private-key")) {
@@ -3270,7 +3268,6 @@ wg_clone_destroy(struct ifnet *ifp)
 	NET_EPOCH_WAIT();
 
 	taskqgroup_drain_all(qgroup_if_io_tqg);
-	pause("link_down", hz/4);
 	sx_xlock(&sc->sc_lock);
 	wg_peer_remove_all(sc, true);
 	sx_xunlock(&sc->sc_lock);
