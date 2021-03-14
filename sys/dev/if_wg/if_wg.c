@@ -422,11 +422,6 @@ enum message_type {
 	MESSAGE_DATA = 4
 };
 
-/* TODO the next step for this section is to organise it as openbsd and then
- * audit side by side. Beyond here is the wild west. */
-
-/* This is just a dump from `cproto -S -f2 if_wg.c` */
-static void wg_m_freem(struct mbuf *);
 static void m_calchdrlen(struct mbuf *);
 static struct wg_tag *wg_tag_get(struct mbuf *);
 static struct wg_endpoint *wg_mbuf_endpoint_get(struct mbuf *);
@@ -514,7 +509,6 @@ static void wg_encrypt_dispatch(struct wg_softc *);
 static void wg_decrypt_dispatch(struct wg_softc *);
 static void crypto_taskq_setup(struct wg_softc *);
 static void crypto_taskq_destroy(struct wg_softc *);
-static inline int callout_del(struct callout *);
 static int wg_clone_create(struct if_clone *, int, caddr_t);
 static void wg_qflush(struct ifnet *);
 static int wg_transmit(struct ifnet *, struct mbuf *);
@@ -1163,8 +1157,8 @@ wg_send(struct wg_softc *sc, struct wg_endpoint *e, struct mbuf *m)
 		ret = sosend(so6, sa, NULL, m, control, 0, curthread);
 	else {
 		ret = ENOTCONN;
-		wg_m_freem(control);
-		wg_m_freem(m);
+		m_freem(control);
+		m_freem(m);
 	}
 	NET_EPOCH_EXIT(et);
 	return (ret);
@@ -1245,11 +1239,11 @@ wg_timers_disable(struct wg_timers *t)
 	t->t_need_another_keepalive = 0;
 	rw_wunlock(&t->t_lock);
 
-	callout_del(&t->t_retry_handshake);
-	callout_del(&t->t_send_keepalive);
-	callout_del(&t->t_new_handshake);
-	callout_del(&t->t_zero_key_material);
-	callout_del(&t->t_persistent_keepalive);
+	callout_stop(&t->t_retry_handshake);
+	callout_stop(&t->t_send_keepalive);
+	callout_stop(&t->t_new_handshake);
+	callout_stop(&t->t_zero_key_material);
+	callout_stop(&t->t_persistent_keepalive);
 }
 
 static void
@@ -1330,7 +1324,7 @@ wg_timers_event_data_received(struct wg_timers *t)
 static void
 wg_timers_event_any_authenticated_packet_sent(struct wg_timers *t)
 {
-	callout_del(&t->t_send_keepalive);
+	callout_stop(&t->t_send_keepalive);
 }
 
 /*
@@ -1340,7 +1334,7 @@ wg_timers_event_any_authenticated_packet_sent(struct wg_timers *t)
 static void
 wg_timers_event_any_authenticated_packet_received(struct wg_timers *t)
 {
-	callout_del(&t->t_new_handshake);
+	callout_stop(&t->t_new_handshake);
 }
 
 /*
@@ -1388,7 +1382,7 @@ wg_timers_event_handshake_complete(struct wg_timers *t)
 	if (t->t_disabled)
 		return;
 
-	callout_del(&t->t_retry_handshake);
+	callout_stop(&t->t_retry_handshake);
 	t->t_handshake_retries = 0;
 	getnanotime(&t->t_handshake_complete);
 	wg_timers_run_send_keepalive(t);
@@ -1462,7 +1456,7 @@ wg_timers_run_retry_handshake(struct wg_timers *t)
 		    "after %d retries, giving up\n",
 			(unsigned long long) peer->p_id, MAX_TIMER_HANDSHAKES + 2);
 
-		callout_del(&t->t_send_keepalive);
+		callout_stop(&t->t_send_keepalive);
 		wg_queue_purge(&peer->p_stage_queue);
 		if (!callout_pending(&t->t_zero_key_material))
 			callout_reset(&t->t_zero_key_material, REJECT_AFTER_TIME * 3 * hz,
@@ -1613,7 +1607,7 @@ wg_send_keepalive(struct wg_peer *peer)
 	if ((m = m_gethdr(M_NOWAIT, MT_DATA)) == NULL)
 		return;
 	if ((t = wg_tag_get(m)) == NULL) {
-		wg_m_freem(m);
+		m_freem(m);
 		return;
 	}
 	t->t_peer = peer;
@@ -1780,7 +1774,7 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 	wg_timers_event_any_authenticated_packet_traversal(&peer->p_timers);
 
 free:
-	wg_m_freem(m);
+	m_freem(m);
 }
 
 static void
@@ -1840,7 +1834,7 @@ wg_encap(struct wg_softc *sc, struct mbuf *m)
 	if (__predict_false(res)) {
 		if (res == EINVAL) {
 			wg_timers_event_want_initiation(&peer->p_timers);
-			wg_m_freem(mc);
+			m_freem(mc);
 			goto error;
 		} else if (res == ESTALE) {
 			wg_timers_event_want_initiation(&peer->p_timers);
@@ -2004,7 +1998,7 @@ wg_deliver_out(struct wg_peer *peer)
 		/* t_mbuf will contain the encrypted packet */
 		if (t->t_mbuf == NULL){
 			if_inc_counter(peer->p_sc->sc_ifp, IFCOUNTER_OERRORS, 1);
-			wg_m_freem(m);
+			m_freem(m);
 			continue;
 		}
 		M_MOVE_PKTHDR(t->t_mbuf, m);
@@ -2022,7 +2016,7 @@ wg_deliver_out(struct wg_peer *peer)
 			wg_peer_clear_src(peer);
 			wg_peer_get_endpoint(peer, &endpoint);
 		}
-		wg_m_freem(m);
+		m_freem(m);
 	}
 done:
 	NET_EPOCH_EXIT(et);
@@ -2048,7 +2042,7 @@ wg_deliver_in(struct wg_peer *peer)
 		/* t_mbuf will contain the encrypted packet */
 		if (t->t_mbuf == NULL){
 			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
-			wg_m_freem(m);
+			m_freem(m);
 			continue;
 		}
 		MPASS(m == t->t_mbuf);
@@ -2059,7 +2053,7 @@ wg_deliver_in(struct wg_peer *peer)
 		    &peer->p_timers);
 
 		if (m->m_pkthdr.len == 0) {
-			wg_m_freem(m);
+			m_freem(m);
 			continue;
 		}
 		counter_u64_add(peer->p_rx_bytes, m->m_pkthdr.len);
@@ -2080,14 +2074,13 @@ wg_deliver_in(struct wg_peer *peer)
 			ip6_input(m);
 			CURVNET_RESTORE();
 		} else
-			wg_m_freem(m);
+			m_freem(m);
 
 		wg_timers_event_data_received(&peer->p_timers);
 	}
 	NET_EPOCH_EXIT(et);
 }
 
-/* TODO Queue */
 static int
 wg_queue_in(struct wg_peer *peer, struct mbuf *m)
 {
@@ -2100,7 +2093,7 @@ wg_queue_in(struct wg_peer *peer, struct mbuf *m)
 
 	mtx_lock(&serial->q_mtx);
 	if ((rc = mbufq_enqueue(&serial->q, m)) == ENOBUFS) {
-		wg_m_freem(m);
+		m_freem(m);
 		if_inc_counter(peer->p_sc->sc_ifp, IFCOUNTER_OQDROPS, 1);
 	} else {
 		m->m_flags |= M_ENQUEUED;
@@ -2157,13 +2150,13 @@ wg_queue_out(struct wg_peer *peer)
 
 	while ((m = mbufq_dequeue(&staged)) != NULL) {
 		if ((t = wg_tag_get(m)) == NULL) {
-			wg_m_freem(m);
+			m_freem(m);
 			continue;
 		}
 		t->t_peer = peer;
 		mtx_lock(&serial->q_mtx);
 		if (mbufq_enqueue(&serial->q, m) != 0) {
-			wg_m_freem(m);
+			m_freem(m);
 			if_inc_counter(peer->p_sc->sc_ifp, IFCOUNTER_OQDROPS, 1);
 		} else {
 			m->m_flags |= M_ENQUEUED;
@@ -2196,7 +2189,9 @@ wg_queue_dequeue(struct wg_queue *q, struct wg_tag **t)
 static int
 wg_queue_len(struct wg_queue *q)
 {
-	//TODO: do we care about locking on this or is it fine if it races?
+	/* This access races, but that's probably fine, because it's only used
+	 * from wg_send_keepalive, where there's no harm in sending an extra
+	 * packet. */
 	return (mbufq_len(&q->q));
 }
 
@@ -2306,7 +2301,6 @@ wg_index_drop(struct wg_softc *sc, uint32_t key0)
 	SLIST_INSERT_HEAD(&peer->p_unused_index, iter, i_unused_entry);
 }
 
-/* TODO Interface IO */
 static int
 wg_update_endpoint_addrs(struct wg_endpoint *e, const struct sockaddr *srcsa,
     struct ifnet *rcvif)
@@ -2384,7 +2378,7 @@ wg_input(struct mbuf *m0, int offset, struct inpcb *inpcb,
 			GROUPTASK_ENQUEUE(&sc->sc_handshake);
 		} else {
 			DPRINTF(sc, "Dropping handshake packet\n");
-			wg_m_freem(m);
+			m_freem(m);
 		}
 	} else if (pktlen >= sizeof(struct wg_pkt_data) + NOISE_AUTHTAG_LEN
 	    && pkttype == MESSAGE_DATA) {
@@ -2393,10 +2387,10 @@ wg_input(struct mbuf *m0, int offset, struct inpcb *inpcb,
 		remote = wg_index_get(sc, pkt_data->r_idx);
 		if (remote == NULL) {
 			if_inc_counter(sc->sc_ifp, IFCOUNTER_IERRORS, 1);
-			wg_m_freem(m);
+			m_freem(m);
 		} else if (buf_ring_count(sc->sc_decap_ring) > MAX_QUEUED_PACKETS) {
 			if_inc_counter(sc->sc_ifp, IFCOUNTER_IQDROPS, 1);
-			wg_m_freem(m);
+			m_freem(m);
 		} else {
 			t->t_peer = CONTAINER_OF(remote, struct wg_peer,
 			    p_remote);
@@ -2408,7 +2402,7 @@ wg_input(struct mbuf *m0, int offset, struct inpcb *inpcb,
 		}
 	} else {
 free:
-		wg_m_freem(m);
+		m_freem(m);
 	}
 }
 
@@ -2442,7 +2436,6 @@ wg_transmit(struct ifnet *ifp, struct mbuf *m)
 	peer = wg_aip_lookup(&sc->sc_aips, m, OUT);
 	if (__predict_false(peer == NULL)) {
 		rc = ENOKEY;
-		/* XXX log */
 		goto err;
 	}
 
@@ -2452,7 +2445,6 @@ wg_transmit(struct ifnet *ifp, struct mbuf *m)
 			    "discovered for peer %llu\n", (unsigned long long)peer->p_id);
 
 		rc = EHOSTUNREACH;
-		/* XXX log */
 		goto err;
 	}
 	t->t_peer = peer;
@@ -2468,7 +2460,7 @@ err:
 	NET_EPOCH_EXIT(et);
 early_out:
 	if_inc_counter(sc->sc_ifp, IFCOUNTER_OERRORS, 1);
-	/* XXX send ICMP unreachable */
+	/* TODO: send ICMP unreachable */
 	m_free(m);
 	return (rc);
 }
@@ -3313,16 +3305,10 @@ wg_clone_destroy(struct ifnet *ifp)
 	atomic_add_int(&clone_count, -1);
 }
 
-
-
-
-
-/* TODO Module things */
 static void
 wg_qflush(struct ifnet *ifp __unused)
 {
-
-
+	//TODO: implement me!
 }
 
 /*
@@ -3483,22 +3469,6 @@ MODULE_VERSION(wg, 1);
 MODULE_DEPEND(wg, crypto, 1, 1, 1);
 
 /* TODO Crap */
-static inline int
-callout_del(struct callout *c)
-{
-	/* TODO unwrap callout_stop (nobody checks return value) */
-	return (callout_stop(c) > 0);
-}
-
-static void
-wg_m_freem(struct mbuf *m)
-{
-
-	if (m == NULL)
-		return;
-	MPASS((m->m_flags & M_ENQUEUED) == 0);
-	m_freem(m);
-}
 
 static void
 m_calchdrlen(struct mbuf *m)
