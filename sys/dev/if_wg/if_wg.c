@@ -3034,8 +3034,11 @@ wg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		break;
 	/* Interface IOCTLs */
 	case SIOCSIFADDR:
-		ifp->if_flags |= IFF_UP;
-		/* FALLTHROUGH */
+		/*
+		 * This differs from *BSD norms, but is more uniform with how
+		 * WireGuard behaves elsewhere.
+		 */
+		break;
 	case SIOCSIFFLAGS:
 		if ((ifp->if_flags & IFF_UP) != 0)
 			ret = wg_up(sc);
