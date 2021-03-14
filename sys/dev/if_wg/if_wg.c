@@ -434,9 +434,10 @@ static void m_calchdrlen(struct mbuf *);
 static struct wg_tag *wg_tag_get(struct mbuf *);
 static struct wg_endpoint *wg_mbuf_endpoint_get(struct mbuf *);
 static void wg_peer_remove_all(struct wg_softc *, bool);
-static int wg_socket_init(struct wg_softc *);
+static int wg_socket_init(struct wg_softc *, in_port_t);
+static int wg_socket_bind(struct socket *, struct socket *, in_port_t *);
+static void wg_socket_set(struct wg_softc *, struct socket *, struct socket *);
 static void wg_socket_uninit(struct wg_softc *);
-static int wg_socket_bind(struct wg_softc *, struct wg_socket *);
 static int wg_send(struct wg_softc *, struct wg_endpoint *, struct mbuf *);
 static void wg_timers_event_data_sent(struct wg_timers *);
 static void wg_timers_event_data_received(struct wg_timers *);
@@ -985,17 +986,15 @@ wg_aip_delete(struct wg_aip_table *tbl, struct wg_peer *peer)
 }
 
 static int
-wg_socket_init(struct wg_softc *sc)
+wg_socket_init(struct wg_softc *sc, in_port_t port)
 {
 	struct thread *td;
-	struct wg_socket *so;
 	struct ucred *cred;
 	struct socket *so4, *so6;
 	int rc;
 
 	sx_assert(&sc->sc_lock, SX_XLOCKED);
 
-	so = &sc->sc_socket;
 	td = curthread;
 	if (sc->sc_ucred == NULL)
 		return (EBUSY);
@@ -1010,10 +1009,8 @@ wg_socket_init(struct wg_softc *sc)
 	 * to the network.
 	 */
 	rc = socreate(AF_INET, &so4, SOCK_DGRAM, IPPROTO_UDP, cred, td);
-	if (rc) {
-		crfree(cred);
-		return (rc);
-	}
+	if (rc)
+		goto out;
 
 	rc = udp_set_kernel_tunneling(so4, wg_input, NULL, sc);
 	/*
@@ -1024,36 +1021,19 @@ wg_socket_init(struct wg_softc *sc)
 
 	rc = socreate(AF_INET6, &so6, SOCK_DGRAM, IPPROTO_UDP, cred, td);
 	if (rc) {
-		goto fail;
+		SOCK_LOCK(so4);
+		sofree(so4);
+		goto out;
 	}
 	rc = udp_set_kernel_tunneling(so6, wg_input, NULL, sc);
 	MPASS(rc == 0);
 
-	/* If we started dying in the process, just drop these sockets. */
-	if ((sc->sc_flags & WGF_DYING) != 0) {
-		SOCK_LOCK(so4);
-		sofree(so4);
-
-		SOCK_LOCK(so6);
-		sofree(so6);
-
-		crfree(cred);
-		return (EBUSY);
+	rc = wg_socket_bind(so4, so6, &port);
+	if (rc == 0) {
+		sc->sc_socket.so_port = port;
+		wg_socket_set(sc, so4, so6);
 	}
-
-	so->so_so4 = so4;
-	so->so_so6 = so6;
-
-	/*
-	 * No lock; maybe the interface gets downed before we bind -- meh.
-	 */
-	rc = wg_socket_bind(sc, so);
-
-	crfree(cred);
-	return (rc);
-fail:
-	SOCK_LOCK(so4);
-	sofree(so4);
+out:
 	crfree(cred);
 	return (rc);
 }
@@ -1061,16 +1041,29 @@ fail:
 static void
 wg_socket_uninit(struct wg_softc *sc)
 {
-	struct wg_socket *so;
+	wg_socket_set(sc, NULL, NULL);
+}
 
-	so = &sc->sc_socket;
+static void
+wg_socket_set(struct wg_softc *sc, struct socket *new_so4, struct socket *new_so6)
+{
+	struct wg_socket *so = so = &sc->sc_socket;
+	struct socket *so4, *so6;
 
-	if (so->so_so4)
-		soclose(so->so_so4);
-	so->so_so4 = NULL;
-	if (so->so_so6)
-		soclose(so->so_so6);
-	so->so_so6 = NULL;
+	sx_assert(&sc->sc_lock, SX_XLOCKED);
+
+	so4 = atomic_load_ptr(&so->so_so4);
+	so6 = atomic_load_ptr(&so->so_so6);
+	atomic_store_ptr(&so->so_so4, new_so4);
+	atomic_store_ptr(&so->so_so6, new_so6);
+
+	if (!so4 && !so6)
+		return;
+	NET_EPOCH_WAIT();
+	if (so4)
+		soclose(so4);
+	if (so6)
+		soclose(so6);
 }
 
 union wg_sockaddr {
@@ -1080,16 +1073,14 @@ union wg_sockaddr {
 };
 
 static int
-wg_socket_bind(struct wg_softc *sc, struct wg_socket *so)
+wg_socket_bind(struct socket *so4, struct socket *so6, in_port_t *requested_port)
 {
 	int rc;
 	struct thread *td;
 	union wg_sockaddr laddr;
 	struct sockaddr_in *sin;
 	struct sockaddr_in6 *sin6;
-	in_port_t port;
-
-	port = so->so_port;
+	in_port_t port = *requested_port;
 
 	td = curthread;
 	bzero(&laddr, sizeof(laddr));
@@ -1099,16 +1090,13 @@ wg_socket_bind(struct wg_softc *sc, struct wg_socket *so)
 	sin->sin_port = htons(port);
 	sin->sin_addr = (struct in_addr) { 0 };
 
-	if ((rc = sobind(so->so_so4, &laddr.sa, td)) != 0) {
+	if ((rc = sobind(so4, &laddr.sa, td)) != 0)
 		return (rc);
-	}
 
-	if (so->so_port == 0) {
-		rc = sogetsockaddr(so->so_so4, (struct sockaddr **)&sin);
-		if (rc != 0) {
+	if (port == 0) {
+		rc = sogetsockaddr(so4, (struct sockaddr **)&sin);
+		if (rc != 0)
 			return (rc);
-		}
-
 		port = ntohs(sin->sin_port);
 		free(sin, M_SONAME);
 	}
@@ -1118,11 +1106,11 @@ wg_socket_bind(struct wg_softc *sc, struct wg_socket *so)
 	sin6->sin6_family = AF_INET6;
 	sin6->sin6_port = htons(port);
 	sin6->sin6_addr = (struct in6_addr) { .s6_addr = { 0 } };
-
-	rc = sobind(so->so_so6, &laddr.sa, td);
-	if (rc == 0)
-		so->so_port = port;
-	return (rc);
+	rc = sobind(so6, &laddr.sa, td);
+	if (rc != 0)
+		return (rc);
+	*requested_port = port;
+	return (0);
 }
 
 static int
@@ -1131,6 +1119,7 @@ wg_send(struct wg_softc *sc, struct wg_endpoint *e, struct mbuf *m)
 	struct epoch_tracker et;
 	struct sockaddr *sa;
 	struct wg_socket *so = &sc->sc_socket;
+	struct socket *so4, *so6;
 	struct mbuf	 *control = NULL;
 	int		 ret = 0;
 
@@ -1153,18 +1142,17 @@ wg_send(struct wg_softc *sc, struct wg_endpoint *e, struct mbuf *m)
 	sa = &e->e_remote.r_sa;
 
 	NET_EPOCH_ENTER(et);
-	if (sc->sc_ifp->if_link_state == LINK_STATE_DOWN)
-		goto done;
-	if (e->e_remote.r_sa.sa_family == AF_INET && so->so_so4 != NULL)
-		ret = sosend(so->so_so4, sa, NULL, m, control, 0, curthread);
-	else if (e->e_remote.r_sa.sa_family == AF_INET6 && so->so_so6 != NULL)
-		ret = sosend(so->so_so6, sa, NULL, m, control, 0, curthread);
+	so4 = atomic_load_ptr(&so->so_so4);
+	so6 = atomic_load_ptr(&so->so_so6);
+	if (e->e_remote.r_sa.sa_family == AF_INET && so4 != NULL)
+		ret = sosend(so4, sa, NULL, m, control, 0, curthread);
+	else if (e->e_remote.r_sa.sa_family == AF_INET6 && so6 != NULL)
+		ret = sosend(so6, sa, NULL, m, control, 0, curthread);
 	else {
 		ret = ENOTCONN;
 		wg_m_freem(control);
 		wg_m_freem(m);
 	}
-done:
 	NET_EPOCH_EXIT(et);
 	return (ret);
 }
@@ -2629,15 +2617,11 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 	if (nvlist_exists_number(nvl, "listen-port")) {
 		in_port_t new_port = nvlist_get_number(nvl, "listen-port");
 		if (new_port != sc->sc_socket.so_port) {
-			/* XXX: this could create problems, because threads
-			 * may well be using the socket that we're destroying.
-			 * So, this needs  either epoch tracking or a straight
-			 * up lock. */
-			wg_socket_uninit(sc);
-			sc->sc_socket.so_port = new_port;
-			if ((ifp->if_drv_flags & IFF_DRV_RUNNING) != 0 &&
-			    (err = wg_socket_init(sc)) != 0)
-				goto out;
+			if ((ifp->if_drv_flags & IFF_DRV_RUNNING) != 0) {
+				if ((err = wg_socket_init(sc, new_port)) != 0)
+					goto out;
+			} else
+				sc->sc_socket.so_port = new_port;
 		}
 	}
 	if (nvlist_exists_binary(nvl, "private-key")) {
@@ -3094,8 +3078,7 @@ wg_up(struct wg_softc *sc)
 		goto out;
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
 
-	wg_socket_uninit(sc);
-	rc = wg_socket_init(sc);
+	rc = wg_socket_init(sc, sc->sc_socket.so_port);
 	if (rc == 0) {
 		mtx_lock(&ht->h_mtx);
 		CK_LIST_FOREACH(peer, &ht->h_peers_list, p_entry) {
