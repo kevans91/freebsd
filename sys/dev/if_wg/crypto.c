@@ -14,24 +14,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>
 #include <sys/types.h>
+#include <sys/endian.h>
 #include <sys/systm.h>
-#include <sys/kernel.h>
 
 #include "crypto.h"
-
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#define le32_to_cpup(a) __builtin_bswap32(*(a))
-#define le64_to_cpup(a) __builtin_bswap64(*(a))
-#define cpu_to_le32(a) __builtin_bswap32(a)
-#define cpu_to_le64(a) __builtin_bswap64(a)
-#else
-#define le32_to_cpup(a) (*(a))
-#define le64_to_cpup(a) (*(a))
-#define cpu_to_le32(a) (a)
-#define cpu_to_le64(a) (a)
-#endif
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -45,6 +32,11 @@
 #ifndef DIV_ROUND_UP
 #define DIV_ROUND_UP(n,d) (((n) + (d) - 1) / (d))
 #endif
+
+#define le32_to_cpup(a) le32toh(*(a))
+#define le64_to_cpup(a) le64toh(*(a))
+#define cpu_to_le32(a) htole32(a)
+#define cpu_to_le64(a) htole64(a)
 
 static inline uint32_t get_unaligned_le32(const uint8_t *a)
 {
