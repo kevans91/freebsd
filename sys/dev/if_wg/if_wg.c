@@ -986,7 +986,6 @@ wg_socket_init(struct wg_softc *sc)
 {
 	struct thread *td;
 	struct wg_socket *so;
-	struct ifnet *ifp;
 	struct ucred *cred;
 	struct socket *so4, *so6;
 	int rc;
@@ -995,7 +994,6 @@ wg_socket_init(struct wg_softc *sc)
 
 	so = &sc->sc_socket;
 	td = curthread;
-	ifp = sc->sc_ifp;
 	if (sc->sc_ucred == NULL)
 		return (EBUSY);
 	cred = crhold(sc->sc_ucred);
@@ -1086,14 +1084,12 @@ wg_socket_bind(struct wg_softc *sc, struct wg_socket *so)
 	union wg_sockaddr laddr;
 	struct sockaddr_in *sin;
 	struct sockaddr_in6 *sin6;
-	struct ifnet *ifp;
 	in_port_t port;
 
 	port = so->so_port;
 
 	td = curthread;
 	bzero(&laddr, sizeof(laddr));
-	ifp = sc->sc_ifp;
 	sin = &laddr.in4;
 	sin->sin_len = sizeof(laddr.in4);
 	sin->sin_family = AF_INET;
@@ -1299,7 +1295,8 @@ wg_timers_event_data_sent(struct wg_timers *t)
 
 	if (!t->t_disabled && !callout_pending(&t->t_new_handshake))
 		callout_reset(&t->t_new_handshake,
-		    NEW_HANDSHAKE_TIMEOUT * hz + (random() % REKEY_TIMEOUT_JITTER),
+		    NEW_HANDSHAKE_TIMEOUT * hz +
+		    arc4random_uniform(REKEY_TIMEOUT_JITTER),
 		    (timeout_t *)wg_timers_run_new_handshake, t);
 	NET_EPOCH_EXIT(et);
 }
@@ -1367,7 +1364,7 @@ wg_timers_event_handshake_initiated(struct wg_timers *t)
 	if (t->t_disabled)
 		return;
 	callout_reset(&t->t_retry_handshake,
-	    REKEY_TIMEOUT * hz + random() % REKEY_TIMEOUT_JITTER,
+	    REKEY_TIMEOUT * hz + arc4random_uniform(REKEY_TIMEOUT_JITTER),
 	    (timeout_t *)wg_timers_run_retry_handshake, t);
 }
 
@@ -2022,7 +2019,6 @@ wg_deliver_in(struct wg_peer *peer)
 	struct mbuf *m;
 	struct ifnet *ifp;
 	struct wg_softc *sc;
-	struct wg_socket *so;
 	struct epoch_tracker et;
 	struct wg_tag *t;
 	uint32_t af;
@@ -2031,14 +2027,12 @@ wg_deliver_in(struct wg_peer *peer)
 
 	NET_EPOCH_ENTER(et);
 	sc = peer->p_sc;
-
-	so = &sc->sc_socket;
 	ifp = sc->sc_ifp;
 
 	while ((m = wg_queue_dequeue(&peer->p_decap_queue, &t)) != NULL) {
 		/* t_mbuf will contain the encrypted packet */
 		if (t->t_mbuf == NULL){
-			if_inc_counter(peer->p_sc->sc_ifp, IFCOUNTER_IERRORS, 1);
+			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 			wg_m_freem(m);
 			continue;
 		}
@@ -2476,7 +2470,6 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 {
 	uint8_t			 public[WG_KEY_SIZE];
 	const void *pub_key;
-	struct ifnet *ifp;
 	const struct sockaddr *endpoint;
 	int err;
 	size_t size;
@@ -2485,7 +2478,6 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 
 	sx_assert(&sc->sc_lock, SX_XLOCKED);
 
-	ifp = sc->sc_ifp;
 	if (!nvlist_exists_binary(nvl, "public-key")) {
 		return (EINVAL);
 	}
@@ -2629,7 +2621,7 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 			 * up lock. */
 			wg_socket_uninit(sc);
 			sc->sc_socket.so_port = new_port;
-			if ((sc->sc_ifp->if_drv_flags & IFF_DRV_RUNNING) != 0 &&
+			if ((ifp->if_drv_flags & IFF_DRV_RUNNING) != 0 &&
 			    (err = wg_socket_init(sc)) != 0)
 				goto out;
 		}
@@ -2947,7 +2939,6 @@ wg_marshal_peers(struct wg_softc *sc, nvlist_t **nvlp, nvlist_t ***nvl_arrayp, i
 		*nvlp = nvl;
 	}
 	*nvl_arrayp = nvl_array;
-	err = 0;
  out:
 	if (err != 0) {
 		/* Note that nvl_array is populated in reverse order. */
