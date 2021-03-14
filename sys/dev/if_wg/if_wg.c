@@ -3469,6 +3469,9 @@ callout_del(struct callout *c)
 static void
 wg_m_freem(struct mbuf *m)
 {
+
+	if (m == NULL)
+		return;
 	MPASS((m->m_flags & M_ENQUEUED) == 0);
 	m_freem(m);
 }
