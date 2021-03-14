@@ -355,7 +355,6 @@ static int clone_count;
 static uma_zone_t ratelimit_zone;
 static int wireguard_debug;
 static volatile unsigned long peer_counter = 0;
-static struct timeval	underload_interval = { UNDERLOAD_TIMEOUT, 0 };
 static const char wgname[] = "wg";
 static unsigned wg_osd_jail_slot;
 
@@ -1670,6 +1669,7 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 	 * system. We don't care about races with it at all.
 	 */
 	static struct timeval wg_last_underload;
+	static const struct timeval underload_interval = { UNDERLOAD_TIMEOUT, 0 };
 	bool packet_needs_cookie = false;
 	int underload, res;
 
