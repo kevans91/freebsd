@@ -1298,9 +1298,9 @@ wg_timers_event_data_sent(struct wg_timers *t)
 	NET_EPOCH_ENTER(et);
 
 	if (!t->t_disabled && !callout_pending(&t->t_new_handshake))
-		callout_reset(&t->t_new_handshake,
-		    NEW_HANDSHAKE_TIMEOUT * hz +
-		    arc4random_uniform(REKEY_TIMEOUT_JITTER),
+		callout_reset(&t->t_new_handshake, MSEC_2_TICKS(
+		    NEW_HANDSHAKE_TIMEOUT * 1000 +
+		    arc4random_uniform(REKEY_TIMEOUT_JITTER)),
 		    (timeout_t *)wg_timers_run_new_handshake, t);
 	NET_EPOCH_EXIT(et);
 }
@@ -1367,8 +1367,9 @@ wg_timers_event_handshake_initiated(struct wg_timers *t)
 
 	if (t->t_disabled)
 		return;
-	callout_reset(&t->t_retry_handshake,
-	    REKEY_TIMEOUT * hz + arc4random_uniform(REKEY_TIMEOUT_JITTER),
+	MSEC_2_TICKS
+	callout_reset(&t->t_retry_handshake, MSEC_2_TICKS(
+	    REKEY_TIMEOUT * 1000 + arc4random_uniform(REKEY_TIMEOUT_JITTER)),
 	    (timeout_t *)wg_timers_run_retry_handshake, t);
 }
 
