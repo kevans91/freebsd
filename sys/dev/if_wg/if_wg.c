@@ -385,14 +385,6 @@ VNET_DEFINE_STATIC(struct if_clone *, wg_cloner);
 	free(addr, type);			\
 } while (0)
 
-struct crypt_queue {
-	union {
-		struct {
-			int last_cpu;
-		};
-	};
-};
-
 struct wg_timespec64 {
 	uint64_t	tv_sec;
 	uint64_t	tv_nsec;
