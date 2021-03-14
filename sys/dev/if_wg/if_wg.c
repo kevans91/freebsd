@@ -654,19 +654,13 @@ static void
 wg_peer_free_deferred(epoch_context_t ctx)
 {
 	struct wg_peer *peer;
-	volatile u_int *peercnt;
 
 	peer = __containerof(ctx, struct wg_peer, p_ctx);
-	peercnt = &peer->p_sc->sc_peer_count;
 	counter_u64_free(peer->p_tx_bytes);
 	counter_u64_free(peer->p_rx_bytes);
-
 	rw_destroy(&peer->p_timers.t_lock);
 	rw_destroy(&peer->p_endpoint_lock);
-	DPRINTF(peer->p_sc, "Peer %llu destroyed\n", (unsigned long long)peer->p_id);
 	zfree(peer, M_WG);
-
-	(*peercnt)--;
 }
 
 static void
@@ -678,7 +672,7 @@ wg_peer_destroy(struct wg_peer *peer)
 	wg_aip_delete(&peer->p_sc->sc_aips, peer);
 	MPASS(CK_LIST_EMPTY(&peer->p_aips));
 
-	/* TODO currently, if there is a timer added after here, then the peer
+	/* TODO: currently, if there is a timer added after here, then the peer
 	 * can hang around for longer than we want. */
 	wg_timers_disable(&peer->p_timers);
 	GROUPTASK_DRAIN(&peer->p_clear_secrets);
@@ -694,6 +688,8 @@ wg_peer_destroy(struct wg_peer *peer)
 	wg_queue_deinit(&peer->p_decap_queue);
 	wg_queue_deinit(&peer->p_encap_queue);
 	wg_queue_deinit(&peer->p_stage_queue);
+	--peer->p_sc->sc_peer_count;
+	DPRINTF(peer->p_sc, "Peer %llu destroyed\n", (unsigned long long)peer->p_id);
 	NET_EPOCH_CALL(wg_peer_free_deferred, &peer->p_ctx);
 }
 
