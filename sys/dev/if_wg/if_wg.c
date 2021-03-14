@@ -3210,9 +3210,7 @@ wg_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 	struct wg_softc *sc;
 	struct ifnet *ifp;
 	struct noise_upcall noise_upcall;
-	int err;
 
-	err = 0;
 	sc = malloc(sizeof(*sc), M_WG, M_WAITOK | M_ZERO);
 	sc->sc_ucred = crhold(curthread->td_ucred);
 	ifp = sc->sc_ifp = if_alloc(IFT_WIREGUARD);
@@ -3265,13 +3263,7 @@ wg_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 	LIST_INSERT_HEAD(&wg_list, sc, sc_entry);
 	sx_xunlock(&wg_sx);
 
-	if (err != 0) {
-		crfree(sc->sc_ucred);
-		if_free(ifp);
-		free(sc, M_WG);
-	}
-
-	return (err);
+	return 0;
 }
 
 static void
