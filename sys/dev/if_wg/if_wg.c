@@ -297,19 +297,16 @@ struct wg_hashtable {
 };
 
 struct wg_socket {
-	/* TODO openbsd doesn't use wg_socket, instead just has the elements in
-	 * wg_softc. */
 	struct mtx	 so_mtx;
-	in_port_t	 so_port;
 	struct socket	*so_so4;
 	struct socket	*so_so6;
+	uint32_t	 so_user_cookie;
+	in_port_t	 so_port;
 };
 
 struct wg_softc {
 	LIST_ENTRY(wg_softc)	 sc_entry;
 	struct ifnet		*sc_ifp;
-	uint16_t		 sc_incoming_port;
-	uint32_t		 sc_user_cookie;
 	int			 sc_flags;
 
 	struct ucred		*sc_ucred;
@@ -438,6 +435,7 @@ static int wg_socket_init(struct wg_softc *, in_port_t);
 static int wg_socket_bind(struct socket *, struct socket *, in_port_t *);
 static void wg_socket_set(struct wg_softc *, struct socket *, struct socket *);
 static void wg_socket_uninit(struct wg_softc *);
+static void wg_socket_set_cookie(struct wg_softc *, uint32_t);
 static int wg_send(struct wg_softc *, struct wg_endpoint *, struct mbuf *);
 static void wg_timers_event_data_sent(struct wg_timers *);
 static void wg_timers_event_data_received(struct wg_timers *);
@@ -1028,6 +1026,8 @@ wg_socket_init(struct wg_softc *sc, in_port_t port)
 	rc = udp_set_kernel_tunneling(so6, wg_input, NULL, sc);
 	MPASS(rc == 0);
 
+	so4->so_user_cookie = so6->so_user_cookie = sc->sc_socket.so_user_cookie;
+
 	rc = wg_socket_bind(so4, so6, &port);
 	if (rc == 0) {
 		sc->sc_socket.so_port = port;
@@ -1036,6 +1036,19 @@ wg_socket_init(struct wg_softc *sc, in_port_t port)
 out:
 	crfree(cred);
 	return (rc);
+}
+
+static void wg_socket_set_cookie(struct wg_softc *sc, uint32_t user_cookie)
+{
+	struct wg_socket *so = &sc->sc_socket;
+
+	sx_assert(&sc->sc_lock, SX_XLOCKED);
+
+	so->so_user_cookie = user_cookie;
+	if (so->so_so4)
+		so->so_so4->so_user_cookie = user_cookie;
+	if (so->so_so6)
+		so->so_so6->so_user_cookie = user_cookie;
 }
 
 static void
@@ -2684,10 +2697,7 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 			err = EINVAL;
 			goto out;
 		}
-		sc->sc_user_cookie = user_cookie;
-		/*
-		 * TODO: setsockopt?
-		 */
+		wg_socket_set_cookie(sc, user_cookie);
 	}
 	if (nvlist_exists_nvlist_array(nvl, "peers")) {
 		size_t peercount;
@@ -2994,6 +3004,8 @@ wgc_get(struct wg_softc *sc, struct wg_data_io *wgd)
 	packed = NULL;
 	if (sc->sc_socket.so_port != 0)
 		nvlist_add_number(nvl, "listen-port", sc->sc_socket.so_port);
+	if (sc->sc_socket.so_user_cookie != 0)
+		nvlist_add_number(nvl, "user-cookie", sc->sc_socket.so_user_cookie);
 	if (sc->sc_local.l_has_identity) {
 		nvlist_add_binary(nvl, "public-key", sc->sc_local.l_public, WG_KEY_SIZE);
 		if (wgc_privileged(sc))
