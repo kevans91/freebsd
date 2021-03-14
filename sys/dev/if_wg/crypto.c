@@ -605,7 +605,7 @@ xchacha20poly1305_encrypt(uint8_t *dst, const uint8_t *src,
 			  const uint8_t nonce[XCHACHA20POLY1305_NONCE_SIZE],
 			  const uint8_t key[CHACHA20POLY1305_KEY_SIZE])
 {
-	uint32_t derived_key[CHACHA20_KEY_WORDS] __attribute__((aligned(16)));
+	uint32_t derived_key[CHACHA20_KEY_WORDS];
 
 	hchacha20(derived_key, nonce, key);
 	cpu_to_le32_array(derived_key, ARRAY_SIZE(derived_key));
@@ -623,7 +623,7 @@ xchacha20poly1305_decrypt(uint8_t *dst, const uint8_t *src,
 			  const uint8_t key[CHACHA20POLY1305_KEY_SIZE])
 {
 	bool ret;
-	uint32_t derived_key[CHACHA20_KEY_WORDS] __attribute__((aligned(16)));
+	uint32_t derived_key[CHACHA20_KEY_WORDS];
 
 	hchacha20(derived_key, nonce, key);
 	cpu_to_le32_array(derived_key, ARRAY_SIZE(derived_key));
