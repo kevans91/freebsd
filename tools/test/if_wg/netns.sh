@@ -57,22 +57,18 @@ cleanup() {
 	dj $jail1
 	dj $jail2
 
-	sysctl vfs.cache_fast_lookup=1
-	sysctl vfs.cache_fast_revlookup=1
-	pretty "" "Awaiting return of ${epair}a"
-	# Give epairs a second to return
-	while ! ifconfig ${epair}a &> /dev/null; do
-		sleep 0.1
+	for iface in wg1 wg2; do
+		pretty "" "Awaiting return of ${iface}"
+		# Give interfaces a second to return
+		while ! ifconfig ${iface} &> /dev/null; do
+			sleep 0.1
+		done
+		ifconfig ${iface} destroy
 	done
-
-	ifconfig ${epair}a destroy
 	exit
 }
 
 trap cleanup EXIT
-
-sysctl vfs.cache_fast_lookup=0
-sysctl vfs.cache_fast_revlookup=0
 
 dj $jail0 || true
 dj $jail1 || true
@@ -81,15 +77,10 @@ cj $jail0
 cj $jail1
 cj $jail2
 
-j0 sysctl net.inet.ip.forwarding=1
-j1 sysctl net.inet.ip.forwarding=1
-j2 sysctl net.inet.ip.forwarding=1
-
-epair=$(ifconfig epair create)
-epair=${epair%%a}
-
-ifconfig1 wg1 create
-ifconfig2 wg2 create
+ifconfig wg1 create
+ifconfig wg1 vnet ${jail1}
+ifconfig wg2 create
+ifconfig wg2 vnet ${jail2}
 
 key1="$(pp wg genkey)"
 key2="$(pp wg genkey)"
@@ -103,19 +94,11 @@ psk="$(pp wg genpsk)"
 [[ -n $key1 && -n $key2 && -n $psk ]]
 
 configure_peers() {
-	# lo0 up is a workaround for FreeBSD PR 254212.
-	ifconfig1 lo0 up
 	ifconfig1 wg1 inet 192.168.241.1/24
 	ifconfig1 wg1 inet6 fd00::1/112 up
 
-	ifconfig2 lo0 up
 	ifconfig2 wg2 inet 192.168.241.2/24
 	ifconfig2 wg2 inet6 fd00::2/112 up
-
-	ifconfig ${epair}a vnet "${jail1}"
-	ifconfig1 ${epair}a inet 169.254.0.1
-	ifconfig ${epair}b vnet "${jail2}"
-	ifconfig2 ${epair}b inet 169.254.0.2
 
 	j1 wg set wg1 \
 		private-key <(echo "$key1") \
@@ -181,8 +164,8 @@ tests() {
 big_mtu=16304
 
 # Test using IPv4 as outer transport
-j1 wg set wg1 peer "$pub2" endpoint 169.254.0.2:2
-j2 wg set wg2 peer "$pub1" endpoint 169.254.0.1:1
+j1 wg set wg1 peer "$pub2" endpoint 127.0.0.1:2
+j2 wg set wg2 peer "$pub1" endpoint 127.0.0.1:1
 
 # Before calling tests, we first make sure that the stats counters and timestamper are working
 #j2 ping -c 10 -f -W 1 192.168.241.1
