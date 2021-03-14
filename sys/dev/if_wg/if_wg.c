@@ -83,8 +83,10 @@ __FBSDID("$FreeBSD$");
 #include "wg_cookie.h"
 #include "if_wg.h"
 
+#define	MAX_MTU			(IF_MAXMTU - 80)
+
 /* TODO the following defines and structs are aligned to OpenBSD. */
-#define DEFAULT_MTU		1420
+#define	DEFAULT_MTU		1420
 
 #define MAX_STAGED_PKT		128
 #define MAX_QUEUED_PKT		1024
@@ -3050,8 +3052,7 @@ wg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			wg_down(sc);
 		break;
 	case SIOCSIFMTU:
-		/* Arbitrary limits */
-		if (ifr->ifr_mtu <= 0 || ifr->ifr_mtu > 9000)
+		if (ifr->ifr_mtu <= 0 || ifr->ifr_mtu > MAX_MTU)
 			ret = EINVAL;
 		else
 			ifp->if_mtu = ifr->ifr_mtu;
