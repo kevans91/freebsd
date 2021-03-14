@@ -425,7 +425,6 @@ enum message_type {
 static void m_calchdrlen(struct mbuf *);
 static struct wg_tag *wg_tag_get(struct mbuf *);
 static struct wg_endpoint *wg_mbuf_endpoint_get(struct mbuf *);
-static void wg_peer_remove_all(struct wg_softc *, bool);
 static int wg_socket_init(struct wg_softc *, in_port_t);
 static int wg_socket_bind(struct socket *, struct socket *, in_port_t *);
 static void wg_socket_set(struct wg_softc *, struct socket *, struct socket *);
@@ -471,6 +470,7 @@ static void wg_aip_populate_aip4(struct wg_aip *, const struct in_addr *, uint8_
 static void wg_aip_populate_aip6(struct wg_aip *, const struct in6_addr *, uint8_t);
 static int wg_aip_add(struct wg_aip_table *, struct wg_peer *, const struct wg_allowedip *);
 static int wg_peer_remove(struct radix_node *, void *);
+static void wg_peer_remove_all(struct wg_softc *);
 static int wg_aip_delete(struct wg_aip_table *, struct wg_peer *);
 static struct wg_peer *wg_aip_lookup(struct wg_aip_table *, struct mbuf *, enum route_direction);
 static void wg_hashtable_init(struct wg_hashtable *);
@@ -667,8 +667,6 @@ wg_peer_free_deferred(epoch_context_t ctx)
 	zfree(peer, M_WG);
 
 	(*peercnt)--;
-	if (*peercnt == 0)
-		wakeup(__DEVOLATILE(u_int *, peercnt));
 }
 
 static void
@@ -956,6 +954,20 @@ wg_peer_remove(struct radix_node *rn, void *arg)
 		free(route, M_WG);
 	}
 	return (0);
+}
+
+static void
+wg_peer_remove_all(struct wg_softc *sc)
+{
+	struct wg_peer *peer, *tpeer;
+
+	sx_assert(&sc->sc_lock, SX_XLOCKED);
+
+	CK_LIST_FOREACH_SAFE(peer, &sc->sc_hashtable.h_peers_list,
+			     p_entry, tpeer) {
+		wg_hashtable_peer_remove(&sc->sc_hashtable, peer);
+		wg_peer_destroy(peer);
+	}
 }
 
 static int
@@ -2624,7 +2636,7 @@ wgc_set(struct wg_softc *sc, struct wg_data_io *wgd)
 	}
 	if (nvlist_exists_bool(nvl, "replace-peers") &&
 		nvlist_get_bool(nvl, "replace-peers"))
-		wg_peer_remove_all(sc, false);
+		wg_peer_remove_all(sc);
 	if (nvlist_exists_number(nvl, "listen-port")) {
 		uint64_t new_port = nvlist_get_number(nvl, "listen-port");
 		if (new_port > UINT16_MAX) {
@@ -3284,7 +3296,8 @@ wg_clone_destroy(struct ifnet *ifp)
 
 	taskqgroup_drain_all(qgroup_if_io_tqg);
 	sx_xlock(&sc->sc_lock);
-	wg_peer_remove_all(sc, true);
+	wg_peer_remove_all(sc);
+	epoch_drain_callbacks(net_epoch_preempt);
 	sx_xunlock(&sc->sc_lock);
 	sx_destroy(&sc->sc_lock);
 	rw_destroy(&sc->sc_index_lock);
@@ -3491,32 +3504,4 @@ wg_mbuf_endpoint_get(struct mbuf *m)
 		return (NULL);
 
 	return (&hdr->t_endpoint);
-}
-
-static void
-wg_peer_remove_all(struct wg_softc *sc, bool drain)
-{
-	struct wg_peer *peer, *tpeer;
-	int error;
-
-	sx_assert(&sc->sc_lock, SX_XLOCKED);
-
-	CK_LIST_FOREACH_SAFE(peer, &sc->sc_hashtable.h_peers_list,
-	    p_entry, tpeer) {
-		wg_hashtable_peer_remove(&sc->sc_hashtable, peer);
-		wg_peer_destroy(peer);
-	}
-
-	if (drain) {
-		error = EWOULDBLOCK;
-
-		/*
-		 * Sleep on the sc_lock, preventing new peers from being added.
-		 */
-		while (error != 0 && sc->sc_peer_count != 0) {
-			error = tsleep_sbt(__DEVOLATILE(u_int *,
-			    &sc->sc_peer_count), 0, "wgpeergo",
-			    SBT_1S / 4, SBT_1MS, 0);
-		}
-	}
 }
