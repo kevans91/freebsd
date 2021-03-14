@@ -13,6 +13,7 @@ devrandom	Programs to test /dev/*random.
 gpioevents	Test delivery of gpio pin-change events to userland.
 hwpmc		Automatically trigger every event in hwpmc(4).
 iconv		Character set conversion tests.
+if_wg		Tests for kernel WireGuard support.
 malloc		A program to test and benchmark malloc().
 net		A set of generic test programs for networking.
 netfibs		Programs to test multi-FIB network stacks.
