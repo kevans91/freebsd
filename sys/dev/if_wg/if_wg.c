@@ -83,7 +83,10 @@ __FBSDID("$FreeBSD$");
 #include "wg_cookie.h"
 #include "if_wg.h"
 
-#define	MAX_MTU			(IF_MAXMTU - 80)
+/* It'd be nice to use IF_MAXMTU, but that means more complicated mbuf allocations,
+ * so instead just do the biggest mbuf we can easily allocate minus the usual maximum
+ * IPv6 overhead of 80 bytes. If somebody wants bigger frames, we can revisit this. */
+#define	MAX_MTU			(MJUM16BYTES - 80)
 
 /* TODO the following defines and structs are aligned to OpenBSD. */
 #define	DEFAULT_MTU		1420
@@ -1798,7 +1801,7 @@ wg_encap(struct wg_softc *sc, struct mbuf *m)
 	struct wg_peer *peer;
 	struct wg_tag *t;
 	uint64_t nonce;
-	int res;
+	int res, allocation_order;
 
 	NET_EPOCH_ASSERT();
 	t = wg_tag_get(m);
@@ -1808,7 +1811,18 @@ wg_encap(struct wg_softc *sc, struct mbuf *m)
 	padding_len = plaintext_len - m->m_pkthdr.len;
 	out_len = sizeof(struct wg_pkt_data) + plaintext_len + NOISE_AUTHTAG_LEN;
 
-	if ((mc = m_getjcl(M_NOWAIT, MT_DATA, M_PKTHDR, MCLBYTES)) == NULL)
+	if (out_len <= MCLBYTES)
+		allocation_order = MCLBYTES;
+	else if (out_len <= MJUMPAGESIZE)
+		allocation_order = MJUMPAGESIZE;
+	else if (out_len <= MJUM9BYTES)
+		allocation_order = MJUM9BYTES;
+	else if (out_len <= MJUM16BYTES)
+		allocation_order = MJUM16BYTES;
+	else
+		goto error;
+
+	if ((mc = m_getjcl(M_NOWAIT, MT_DATA, M_PKTHDR, allocation_order)) == NULL)
 		goto error;
 
 	data = mtod(mc, struct wg_pkt_data *);
