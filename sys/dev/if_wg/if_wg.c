@@ -357,7 +357,7 @@ typedef void timeout_t (void *);
 #define M_ENQUEUED	M_PROTO1
 
 static int clone_count;
-uma_zone_t ratelimit_zone;
+static uma_zone_t ratelimit_zone;
 static int wireguard_debug;
 static volatile unsigned long peer_counter = 0;
 static struct timeval	underload_interval = { UNDERLOAD_TIMEOUT, 0 };
