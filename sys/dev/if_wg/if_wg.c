@@ -375,7 +375,7 @@ VNET_DEFINE_STATIC(struct if_clone *, wg_cloner);
 
 
 #define	V_wg_cloner	VNET(wg_cloner)
-#define	WG_CAPS		IFCAP_LINKSTATE | IFCAP_HWCSUM | IFCAP_HWCSUM_IPV6
+#define	WG_CAPS		IFCAP_LINKSTATE
 #define	ph_family	PH_loc.eight[5]
 
 #define MAX_QUEUED_PACKETS		MAX_QUEUED_PKT
@@ -3199,8 +3199,6 @@ wg_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 
 	atomic_add_int(&clone_count, 1);
 	ifp->if_capabilities = ifp->if_capenable = WG_CAPS;
-	ifp->if_hwassist = CSUM_TCP | CSUM_UDP | CSUM_TSO | CSUM_IP6_TCP \
-		| CSUM_IP6_UDP | CSUM_IP6_TCP;
 
 	mbufq_init(&sc->sc_handshake_queue, MAX_QUEUED_INCOMING_HANDSHAKES);
 	sx_init(&sc->sc_lock, "wg softc lock");
