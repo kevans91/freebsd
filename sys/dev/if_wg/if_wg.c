@@ -1121,8 +1121,9 @@ wg_send(struct wg_softc *sc, struct wg_endpoint *e, struct mbuf *m)
 	struct sockaddr *sa;
 	struct wg_socket *so = &sc->sc_socket;
 	struct socket *so4, *so6;
-	struct mbuf	 *control = NULL;
-	int		 ret = 0;
+	struct mbuf *control = NULL;
+	int ret = 0;
+	size_t len = m->m_pkthdr.len;
 
 	/* Get local control address before locking */
 	if (e->e_remote.r_sa.sa_family == AF_INET) {
@@ -1156,6 +1157,10 @@ wg_send(struct wg_softc *sc, struct wg_endpoint *e, struct mbuf *m)
 		m_freem(m);
 	}
 	NET_EPOCH_EXIT(et);
+	if (ret == 0) {
+		if_inc_counter(sc->sc_ifp, IFCOUNTER_OPACKETS, 1);
+		if_inc_counter(sc->sc_ifp, IFCOUNTER_OBYTES, len);
+	}
 	return (ret);
 }
 
@@ -1522,7 +1527,7 @@ wg_timers_run_persistent_keepalive(struct wg_timers *t)
 static void
 wg_peer_send_buf(struct wg_peer *peer, uint8_t *buf, size_t len)
 {
-	struct wg_endpoint	 endpoint;
+	struct wg_endpoint endpoint;
 
 	counter_u64_add(peer->p_tx_bytes, len);
 	wg_timers_event_any_authenticated_packet_traversal(&peer->p_timers);
@@ -1725,6 +1730,9 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 		peer = __containerof(remote, struct wg_peer, p_remote);
 		DPRINTF(sc, "Receiving handshake initiation from peer %llu\n",
 		    (unsigned long long)peer->p_id);
+		counter_u64_add(peer->p_rx_bytes, sizeof(*init));
+		if_inc_counter(sc->sc_ifp, IFCOUNTER_IPACKETS, 1);
+		if_inc_counter(sc->sc_ifp, IFCOUNTER_IBYTES, sizeof(*init));
 		wg_peer_set_endpoint_from_tag(peer, t);
 		wg_send_response(peer);
 		break;
@@ -1750,6 +1758,8 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 		DPRINTF(sc, "Receiving handshake response from peer %llu\n",
 				(unsigned long long)peer->p_id);
 		counter_u64_add(peer->p_rx_bytes, sizeof(*resp));
+		if_inc_counter(sc->sc_ifp, IFCOUNTER_IPACKETS, 1);
+		if_inc_counter(sc->sc_ifp, IFCOUNTER_IBYTES, sizeof(*resp));
 		wg_peer_set_endpoint_from_tag(peer, t);
 		if (noise_remote_begin_session(&peer->p_remote) == 0) {
 			wg_timers_event_session_derived(&peer->p_timers);
@@ -1863,8 +1873,6 @@ wg_encap(struct wg_softc *sc, struct mbuf *m)
 	mc->m_len = mc->m_pkthdr.len = out_len;
 	mc->m_flags &= ~(M_MCAST | M_BCAST);
 
-	counter_u64_add(peer->p_tx_bytes, out_len);
-
 	t->t_mbuf = mc;
  error:
 	/* XXX membar ? */
@@ -1908,7 +1916,6 @@ wg_decap(struct wg_softc *sc, struct mbuf *m)
 		}
 	}
 	wg_peer_set_endpoint_from_tag(peer, t);
-	counter_u64_add(peer->p_rx_bytes, m->m_pkthdr.len);
 
 	/* Remove the data header, and crypto mac tail from the packet */
 	m_adj(m, sizeof(struct wg_pkt_data));
@@ -1994,6 +2001,7 @@ wg_deliver_out(struct wg_peer *peer)
 	struct wg_tag *t;
 	struct mbuf *m;
 	struct wg_endpoint endpoint;
+	size_t len;
 	int ret;
 
 	NET_EPOCH_ENTER(et);
@@ -2009,6 +2017,7 @@ wg_deliver_out(struct wg_peer *peer)
 			m_freem(m);
 			continue;
 		}
+		len = t->t_mbuf->m_pkthdr.len;
 		ret = wg_send(peer->p_sc, &endpoint, t->t_mbuf);
 
 		if (ret == 0) {
@@ -2019,6 +2028,7 @@ wg_deliver_out(struct wg_peer *peer)
 
 			if (m->m_pkthdr.len != 0)
 				wg_timers_event_data_sent(&peer->p_timers);
+			counter_u64_add(peer->p_tx_bytes, len);
 		} else if (ret == EADDRNOTAVAIL) {
 			wg_peer_clear_src(peer);
 			wg_peer_get_endpoint(peer, &endpoint);
@@ -2040,7 +2050,6 @@ wg_deliver_in(struct wg_peer *peer)
 	uint32_t af;
 	int version;
 
-
 	NET_EPOCH_ENTER(et);
 	sc = peer->p_sc;
 	ifp = sc->sc_ifp;
@@ -2059,11 +2068,14 @@ wg_deliver_in(struct wg_peer *peer)
 		wg_timers_event_any_authenticated_packet_traversal(
 		    &peer->p_timers);
 
+		counter_u64_add(peer->p_rx_bytes, m->m_pkthdr.len + sizeof(struct wg_pkt_data) + NOISE_AUTHTAG_LEN);
+		if_inc_counter(sc->sc_ifp, IFCOUNTER_IPACKETS, 1);
+		if_inc_counter(sc->sc_ifp, IFCOUNTER_IBYTES, m->m_pkthdr.len + sizeof(struct wg_pkt_data) + NOISE_AUTHTAG_LEN);
+
 		if (m->m_pkthdr.len == 0) {
 			m_freem(m);
 			continue;
 		}
-		counter_u64_add(peer->p_rx_bytes, m->m_pkthdr.len);
 
 		m->m_flags &= ~(M_MCAST | M_BCAST);
 		m->m_pkthdr.rcvif = ifp;
@@ -2371,8 +2383,6 @@ wg_input(struct mbuf *m0, int offset, struct inpcb *inpcb,
 		goto free;
 	}
 
-	if_inc_counter(sc->sc_ifp, IFCOUNTER_IPACKETS, 1);
-	if_inc_counter(sc->sc_ifp, IFCOUNTER_IBYTES, m->m_pkthdr.len);
 	pktlen = m->m_pkthdr.len;
 
 	if ((pktlen == sizeof(struct wg_pkt_initiation) &&
