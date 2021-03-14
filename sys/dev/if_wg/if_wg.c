@@ -411,7 +411,6 @@ enum message_type {
 	MESSAGE_DATA = 4
 };
 
-static void m_calchdrlen(struct mbuf *);
 static struct wg_tag *wg_tag_get(struct mbuf *);
 static struct wg_endpoint *wg_mbuf_endpoint_get(struct mbuf *);
 static int wg_socket_init(struct wg_softc *, in_port_t);
@@ -1137,6 +1136,7 @@ wg_send(struct wg_softc *sc, struct wg_endpoint *e, struct mbuf *m)
 			    sizeof(struct in6_pktinfo), IPV6_PKTINFO,
 			    IPPROTO_IPV6);
 	} else {
+		m_freem(m);
 		return (EAFNOSUPPORT);
 	}
 
@@ -1199,6 +1199,17 @@ wg_tag_get(struct mbuf *m)
 		MPASS(m_tag_locate(m, MTAG_ABI_COMPAT, MTAG_WIREGUARD, NULL) == tag);
 	}
 	return (struct wg_tag *)tag;
+}
+
+static struct wg_endpoint *
+wg_mbuf_endpoint_get(struct mbuf *m)
+{
+	struct wg_tag *hdr;
+
+	if ((hdr = wg_tag_get(m)) == NULL)
+		return (NULL);
+
+	return (&hdr->t_endpoint);
 }
 
 /* TODO Timers */
@@ -1834,8 +1845,10 @@ wg_encap(struct wg_softc *sc, struct mbuf *m)
 			goto error;
 		} else if (res == ESTALE) {
 			wg_timers_event_want_initiation(&peer->p_timers);
-		} else
-			panic("unexpected result: %d\n", res);
+		} else {
+			m_freem(mc);
+			goto error;
+		}
 	}
 
 	/* A packet with length 0 is a keepalive packet */
@@ -1846,12 +1859,10 @@ wg_encap(struct wg_softc *sc, struct mbuf *m)
 	 * Set the correct output value here since it will be copied
 	 * when we move the pkthdr in send.
 	 */
-	m->m_pkthdr.len = out_len;
+	mc->m_len = mc->m_pkthdr.len = out_len;
 	mc->m_flags &= ~(M_MCAST | M_BCAST);
-	mc->m_len = out_len;
-	m_calchdrlen(mc);
 
-	counter_u64_add(peer->p_tx_bytes, m->m_pkthdr.len);
+	counter_u64_add(peer->p_tx_bytes, out_len);
 
 	t->t_mbuf = mc;
  error:
@@ -1992,12 +2003,11 @@ wg_deliver_out(struct wg_peer *peer)
 
 	while ((m = wg_queue_dequeue(&peer->p_encap_queue, &t)) != NULL) {
 		/* t_mbuf will contain the encrypted packet */
-		if (t->t_mbuf == NULL){
+		if (t->t_mbuf == NULL) {
 			if_inc_counter(peer->p_sc->sc_ifp, IFCOUNTER_OERRORS, 1);
 			m_freem(m);
 			continue;
 		}
-		M_MOVE_PKTHDR(t->t_mbuf, m);
 		ret = wg_send(peer->p_sc, &endpoint, t->t_mbuf);
 
 		if (ret == 0) {
@@ -2036,7 +2046,7 @@ wg_deliver_in(struct wg_peer *peer)
 
 	while ((m = wg_queue_dequeue(&peer->p_decap_queue, &t)) != NULL) {
 		/* t_mbuf will contain the encrypted packet */
-		if (t->t_mbuf == NULL){
+		if (t->t_mbuf == NULL) {
 			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 			m_freem(m);
 			continue;
@@ -3464,28 +3474,3 @@ static moduledata_t wg_moduledata = {
 DECLARE_MODULE(wg, wg_moduledata, SI_SUB_PSEUDO, SI_ORDER_ANY);
 MODULE_VERSION(wg, 1);
 MODULE_DEPEND(wg, crypto, 1, 1, 1);
-
-/* TODO Crap */
-
-static void
-m_calchdrlen(struct mbuf *m)
-{
-	struct mbuf *n;
-	int plen = 0;
-
-	MPASS(m->m_flags & M_PKTHDR);
-	for (n = m; n; n = n->m_next)
-		plen += n->m_len;
-	m->m_pkthdr.len = plen;
-}
-
-static struct wg_endpoint *
-wg_mbuf_endpoint_get(struct mbuf *m)
-{
-	struct wg_tag *hdr;
-
-	if ((hdr = wg_tag_get(m)) == NULL)
-		return (NULL);
-
-	return (&hdr->t_endpoint);
-}
