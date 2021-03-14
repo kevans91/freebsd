@@ -110,8 +110,6 @@ __FBSDID("$FreeBSD$");
 
 #define DPRINTF(sc,  ...) if (wireguard_debug) if_printf(sc->sc_ifp, ##__VA_ARGS__)
 
-#define CONTAINER_OF(a, b, c) __containerof((a), b, c)
-
 /* First byte indicating packet type on the wire */
 #define WG_PKT_INITIATION htole32(1)
 #define WG_PKT_RESPONSE htole32(2)
@@ -653,9 +651,7 @@ wg_hashtable_peer_remove(struct wg_hashtable *ht, struct wg_peer *peer)
 static void
 wg_peer_free_deferred(epoch_context_t ctx)
 {
-	struct wg_peer *peer;
-
-	peer = __containerof(ctx, struct wg_peer, p_ctx);
+	struct wg_peer *peer = __containerof(ctx, struct wg_peer, p_ctx);
 	counter_u64_free(peer->p_tx_bytes);
 	counter_u64_free(peer->p_rx_bytes);
 	rw_destroy(&peer->p_timers.t_lock);
@@ -1436,7 +1432,7 @@ wg_grouptask_enqueue(struct wg_peer *peer, struct grouptask *task)
 static void
 wg_timers_run_send_initiation(struct wg_timers *t, int is_retry)
 {
-	struct wg_peer	 *peer = CONTAINER_OF(t, struct wg_peer, p_timers);
+	struct wg_peer	 *peer = __containerof(t, struct wg_peer, p_timers);
 
 	if (!is_retry)
 		t->t_handshake_retries = 0;
@@ -1447,7 +1443,7 @@ wg_timers_run_send_initiation(struct wg_timers *t, int is_retry)
 static void
 wg_timers_run_retry_handshake(struct wg_timers *t)
 {
-	struct wg_peer	*peer = CONTAINER_OF(t, struct wg_peer, p_timers);
+	struct wg_peer	*peer = __containerof(t, struct wg_peer, p_timers);
 	int		 retries;
 
 	retries = atomic_fetchadd_int(&t->t_handshake_retries, 1);
@@ -1475,7 +1471,7 @@ wg_timers_run_retry_handshake(struct wg_timers *t)
 static void
 wg_timers_run_send_keepalive(struct wg_timers *t)
 {
-	struct wg_peer	*peer = CONTAINER_OF(t, struct wg_peer, p_timers);
+	struct wg_peer	*peer = __containerof(t, struct wg_peer, p_timers);
 
 	wg_grouptask_enqueue(peer, &peer->p_send_keepalive);
 	if (t->t_need_another_keepalive) {
@@ -1489,7 +1485,7 @@ wg_timers_run_send_keepalive(struct wg_timers *t)
 static void
 wg_timers_run_new_handshake(struct wg_timers *t)
 {
-	struct wg_peer	*peer = CONTAINER_OF(t, struct wg_peer, p_timers);
+	struct wg_peer	*peer = __containerof(t, struct wg_peer, p_timers);
 
 	DPRINTF(peer->p_sc, "Retrying handshake with peer %llu because we "
 	    "stopped hearing back after %d seconds\n",
@@ -1502,7 +1498,7 @@ wg_timers_run_new_handshake(struct wg_timers *t)
 static void
 wg_timers_run_zero_key_material(struct wg_timers *t)
 {
-	struct wg_peer *peer = CONTAINER_OF(t, struct wg_peer, p_timers);
+	struct wg_peer *peer = __containerof(t, struct wg_peer, p_timers);
 
 	DPRINTF(peer->p_sc, "Zeroing out all keys for peer %llu, since we "
 	    "haven't received a new one in %d seconds\n",
@@ -1513,7 +1509,7 @@ wg_timers_run_zero_key_material(struct wg_timers *t)
 static void
 wg_timers_run_persistent_keepalive(struct wg_timers *t)
 {
-	struct wg_peer	 *peer = CONTAINER_OF(t, struct wg_peer, p_timers);
+	struct wg_peer	 *peer = __containerof(t, struct wg_peer, p_timers);
 
 	if (t->t_persistent_keepalive_interval != 0)
 		wg_grouptask_enqueue(peer, &peer->p_send_keepalive);
@@ -1722,7 +1718,7 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 			goto free;
 		}
 
-		peer = CONTAINER_OF(remote, struct wg_peer, p_remote);
+		peer = __containerof(remote, struct wg_peer, p_remote);
 		DPRINTF(sc, "Receiving handshake initiation from peer %llu\n",
 		    (unsigned long long)peer->p_id);
 		wg_peer_set_endpoint_from_tag(peer, t);
@@ -1740,7 +1736,7 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 			DPRINTF(sc, "Unknown handshake response\n");
 			goto free;
 		}
-		peer = CONTAINER_OF(remote, struct wg_peer, p_remote);
+		peer = __containerof(remote, struct wg_peer, p_remote);
 		if (noise_consume_response(remote, resp->s_idx, resp->r_idx,
 		    resp->ue, resp->en) != 0) {
 			DPRINTF(sc, "Invalid handshake response\n");
@@ -1764,7 +1760,7 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 			goto free;
 		}
 
-		peer = CONTAINER_OF(remote, struct wg_peer, p_remote);
+		peer = __containerof(remote, struct wg_peer, p_remote);
 
 		if (cookie_maker_consume_payload(&peer->p_cookie,
 		    cook->nonce, cook->ec) != 0) {
@@ -2245,7 +2241,7 @@ wg_index_set(struct wg_softc *sc, struct noise_remote *remote)
 
 	/* We can modify this without a lock as wg_index_set, wg_index_drop are
 	 * guaranteed to be serialised (per remote). */
-	peer = CONTAINER_OF(remote, struct wg_peer, p_remote);
+	peer = __containerof(remote, struct wg_peer, p_remote);
 	index = SLIST_FIRST(&peer->p_unused_index);
 	MPASS(index != NULL);
 	SLIST_REMOVE_HEAD(&peer->p_unused_index, i_unused_entry);
@@ -2304,7 +2300,7 @@ wg_index_drop(struct wg_softc *sc, uint32_t key0)
 		return;
 
 	/* We expect a peer */
-	peer = CONTAINER_OF(iter->i_value, struct wg_peer, p_remote);
+	peer = __containerof(iter->i_value, struct wg_peer, p_remote);
 	MPASS(peer != NULL);
 	SLIST_INSERT_HEAD(&peer->p_unused_index, iter, i_unused_entry);
 }
@@ -2400,7 +2396,7 @@ wg_input(struct mbuf *m0, int offset, struct inpcb *inpcb,
 			if_inc_counter(sc->sc_ifp, IFCOUNTER_IQDROPS, 1);
 			m_freem(m);
 		} else {
-			t->t_peer = CONTAINER_OF(remote, struct wg_peer,
+			t->t_peer = __containerof(remote, struct wg_peer,
 			    p_remote);
 			t->t_mbuf = NULL;
 			t->t_done = 0;
