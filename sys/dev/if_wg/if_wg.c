@@ -88,7 +88,6 @@ __FBSDID("$FreeBSD$");
  * IPv6 overhead of 80 bytes. If somebody wants bigger frames, we can revisit this. */
 #define	MAX_MTU			(MJUM16BYTES - 80)
 
-/* TODO the following defines and structs are aligned to OpenBSD. */
 #define	DEFAULT_MTU		1420
 
 #define MAX_STAGED_PKT		128
@@ -168,28 +167,20 @@ struct wg_endpoint {
 	} e_local;
 };
 
-struct wg_index {
-	LIST_ENTRY(wg_index)	 i_entry;
-	SLIST_ENTRY(wg_index)	 i_unused_entry;
-	uint32_t		 i_key;
-	struct noise_remote	*i_value;
-};
-
-struct wg_queue {
-	struct mtx	q_mtx;
-	struct mbufq	q;
-};
-
-/* TODO the following structs are not aligned with OpenBSD and would require
- * code changes below to do so. Once aligned, move into the above section. */
 struct wg_tag {
 	struct m_tag		 t_tag;
 	struct wg_endpoint	 t_endpoint;
 	struct wg_peer		*t_peer;
 	struct mbuf		*t_mbuf;
-	sa_family_t		 t_family;
 	int			 t_done;
 	int			 t_mtu;
+};
+
+struct wg_index {
+	LIST_ENTRY(wg_index)	 i_entry;
+	SLIST_ENTRY(wg_index)	 i_unused_entry;
+	uint32_t		 i_key;
+	struct noise_remote	*i_value;
 };
 
 struct wg_timers {
@@ -211,6 +202,19 @@ struct wg_timers {
 	struct timespec		 t_handshake_last_sent;
 	struct timespec		 t_handshake_complete;
 	volatile int		 t_handshake_retries;
+};
+
+struct wg_aip {
+	struct radix_node	 r_nodes[2];
+	CK_LIST_ENTRY(wg_aip)	 r_entry;
+	struct sockaddr_storage	 r_addr;
+	struct sockaddr_storage	 r_mask;
+	struct wg_peer		*r_peer;
+};
+
+struct wg_queue {
+	struct mtx	q_mtx;
+	struct mbufq	q;
 };
 
 struct wg_peer {
@@ -247,8 +251,6 @@ struct wg_peer {
 	struct epoch_context		 p_ctx;
 };
 
-/* TODO the following structs are not going to be aligned to OpenBSD due to
- * platform/implementation differences. */
 enum route_direction {
 	/* TODO OpenBSD doesn't use IN/OUT, instead passes the address buffer
 	 * directly to route_lookup. */
@@ -271,14 +273,6 @@ struct wg_allowedip {
 	uint8_t cidr;
 };
 
-struct wg_aip {
-	struct radix_node	 r_nodes[2];
-	CK_LIST_ENTRY(wg_aip)	 r_entry;
-	struct sockaddr_storage	 r_addr;
-	struct sockaddr_storage	 r_mask;
-	struct wg_peer		*r_peer;
-};
-
 struct wg_hashtable {
 	/* TODO we can probably merge this into wg_softc. also on second
 	 * viewing, i'm not sure why there are 3 different lists? I guess we'll
@@ -289,9 +283,6 @@ struct wg_hashtable {
 	CK_LIST_HEAD(, wg_peer)		*h_peers;
 	u_long				 h_peers_mask;
 	size_t				 h_num_peers;
-	LIST_HEAD(, noise_keypair)	*h_keys;
-	u_long				 h_keys_mask;
-	size_t				 h_num_keys;
 };
 
 struct wg_socket {
@@ -575,21 +566,16 @@ wg_hashtable_init(struct wg_hashtable *ht)
 	mtx_init(&ht->h_mtx, "hash lock", NULL, MTX_DEF);
 	arc4random_buf(&ht->h_secret, sizeof(ht->h_secret));
 	ht->h_num_peers = 0;
-	ht->h_num_keys = 0;
 	ht->h_peers = hashinit(HASHTABLE_PEER_SIZE, M_DEVBUF,
 			&ht->h_peers_mask);
-	ht->h_keys = hashinit(HASHTABLE_INDEX_SIZE, M_DEVBUF,
-			&ht->h_keys_mask);
 }
 
 static void
 wg_hashtable_destroy(struct wg_hashtable *ht)
 {
 	MPASS(ht->h_num_peers == 0);
-	MPASS(ht->h_num_keys == 0);
 	mtx_destroy(&ht->h_mtx);
 	hashdestroy(ht->h_peers, M_DEVBUF, ht->h_peers_mask);
-	hashdestroy(ht->h_keys, M_DEVBUF, ht->h_keys_mask);
 }
 
 static void
