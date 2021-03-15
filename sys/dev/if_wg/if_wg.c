@@ -368,14 +368,6 @@ VNET_DEFINE_STATIC(struct if_clone *, wg_cloner);
 #define	WG_CAPS		IFCAP_LINKSTATE
 #define	ph_family	PH_loc.eight[5]
 
-#define MAX_QUEUED_PACKETS		MAX_QUEUED_PKT
-#define MAX_QUEUED_INCOMING_HANDSHAKES	MAX_QUEUED_HANDSHAKES
-
-#define zfree(addr, type) do {			\
-	explicit_bzero(addr, sizeof(*addr));	\
-	free(addr, type);			\
-} while (0)
-
 struct wg_timespec64 {
 	uint64_t	tv_sec;
 	uint64_t	tv_nsec;
@@ -632,7 +624,7 @@ wg_peer_free_deferred(epoch_context_t ctx)
 	counter_u64_free(peer->p_rx_bytes);
 	rw_destroy(&peer->p_timers.t_lock);
 	rw_destroy(&peer->p_endpoint_lock);
-	zfree(peer, M_WG);
+	free(peer, M_WG);
 }
 
 static void
@@ -647,6 +639,7 @@ wg_peer_destroy(struct wg_peer *peer)
 	/* TODO: currently, if there is a timer added after here, then the peer
 	 * can hang around for longer than we want. */
 	wg_timers_disable(&peer->p_timers);
+	noise_remote_clear(&peer->p_remote);
 	GROUPTASK_DRAIN(&peer->p_clear_secrets);
 	GROUPTASK_DRAIN(&peer->p_send_initiation);
 	GROUPTASK_DRAIN(&peer->p_send_keepalive);
@@ -1536,7 +1529,7 @@ wg_send_initiation(struct wg_peer *peer)
 	if (noise_create_initiation(&peer->p_remote, &pkt.s_idx, pkt.ue,
 	    pkt.es, pkt.ets) != 0)
 		goto out;
-	pkt.t = le32toh(MESSAGE_HANDSHAKE_INITIATION);
+	pkt.t = WG_PKT_INITIATION;
 	cookie_maker_mac(&peer->p_cookie, &pkt.m, &pkt,
 	    sizeof(pkt)-sizeof(pkt.m));
 	wg_peer_send_buf(peer, (uint8_t *)&pkt, sizeof(pkt));
@@ -1563,7 +1556,7 @@ wg_send_response(struct wg_peer *peer)
 		goto out;
 
 	wg_timers_event_session_derived(&peer->p_timers);
-	pkt.t = MESSAGE_HANDSHAKE_RESPONSE;
+	pkt.t = WG_PKT_RESPONSE;
 	cookie_maker_mac(&peer->p_cookie, &pkt.m, &pkt,
 	     sizeof(pkt)-sizeof(pkt.m));
 	wg_timers_event_handshake_responded(&peer->p_timers);
@@ -1581,7 +1574,7 @@ wg_send_cookie(struct wg_softc *sc, struct cookie_macs *cm, uint32_t idx,
 
 	DPRINTF(sc, "Sending cookie response for denied handshake message\n");
 
-	pkt.t = le32toh(MESSAGE_HANDSHAKE_COOKIE);
+	pkt.t = WG_PKT_COOKIE;
 	pkt.r_idx = idx;
 
 	e = wg_mbuf_endpoint_get(m);
@@ -1623,21 +1616,21 @@ static int
 wg_cookie_validate_packet(struct cookie_checker *checker, struct mbuf *m,
     int under_load)
 {
-	struct wg_endpoint *e;
-	void *data;
-	struct wg_pkt_initiation	*init;
-	struct wg_pkt_response	*resp;
+	struct wg_pkt_initiation *init;
+	struct wg_pkt_response *resp;
 	struct cookie_macs *macs;
+	struct wg_endpoint *e;
 	int type, size;
+	void *data;
 
-	type = le32toh(*mtod(m, uint32_t *));
+	type = *mtod(m, uint32_t *);
 	data = m->m_data;
 	e = wg_mbuf_endpoint_get(m);
-	if (type == MESSAGE_HANDSHAKE_INITIATION) {
+	if (type == WG_PKT_INITIATION) {
 		init = mtod(m, struct wg_pkt_initiation *);
 		macs = &init->m;
 		size = sizeof(*init) - sizeof(*macs);
-	} else if (type == MESSAGE_HANDSHAKE_RESPONSE) {
+	} else if (type == WG_PKT_RESPONSE) {
 		resp = mtod(m, struct wg_pkt_response *);
 		macs = &resp->m;
 		size = sizeof(*resp) - sizeof(*macs);
@@ -1668,7 +1661,7 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 	int underload, res;
 
 	underload = mbufq_len(&sc->sc_handshake_queue) >=
-			MAX_QUEUED_INCOMING_HANDSHAKES / 8;
+			MAX_QUEUED_HANDSHAKES / 8;
 	if (underload)
 		getmicrouptime(&wg_last_underload);
 	else if (wg_last_underload.tv_sec != 0) {
@@ -1698,8 +1691,8 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 	}
 
 	t = wg_tag_get(m);
-	switch (le32toh(*mtod(m, uint32_t *))) {
-	case MESSAGE_HANDSHAKE_INITIATION:
+	switch (*mtod(m, uint32_t *)) {
+	case WG_PKT_INITIATION:
 		init = mtod(m, struct wg_pkt_initiation *);
 
 		if (packet_needs_cookie) {
@@ -1721,7 +1714,7 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 		wg_peer_set_endpoint_from_tag(peer, t);
 		wg_send_response(peer);
 		break;
-	case MESSAGE_HANDSHAKE_RESPONSE:
+	case WG_PKT_RESPONSE:
 		resp = mtod(m, struct wg_pkt_response *);
 
 		if (packet_needs_cookie) {
@@ -1751,7 +1744,7 @@ wg_handshake(struct wg_softc *sc, struct mbuf *m)
 			wg_timers_event_handshake_complete(&peer->p_timers);
 		}
 		break;
-	case MESSAGE_HANDSHAKE_COOKIE:
+	case WG_PKT_COOKIE:
 		cook = mtod(m, struct wg_pkt_cookie *);
 
 		if ((remote = wg_index_get(sc, cook->r_idx)) == NULL) {
@@ -2357,7 +2350,7 @@ wg_input(struct mbuf *m0, int offset, struct inpcb *inpcb,
 		return;
 	}
 	data = mtod(m, void *);
-	pkttype = le32toh(*(uint32_t*)data);
+	pkttype = *(uint32_t*)data;
 	t = wg_tag_get(m);
 	if (t == NULL) {
 		goto free;
@@ -2371,11 +2364,11 @@ wg_input(struct mbuf *m0, int offset, struct inpcb *inpcb,
 	pktlen = m->m_pkthdr.len;
 
 	if ((pktlen == sizeof(struct wg_pkt_initiation) &&
-		 pkttype == MESSAGE_HANDSHAKE_INITIATION) ||
+		 pkttype == WG_PKT_INITIATION) ||
 		(pktlen == sizeof(struct wg_pkt_response) &&
-		 pkttype == MESSAGE_HANDSHAKE_RESPONSE) ||
+		 pkttype == WG_PKT_RESPONSE) ||
 		(pktlen == sizeof(struct wg_pkt_cookie) &&
-		 pkttype == MESSAGE_HANDSHAKE_COOKIE)) {
+		 pkttype == WG_PKT_COOKIE)) {
 		if (mbufq_enqueue(&sc->sc_handshake_queue, m) == 0) {
 			GROUPTASK_ENQUEUE(&sc->sc_handshake);
 		} else {
@@ -2390,7 +2383,7 @@ wg_input(struct mbuf *m0, int offset, struct inpcb *inpcb,
 		if (remote == NULL) {
 			if_inc_counter(sc->sc_ifp, IFCOUNTER_IERRORS, 1);
 			m_freem(m);
-		} else if (buf_ring_count(sc->sc_decap_ring) > MAX_QUEUED_PACKETS) {
+		} else if (buf_ring_count(sc->sc_decap_ring) > MAX_QUEUED_PKT) {
 			if_inc_counter(sc->sc_ifp, IFCOUNTER_IQDROPS, 1);
 			m_freem(m);
 		} else {
@@ -3217,12 +3210,12 @@ wg_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 	atomic_add_int(&clone_count, 1);
 	ifp->if_capabilities = ifp->if_capenable = WG_CAPS;
 
-	mbufq_init(&sc->sc_handshake_queue, MAX_QUEUED_INCOMING_HANDSHAKES);
+	mbufq_init(&sc->sc_handshake_queue, MAX_QUEUED_HANDSHAKES);
 	sx_init(&sc->sc_lock, "wg softc lock");
 	rw_init(&sc->sc_index_lock, "wg index lock");
 	sc->sc_peer_count = 0;
-	sc->sc_encap_ring = buf_ring_alloc(MAX_QUEUED_PACKETS, M_WG, M_WAITOK, NULL);
-	sc->sc_decap_ring = buf_ring_alloc(MAX_QUEUED_PACKETS, M_WG, M_WAITOK, NULL);
+	sc->sc_encap_ring = buf_ring_alloc(MAX_QUEUED_PKT, M_WG, M_WAITOK, NULL);
+	sc->sc_decap_ring = buf_ring_alloc(MAX_QUEUED_PKT, M_WG, M_WAITOK, NULL);
 	GROUPTASK_INIT(&sc->sc_handshake, 0,
 	    (gtask_fn_t *)wg_softc_handshake_receive, sc);
 	taskqgroup_attach(qgroup_if_io_tqg, &sc->sc_handshake, sc, NULL, NULL, "wg tx initiation");
