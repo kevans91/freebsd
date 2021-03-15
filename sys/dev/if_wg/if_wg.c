@@ -184,8 +184,6 @@ struct wg_index {
 };
 
 struct wg_timers {
-	/* TODO the timers don't seem to be taking a read lock, they need a
-	 * full audit. */
 	/* t_lock is for blocking wg_timers_event_* when setting t_disabled. */
 	struct rwlock		 t_lock;
 
@@ -402,14 +400,13 @@ static void wg_timers_event_handshake_complete(struct wg_timers *);
 static void wg_timers_event_session_derived(struct wg_timers *);
 static void wg_timers_event_want_initiation(struct wg_timers *);
 static void wg_timers_event_reset_handshake_last_sent(struct wg_timers *);
-static void wg_grouptask_enqueue(struct wg_peer *, struct grouptask *);
 static void wg_timers_run_send_initiation(struct wg_timers *, int);
 static void wg_timers_run_retry_handshake(struct wg_timers *);
 static void wg_timers_run_send_keepalive(struct wg_timers *);
 static void wg_timers_run_new_handshake(struct wg_timers *);
 static void wg_timers_run_zero_key_material(struct wg_timers *);
 static void wg_timers_run_persistent_keepalive(struct wg_timers *);
-static void wg_peer_timers_init(struct wg_peer *);
+static void wg_timers_init(struct wg_timers *);
 static void wg_timers_enable(struct wg_timers *);
 static void wg_timers_disable(struct wg_timers *);
 static void wg_timers_set_persistent_keepalive(struct wg_timers *, uint16_t);
@@ -519,7 +516,7 @@ wg_peer_alloc(struct wg_softc *sc)
 	GROUPTASK_INIT(&peer->p_recv, 0, (gtask_fn_t *)wg_deliver_in, peer);
 	taskqgroup_attach(qgroup_if_io_tqg, &peer->p_recv, peer, NULL, NULL, "wg recv");
 
-	wg_peer_timers_init(peer);
+	wg_timers_init(&peer->p_timers);
 
 	peer->p_tx_bytes = counter_u64_alloc(M_WAITOK);
 	peer->p_rx_bytes = counter_u64_alloc(M_WAITOK);
@@ -625,24 +622,29 @@ wg_peer_destroy(struct wg_peer *peer)
 	wg_aip_delete(&peer->p_sc->sc_aips, peer);
 	MPASS(CK_LIST_EMPTY(&peer->p_aips));
 
-	/* TODO: currently, if there is a timer added after here, then the peer
-	 * can hang around for longer than we want. */
+	/* We disable all timers, so we can't call the following tasks. */
 	wg_timers_disable(&peer->p_timers);
-	noise_remote_clear(&peer->p_remote);
+
+	/* Ensure the tasks have finished running */
 	GROUPTASK_DRAIN(&peer->p_clear_secrets);
 	GROUPTASK_DRAIN(&peer->p_send_initiation);
 	GROUPTASK_DRAIN(&peer->p_send_keepalive);
 	GROUPTASK_DRAIN(&peer->p_recv);
 	GROUPTASK_DRAIN(&peer->p_send);
+
 	taskqgroup_detach(qgroup_if_io_tqg, &peer->p_clear_secrets);
 	taskqgroup_detach(qgroup_if_io_tqg, &peer->p_send_initiation);
 	taskqgroup_detach(qgroup_if_io_tqg, &peer->p_send_keepalive);
 	taskqgroup_detach(qgroup_if_io_tqg, &peer->p_recv);
 	taskqgroup_detach(qgroup_if_io_tqg, &peer->p_send);
+
 	wg_queue_deinit(&peer->p_decap_queue);
 	wg_queue_deinit(&peer->p_encap_queue);
 	wg_queue_deinit(&peer->p_stage_queue);
+
+	/* Final cleanup */
 	--peer->p_sc->sc_peer_count;
+	noise_remote_clear(&peer->p_remote);
 	DPRINTF(peer->p_sc, "Peer %llu destroyed\n", (unsigned long long)peer->p_id);
 	NET_EPOCH_CALL(wg_peer_free_deferred, &peer->p_ctx);
 }
@@ -1185,15 +1187,13 @@ wg_mbuf_endpoint_get(struct mbuf *m)
 	return (&hdr->t_endpoint);
 }
 
-/* TODO Timers */
+/* Timers */
 static void
-wg_peer_timers_init(struct wg_peer *peer)
+wg_timers_init(struct wg_timers *t)
 {
-	struct wg_timers *t = &peer->p_timers;
-
 	bzero(t, sizeof(*t));
 
-	rw_init(&peer->p_timers.t_lock, "wg_peer_timers");
+	rw_init(&t->t_lock, "wg peer timers");
 	callout_init(&t->t_retry_handshake, true);
 	callout_init(&t->t_send_keepalive, true);
 	callout_init(&t->t_new_handshake, true);
@@ -1228,17 +1228,21 @@ wg_timers_disable(struct wg_timers *t)
 static void
 wg_timers_set_persistent_keepalive(struct wg_timers *t, uint16_t interval)
 {
-	if (t->t_disabled)
-		return;
-	t->t_persistent_keepalive_interval = interval;
-	wg_timers_run_persistent_keepalive(t);
+	rw_rlock(&t->t_lock);
+	if (!t->t_disabled) {
+		t->t_persistent_keepalive_interval = interval;
+		wg_timers_run_persistent_keepalive(t);
+	}
+	rw_runlock(&t->t_lock);
 }
 
 static void
 wg_timers_get_last_handshake(struct wg_timers *t, struct timespec *time)
 {
+	rw_rlock(&t->t_lock);
 	time->tv_sec = t->t_handshake_complete.tv_sec;
 	time->tv_nsec = t->t_handshake_complete.tv_nsec;
+	rw_runlock(&t->t_lock);
 }
 
 static int
@@ -1257,8 +1261,10 @@ wg_timers_check_handshake_last_sent(struct wg_timers *t)
 {
 	int ret;
 
+	rw_wlock(&t->t_lock);
 	if ((ret = wg_timers_expired_handshake_last_sent(t)) == ETIMEDOUT)
 		getnanouptime(&t->t_handshake_last_sent);
+	rw_wunlock(&t->t_lock);
 	return (ret);
 }
 
@@ -1266,34 +1272,30 @@ wg_timers_check_handshake_last_sent(struct wg_timers *t)
 static void
 wg_timers_event_data_sent(struct wg_timers *t)
 {
-	struct epoch_tracker et;
-
-	NET_EPOCH_ENTER(et);
-
+	rw_rlock(&t->t_lock);
 	if (!t->t_disabled && !callout_pending(&t->t_new_handshake))
 		callout_reset(&t->t_new_handshake, MSEC_2_TICKS(
 		    NEW_HANDSHAKE_TIMEOUT * 1000 +
 		    arc4random_uniform(REKEY_TIMEOUT_JITTER)),
 		    (timeout_t *)wg_timers_run_new_handshake, t);
-	NET_EPOCH_EXIT(et);
+	rw_runlock(&t->t_lock);
 }
 
 /* Should be called after an authenticated data packet is received. */
 static void
 wg_timers_event_data_received(struct wg_timers *t)
 {
-	struct epoch_tracker et;
-
-	if (t->t_disabled)
-		return;
-	NET_EPOCH_ENTER(et);
-	if (!callout_pending(&t->t_send_keepalive)) {
-		callout_reset(&t->t_send_keepalive, KEEPALIVE_TIMEOUT*hz,
-		    (timeout_t *)wg_timers_run_send_keepalive, t);
-	} else {
-		t->t_need_another_keepalive = 1;
+	rw_rlock(&t->t_lock);
+	if (!t->t_disabled) {
+		if (!callout_pending(&t->t_send_keepalive)) {
+			callout_reset(&t->t_send_keepalive,
+			    MSEC_2_TICKS(KEEPALIVE_TIMEOUT * 1000),
+			    (timeout_t *)wg_timers_run_send_keepalive, t);
+		} else {
+			t->t_need_another_keepalive = 1;
+		}
 	}
-	NET_EPOCH_EXIT(et);
+	rw_runlock(&t->t_lock);
 }
 
 /*
@@ -1323,32 +1325,33 @@ wg_timers_event_any_authenticated_packet_received(struct wg_timers *t)
 static void
 wg_timers_event_any_authenticated_packet_traversal(struct wg_timers *t)
 {
-	struct epoch_tracker et;
-
-	NET_EPOCH_ENTER(et);
+	rw_rlock(&t->t_lock);
 	if (!t->t_disabled && t->t_persistent_keepalive_interval > 0)
 		callout_reset(&t->t_persistent_keepalive,
-		     t->t_persistent_keepalive_interval *hz,
+		     MSEC_2_TICKS(t->t_persistent_keepalive_interval * 1000),
 		    (timeout_t *)wg_timers_run_persistent_keepalive, t);
-	NET_EPOCH_EXIT(et);
+	rw_runlock(&t->t_lock);
 }
 
 /* Should be called after a handshake initiation message is sent. */
 static void
 wg_timers_event_handshake_initiated(struct wg_timers *t)
 {
-
-	if (t->t_disabled)
-		return;
-	callout_reset(&t->t_retry_handshake, MSEC_2_TICKS(
-	    REKEY_TIMEOUT * 1000 + arc4random_uniform(REKEY_TIMEOUT_JITTER)),
-	    (timeout_t *)wg_timers_run_retry_handshake, t);
+	rw_rlock(&t->t_lock);
+	if (!t->t_disabled)
+		callout_reset(&t->t_retry_handshake, MSEC_2_TICKS(
+		    REKEY_TIMEOUT * 1000 +
+		    arc4random_uniform(REKEY_TIMEOUT_JITTER)),
+		    (timeout_t *)wg_timers_run_retry_handshake, t);
+	rw_runlock(&t->t_lock);
 }
 
 static void
 wg_timers_event_handshake_responded(struct wg_timers *t)
 {
+	rw_wlock(&t->t_lock);
 	getnanouptime(&t->t_handshake_last_sent);
+	rw_wunlock(&t->t_lock);
 }
 
 /*
@@ -1358,13 +1361,14 @@ wg_timers_event_handshake_responded(struct wg_timers *t)
 static void
 wg_timers_event_handshake_complete(struct wg_timers *t)
 {
-	if (t->t_disabled)
-		return;
-
-	callout_stop(&t->t_retry_handshake);
-	t->t_handshake_retries = 0;
-	getnanotime(&t->t_handshake_complete);
-	wg_timers_run_send_keepalive(t);
+	rw_wlock(&t->t_lock);
+	if (!t->t_disabled) {
+		callout_stop(&t->t_retry_handshake);
+		t->t_handshake_retries = 0;
+		getnanotime(&t->t_handshake_complete);
+		wg_timers_run_send_keepalive(t);
+	}
+	rw_wunlock(&t->t_lock);
 }
 
 /*
@@ -1374,56 +1378,52 @@ wg_timers_event_handshake_complete(struct wg_timers *t)
 static void
 wg_timers_event_session_derived(struct wg_timers *t)
 {
-	if (t->t_disabled)
-		return;
-
-	callout_reset(&t->t_zero_key_material,
-	    REJECT_AFTER_TIME * 3 * hz,
-	    (timeout_t *)wg_timers_run_zero_key_material, t);
+	rw_rlock(&t->t_lock);
+	if (!t->t_disabled) {
+		callout_reset(&t->t_zero_key_material,
+		    MSEC_2_TICKS(REJECT_AFTER_TIME * 3 * 1000),
+		    (timeout_t *)wg_timers_run_zero_key_material, t);
+	}
+	rw_runlock(&t->t_lock);
 }
 
 static void
 wg_timers_event_want_initiation(struct wg_timers *t)
 {
-	if (t->t_disabled)
-		return;
-
-	wg_timers_run_send_initiation(t, 0);
+	rw_rlock(&t->t_lock);
+	if (!t->t_disabled)
+		wg_timers_run_send_initiation(t, 0);
+	rw_runlock(&t->t_lock);
 }
 
 static void
 wg_timers_event_reset_handshake_last_sent(struct wg_timers *t)
 {
+	rw_wlock(&t->t_lock);
 	t->t_handshake_last_sent.tv_sec -= (REKEY_TIMEOUT + 1);
-}
-
-static void
-wg_grouptask_enqueue(struct wg_peer *peer, struct grouptask *task)
-{
-	if (peer->p_sc->sc_ifp->if_link_state == LINK_STATE_UP)
-		GROUPTASK_ENQUEUE(task);
+	rw_wunlock(&t->t_lock);
 }
 
 static void
 wg_timers_run_send_initiation(struct wg_timers *t, int is_retry)
 {
 	struct wg_peer	 *peer = __containerof(t, struct wg_peer, p_timers);
-
 	if (!is_retry)
 		t->t_handshake_retries = 0;
 	if (wg_timers_expired_handshake_last_sent(t) == ETIMEDOUT)
-		wg_grouptask_enqueue(peer, &peer->p_send_initiation);
+		GROUPTASK_ENQUEUE(&peer->p_send_initiation);
 }
 
 static void
 wg_timers_run_retry_handshake(struct wg_timers *t)
 {
 	struct wg_peer	*peer = __containerof(t, struct wg_peer, p_timers);
-	int		 retries;
 
-	retries = atomic_fetchadd_int(&t->t_handshake_retries, 1);
+	rw_wlock(&t->t_lock);
+	if (t->t_handshake_retries <= MAX_TIMER_HANDSHAKES) {
+		t->t_handshake_retries++;
+		rw_wunlock(&t->t_lock);
 
-	if (retries <= MAX_TIMER_HANDSHAKES) {
 		DPRINTF(peer->p_sc, "Handshake for peer %llu did not complete "
 		    "after %d seconds, retrying (try %d)\n",
 			(unsigned long long)peer->p_id,
@@ -1431,6 +1431,8 @@ wg_timers_run_retry_handshake(struct wg_timers *t)
 		wg_peer_clear_src(peer);
 		wg_timers_run_send_initiation(t, 1);
 	} else {
+		rw_wunlock(&t->t_lock);
+
 		DPRINTF(peer->p_sc, "Handshake for peer %llu did not complete "
 		    "after %d retries, giving up\n",
 			(unsigned long long) peer->p_id, MAX_TIMER_HANDSHAKES + 2);
@@ -1438,7 +1440,8 @@ wg_timers_run_retry_handshake(struct wg_timers *t)
 		callout_stop(&t->t_send_keepalive);
 		wg_queue_purge(&peer->p_stage_queue);
 		if (!callout_pending(&t->t_zero_key_material))
-			callout_reset(&t->t_zero_key_material, REJECT_AFTER_TIME * 3 * hz,
+			callout_reset(&t->t_zero_key_material,
+			    MSEC_2_TICKS(REJECT_AFTER_TIME * 3 * 1000),
 			    (timeout_t *)wg_timers_run_zero_key_material, t);
 	}
 }
@@ -1448,12 +1451,12 @@ wg_timers_run_send_keepalive(struct wg_timers *t)
 {
 	struct wg_peer	*peer = __containerof(t, struct wg_peer, p_timers);
 
-	wg_grouptask_enqueue(peer, &peer->p_send_keepalive);
+	GROUPTASK_ENQUEUE(&peer->p_send_keepalive);
 	if (t->t_need_another_keepalive) {
 		t->t_need_another_keepalive = 0;
 		callout_reset(&t->t_send_keepalive,
-		    KEEPALIVE_TIMEOUT*hz,
-		     (timeout_t *)wg_timers_run_send_keepalive, t);
+		    MSEC_2_TICKS(KEEPALIVE_TIMEOUT * 1000),
+		    (timeout_t *)wg_timers_run_send_keepalive, t);
 	}
 }
 
@@ -1487,7 +1490,7 @@ wg_timers_run_persistent_keepalive(struct wg_timers *t)
 	struct wg_peer	 *peer = __containerof(t, struct wg_peer, p_timers);
 
 	if (t->t_persistent_keepalive_interval != 0)
-		wg_grouptask_enqueue(peer, &peer->p_send_keepalive);
+		GROUPTASK_ENQUEUE(&peer->p_send_keepalive);
 }
 
 /* TODO Handshake */
