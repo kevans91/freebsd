@@ -1194,6 +1194,7 @@ wg_timers_init(struct wg_timers *t)
 {
 	bzero(t, sizeof(*t));
 
+	t->t_disabled = 1;
 	rw_init(&t->t_lock, "wg peer timers");
 	callout_init(&t->t_retry_handshake, true);
 	callout_init(&t->t_send_keepalive, true);
@@ -2124,7 +2125,8 @@ wg_queue_out(struct wg_peer *peer)
 	struct mbuf		*m;
 
 	if (noise_remote_ready(&peer->p_remote) != 0) {
-		wg_timers_event_want_initiation(&peer->p_timers);
+		if (wg_queue_len(&peer->p_stage_queue))
+			wg_timers_event_want_initiation(&peer->p_timers);
 		return;
 	}
 
@@ -2179,9 +2181,7 @@ wg_queue_dequeue(struct wg_queue *q, struct wg_tag **t)
 static int
 wg_queue_len(struct wg_queue *q)
 {
-	/* This access races, but that's probably fine, because it's only used
-	 * from wg_send_keepalive, where there's no harm in sending an extra
-	 * packet. */
+	/* This access races. We might consider adding locking here. */
 	return (mbufq_len(&q->q));
 }
 
