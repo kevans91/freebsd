@@ -3249,12 +3249,14 @@ wg_clone_destroy(struct ifnet *ifp)
 	cred = sc->sc_ucred;
 	sc->sc_ucred = NULL;
 	sx_xunlock(&sc->sc_lock);
-
 	LIST_REMOVE(sc, sc_entry);
 	sx_xunlock(&wg_sx);
 
 	if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
+
+	sx_xlock(&sc->sc_lock);
 	wg_socket_uninit(sc);
+	sx_xunlock(&sc->sc_lock);
 
 	/*
 	 * No guarantees that all traffic have passed until the epoch has
