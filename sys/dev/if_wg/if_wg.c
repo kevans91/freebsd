@@ -3123,8 +3123,6 @@ wg_down(struct wg_softc *sc)
 	}
 	ifp->if_drv_flags &= ~IFF_DRV_RUNNING;
 
-	sx_downgrade(&sc->sc_lock);
-
 	mtx_lock(&ht->h_mtx);
 	CK_LIST_FOREACH(peer, &ht->h_peers_list, p_entry) {
                 wg_queue_purge(&peer->p_stage_queue);
@@ -3144,7 +3142,7 @@ wg_down(struct wg_softc *sc)
 	if_link_state_change(sc->sc_ifp, LINK_STATE_DOWN);
 	wg_socket_uninit(sc);
 
-	sx_sunlock(&sc->sc_lock);
+	sx_xunlock(&sc->sc_lock);
 }
 
 static void
