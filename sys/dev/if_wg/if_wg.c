@@ -1019,7 +1019,7 @@ wg_socket_uninit(struct wg_softc *sc)
 static void
 wg_socket_set(struct wg_softc *sc, struct socket *new_so4, struct socket *new_so6)
 {
-	struct wg_socket *so = so = &sc->sc_socket;
+	struct wg_socket *so = &sc->sc_socket;
 	struct socket *so4, *so6;
 
 	sx_assert(&sc->sc_lock, SX_XLOCKED);
