@@ -3294,7 +3294,6 @@ wg_clone_destroy(struct ifnet *ifp)
 static void
 wg_qflush(struct ifnet *ifp __unused)
 {
-	//TODO: implement me!
 }
 
 /*
