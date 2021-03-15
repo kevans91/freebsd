@@ -386,14 +386,6 @@ struct wg_peer_export {
 	uint16_t			persistent_keepalive;
 };
 
-enum message_type {
-	MESSAGE_INVALID = 0,
-	MESSAGE_HANDSHAKE_INITIATION = 1,
-	MESSAGE_HANDSHAKE_RESPONSE = 2,
-	MESSAGE_HANDSHAKE_COOKIE = 3,
-	MESSAGE_DATA = 4
-};
-
 static struct wg_tag *wg_tag_get(struct mbuf *);
 static struct wg_endpoint *wg_mbuf_endpoint_get(struct mbuf *);
 static int wg_socket_init(struct wg_softc *, in_port_t);
@@ -1820,7 +1812,7 @@ wg_encap(struct wg_softc *sc, struct mbuf *m)
 	m_copydata(m, 0, m->m_pkthdr.len, data->buf);
 	bzero(data->buf + m->m_pkthdr.len, padding_len);
 
-	data->t = htole32(MESSAGE_DATA);
+	data->t = WG_PKT_DATA;
 
 	res = noise_remote_encrypt(&peer->p_remote, &data->r_idx, &nonce,
 	    data->buf, plaintext_len);
@@ -2376,7 +2368,7 @@ wg_input(struct mbuf *m0, int offset, struct inpcb *inpcb,
 			m_freem(m);
 		}
 	} else if (pktlen >= sizeof(struct wg_pkt_data) + NOISE_AUTHTAG_LEN
-	    && pkttype == MESSAGE_DATA) {
+	    && pkttype == WG_PKT_DATA) {
 
 		pkt_data = data;
 		remote = wg_index_get(sc, pkt_data->r_idx);
