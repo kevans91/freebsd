@@ -274,9 +274,6 @@ struct wg_allowedip {
 };
 
 struct wg_hashtable {
-	/* TODO we can probably merge this into wg_softc. also on second
-	 * viewing, i'm not sure why there are 3 different lists? I guess we'll
-	 * never know... */
 	struct mtx			 h_mtx;
 	SIPHASH_KEY			 h_secret;
 	CK_LIST_HEAD(, wg_peer)		 h_peers_list;
@@ -3280,6 +3277,8 @@ wg_clone_destroy(struct ifnet *ifp)
 		crfree(cred);
 	if_detach(sc->sc_ifp);
 	if_free(sc->sc_ifp);
+	/* Ensure any local/private keys are cleaned up */
+	explicit_bzero(sc, sizeof(*sc));
 	free(sc, M_WG);
 
 	atomic_add_int(&clone_count, -1);
