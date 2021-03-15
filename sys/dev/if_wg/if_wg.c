@@ -2575,8 +2575,11 @@ wg_peer_add(struct wg_softc *sc, const nvlist_t *nvl)
 			}
 		}
 	}
-	if (need_insert)
+	if (need_insert) {
 		wg_hashtable_peer_insert(&sc->sc_hashtable, peer);
+		if (sc->sc_ifp->if_link_state == LINK_STATE_UP)
+			wg_timers_enable(&peer->p_timers);
+	}
 	return (0);
 
 out:
