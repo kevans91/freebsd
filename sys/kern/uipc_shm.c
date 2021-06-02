@@ -128,6 +128,11 @@ static int	shm_dotruncate_cookie(struct shmfd *shmfd, off_t length,
     void *rl_cookie);
 static int	shm_dotruncate_locked(struct shmfd *shmfd, off_t length,
     void *rl_cookie);
+static int	__shm_open2(struct thread *td, const char *userpath, int flags,
+    mode_t mode, int shmflags, struct filecaps *fcaps,
+    bool userpath_from_uspace);
+static int	__shm_unlink(struct thread *td, const char *userpath,
+    bool userpath_from_uspace);
 
 static fo_rdwr_t	shm_read;
 static fo_rdwr_t	shm_write;
@@ -1016,8 +1021,22 @@ shm_remove(char *path, Fnv32_t fnv, struct ucred *ucred)
 }
 
 int
+shm_open2(const char *path, int flags, mode_t mode, int shmflags)
+{
+	return (__shm_open2(curthread, path, flags, mode, shmflags, NULL,
+	    false));
+}
+
+int
 kern_shm_open2(struct thread *td, const char *userpath, int flags, mode_t mode,
     int shmflags, struct filecaps *fcaps, const char *name __unused)
+{
+	return (__shm_open2(td, userpath, flags, mode, shmflags, fcaps, true));
+}
+
+static int
+__shm_open2(struct thread *td, const char *userpath, int flags, mode_t mode,
+    int shmflags, struct filecaps *fcaps, bool userpath_from_uspace)
 {
 	struct filedesc *fdp;
 	struct shmfd *shmfd;
@@ -1104,8 +1123,13 @@ kern_shm_open2(struct thread *td, const char *userpath, int flags, mode_t mode,
 		/* Construct a full pathname for jailed callers. */
 		pr_pathlen = strcmp(pr_path, "/") == 0 ? 0
 		    : strlcpy(path, pr_path, MAXPATHLEN);
-		error = copyinstr(userpath, path + pr_pathlen,
-		    MAXPATHLEN - pr_pathlen, NULL);
+		if (userpath_from_uspace)
+			error = copyinstr(userpath, path + pr_pathlen,
+			    MAXPATHLEN - pr_pathlen, NULL);
+		else
+			error = strlcpy(path + pr_pathlen, userpath,
+			    MAXPATHLEN - pr_pathlen) >= MAXPATHLEN - pr_pathlen
+			    ? ENAMETOOLONG : 0;
 #ifdef KTRACE
 		if (error == 0 && KTRPOINT(curthread, KTR_NAMEI))
 			ktrnamei(path);
@@ -1246,7 +1270,19 @@ sys_shm_open(struct thread *td, struct shm_open_args *uap)
 }
 
 int
+shm_unlink(const char *path)
+{
+	return (__shm_unlink(curthread, path, false));
+}
+
+int
 sys_shm_unlink(struct thread *td, struct shm_unlink_args *uap)
+{
+	return (__shm_unlink(td, uap->path, true));
+}
+
+static int
+__shm_unlink(struct thread *td, const char *userpath, bool userpath_from_uspace)
 {
 	char *path;
 	const char *pr_path;
@@ -1258,8 +1294,13 @@ sys_shm_unlink(struct thread *td, struct shm_unlink_args *uap)
 	pr_path = td->td_ucred->cr_prison->pr_path;
 	pr_pathlen = strcmp(pr_path, "/") == 0 ? 0
 	    : strlcpy(path, pr_path, MAXPATHLEN);
-	error = copyinstr(uap->path, path + pr_pathlen, MAXPATHLEN - pr_pathlen,
-	    NULL);
+	if (userpath_from_uspace)
+		error = copyinstr(userpath, path + pr_pathlen,
+		    MAXPATHLEN - pr_pathlen, NULL);
+	else
+		error = strlcpy(path + pr_pathlen, userpath,
+		    MAXPATHLEN - pr_pathlen) >= MAXPATHLEN - pr_pathlen
+		    ? ENAMETOOLONG : 0;
 	if (error) {
 		free(path, M_TEMP);
 		return (error);

@@ -284,6 +284,9 @@ struct shmfd {
 #endif
 
 #ifdef _KERNEL
+int	shm_open2(const char *path, int flags, mode_t mode, int shmflags);
+int	shm_unlink(const char *path);
+
 int	shm_map(struct file *fp, size_t size, off_t offset, void **memp);
 int	shm_unmap(struct file *fp, void *mem, size_t size);
 
