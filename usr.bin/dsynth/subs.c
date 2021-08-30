@@ -456,7 +456,9 @@ dexec_open(const char *logid, const char **cav, int cac,
 	pid_t pid;
 	FILE *fp;
 	struct logerrinfo *einfo;
+#ifdef SO_PASSCRED
 	static int warned;
+#endif
 
 	/*
 	 * Error logging thread setup
@@ -636,7 +638,7 @@ dexec_logerr_thread(void *dummy __unused)
 {
 	char buf[4096];
 	union {
-		char cbuf[CMSG_SPACE(sizeof(struct ucred))];
+		char cbuf[CMSG_SPACE(sizeof(struct cmsgcred))];
 		struct cmsghdr cbuf_align;
 	} cmsg_buf;
 	struct cmsghdr *cmsg;

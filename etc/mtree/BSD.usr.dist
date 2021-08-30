@@ -247,6 +247,8 @@
             pjdfstest
             ..
         ..
+        dsynth
+        ..
         dtrace
         ..
         examples

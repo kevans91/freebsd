@@ -75,6 +75,10 @@
 
 struct pkglink;
 
+#ifndef DSYNTH_BUILD_BASE
+#define	DSYNTH_BUILD_BASE "/build"
+#endif
+
 #define DSYNTH_VERSION	"1.0.2"
 #define MAXWORKERS	1024
 #define MAXLOGLINES	1024
@@ -294,7 +298,7 @@ typedef struct worker {
 	int	flags;
 	int	accum_error;	/* cumulative error */
 	int	mount_error;	/* mount and unmount error */
-	int	terminate : 1;	/* request sub-thread to terminate */
+	u_int	terminate : 1;	/* request sub-thread to terminate */
 	char	*basedir;	/* base directory including id */
 	char	*flavor;
 	pthread_t td;		/* pthread */

@@ -18,23 +18,23 @@ FILES= favicon.png progress.html progress.css progress.js dsynth.png
 
 CFLAGS+=	-pthread
 CFLAGS+=	-DSCRIPTDIR=${SHAREDIR}/dsynth
-LDADD+=		-lpthread -lutil
-DPADD+=		${LIBPTHREAD} ${LIBUTIL}
+LIBADD+=	pthread util
 
 # ncurses, md5, for DragonFlyBSD
 #
 CFLAGS+=        -I${_SHLIBDIRPREFIX}/usr/include/priv/ncurses
 CFLAGS+=	${PRIVATELIB_CFLAGS}
 LDFLAGS+=       ${PRIVATELIB_LDFLAGS}
-LDADD+=		-lprivate_ncurses
-LDADD+=		-lprivate_crypto
-DPADD+=		${LIBNCURSES}
-DPADD+=		${LIBCRYPTO}
+LIBADD+=	ncursesw crypto
 
-LDADD+=		-lm
-DPADD+=		${LIBM}
+LIBADD+=	m
 
-beforeinstall:
-	mkdir -p ${DESTDIR}${SCRIPTSDIR}
+CWARNFLAGS.build.c+=	-Wno-thread-safety -Wno-\#warnings
+CWARNFLAGS.icrc32.c+=	-Wno-cast-align
+
+LOCALBASE?=	/usr/local
+CFLAGS+=	-include paths.h -DDSYNTH_BUILD_BASE="_PATH_LOCALBASE"
+
+CFLAGS+=	-DOPENSSL_API_COMPAT=0x10100000L
 
 .include <bsd.prog.mk>

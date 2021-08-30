@@ -40,7 +40,7 @@ typedef struct job {
 	pthread_t td;
 	pthread_cond_t cond;
 	bulk_t	*active;
-	int terminate : 1;
+	u_int terminate : 1;
 } job_t;
 
 /*

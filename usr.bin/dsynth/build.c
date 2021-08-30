@@ -1979,6 +1979,8 @@ WorkerProcess(int ac, char **av)
 #ifdef __DragonFly__
 	addbuildenv("DFLYVERSION", VersionFromParamHeader, BENV_MAKECONF);
 	addbuildenv("OSVERSION", "9999999", BENV_MAKECONF);
+#elif defined(__FreeBSD__)
+	addbuildenv("OSVERSION", VersionFromParamHeader, BENV_MAKECONF);
 #else
 #error "Need OS-specific data to generate make.conf"
 #endif
@@ -2752,6 +2754,27 @@ skip:
 static void
 phaseReapAll(void)
 {
+#ifdef __FreeBSD__
+	struct procctl_reaper_kill rkill;
+	struct procctl_reaper_status rs;
+	pid_t pid;
+	int status;
+
+	pid = getpid();
+
+	if (procctl(P_PID, pid, PROC_REAP_STATUS, &rs) != 0 ||
+	    rs.rs_descendants == 0)
+		return;
+
+	rkill.rk_sig = SIGKILL;
+	rkill.rk_flags = 0;
+	(void)procctl(P_PID, pid, PROC_REAP_KILL, &rkill);
+
+	while (rs.rs_descendants > 0) {
+		if (waitpid(-1, &status, 0) > 0)
+			rs.rs_descendants--;
+	}
+#else
 	struct reaper_status rs;
 	int status;
 
@@ -2767,6 +2790,7 @@ phaseReapAll(void)
 	}
 	while (wait3(&status, 0, NULL) > 0)
 		;
+#endif
 }
 
 static void

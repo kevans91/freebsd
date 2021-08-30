@@ -57,16 +57,16 @@ const char *MachineName = "unknown";		/* e.g. "x86_64" */
 const char *VersionName = "unknown";		/* e.g. "DragonFly 5.7-SYNTH" */
 const char *VersionOnlyName = "unknown";	/* e.g. "5.7-SYNTH" */
 const char *VersionFromParamHeader = "unknown";	/* e.g. "500704" */
-const char *VersionFromSysctl = "unknown";	/* e.g. "500704" */
+static const char *VersionFromSysctl = "unknown";	/* e.g. "500704" */
 const char *ReleaseName = "unknown";		/* e.g. "5.7" */
 const char *DPortsPath = "/usr/dports";
 const char *CCachePath = DISABLED_STR;
-const char *PackagesPath = "/build/synth/live_packages";
-const char *RepositoryPath = "/build/synth/live_packages/All";
-const char *OptionsPath = "/build/synth/options";
-const char *DistFilesPath = "/build/synth/distfiles";
-const char *BuildBase = "/build/synth/build";
-const char *LogsPath = "/build/synth/logs";
+const char *PackagesPath = DSYNTH_BUILD_BASE "/synth/live_packages";
+const char *RepositoryPath = DSYNTH_BUILD_BASE "/synth/live_packages/All";
+const char *OptionsPath = DSYNTH_BUILD_BASE "/synth/options";
+const char *DistFilesPath = DSYNTH_BUILD_BASE "/synth/distfiles";
+const char *BuildBase = DSYNTH_BUILD_BASE "/synth/build";
+const char *LogsPath = DSYNTH_BUILD_BASE "/synth/logs";
 const char *SystemPath = "/";
 const char *UsePkgSufx = USE_PKG_SUFX;
 char *StatsBase;
@@ -269,6 +269,10 @@ ParseConfiguration(int isworker)
 		asprintf(&buf, "%s %s-SYNTH",
 			 OperatingSystemName,
 			 ReleaseName);
+#ifdef __FreeBSD__
+		/* XXX upstream bug? */
+		VersionName = buf;
+#endif
 		asprintf(&buf, "%s-SYNTH", ReleaseName);
 		VersionOnlyName = buf;
 	}
@@ -288,9 +292,15 @@ ParseConfiguration(int isworker)
 			if (len == 0 || ptr[len-1] != '\n')
 				continue;
 			ptr[len-1] = 0;
+#ifdef __FreeBSD__
+			if (strncmp(ptr, "#define __FreeBSD_version", 25))
+				continue;
+			ptr += 25;
+#else
 			if (strncmp(ptr, "#define __DragonFly_version", 27))
 				continue;
 			ptr += 27;
+#endif
 			ptr = strtok(ptr, " \t\r\n");
 			VersionFromParamHeader = strdup(ptr);
 			break;
@@ -646,6 +656,18 @@ dokernsysctl(int m1, int m2)
 	return(strdup(buf));
 }
 
+#ifdef __FreeBSD__
+struct NoteTag {
+	Elf_Note note;
+	char osname1[7];
+	int version;		/* e.g. 500702 -> 5.7 */
+	int x1;
+	int x2;
+	int x3;
+	char osname2[7];
+	int zero;
+};
+#else
 struct NoteTag {
 	Elf_Note note;
 	char osname1[12];
@@ -656,6 +678,7 @@ struct NoteTag {
 	char osname2[12];
 	int zero;
 };
+#endif
 
 static void
 getElfInfo(const char *path)

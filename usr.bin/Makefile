@@ -32,6 +32,7 @@ SUBDIR=	alias \
 	diff \
 	dirname \
 	dtc \
+	dsynth \
 	du \
 	elfctl \
 	elfdump \
