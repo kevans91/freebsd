@@ -1,0 +1,19 @@
+# Common options for OpenSSH applications/libs
+
+.include <src.opts.mk>
+
+SSHDIR?=	${.CURDIR}
+
+# All OpenSSH applications are guaranteed to need ssh_namespace.h, and note that
+# adding it to SRCS makes it a dependency of other objects.
+CFLAGS+=	-I${SSHDIR} -include ssh_namespace.h
+SRCS+=		ssh_namespace.h
+
+# Handle WITH_/WITHOUT_LDNS.
+.if ${MK_LDNS} != "no"
+CFLAGS+=	-DHAVE_LDNS=1
+.endif
+
+.if ${MK_TCP_WRAPPERS} != "no"
+CFLAGS+=	-DLIBWRAP=1
+.endif

@@ -32,12 +32,6 @@ moduli: .MADE
 # pam should always happen before ssh here for static linking
 LIBADD=	pam ssh util
 
-.if ${MK_LDNS} != "no"
-CFLAGS+=	-DHAVE_LDNS=1
-#DPADD+=	${LIBLDNS}
-#LDADD+=	-lldns
-.endif
-
 .if ${MK_AUDIT} != "no"
 CFLAGS+= -DUSE_BSM_AUDIT=1 -DHAVE_GETAUDIT_ADDR=1
 LIBADD+=	bsm
@@ -57,7 +51,6 @@ LIBADD+=	gssapi_krb5 gssapi krb5
 .endif
 
 .if ${MK_TCP_WRAPPERS} != "no"
-CFLAGS+=	-DLIBWRAP=1
 LIBADD+=	wrap
 .endif
 
@@ -69,4 +62,5 @@ CFLAGS+= -DXAUTH_PATH=\"${LOCALBASE}/bin/xauth\"
 
 .include <bsd.prog.mk>
 
+.include "${SRCTOP}/secure/Makefile.openssh"
 .PATH:	${SSHDIR}
