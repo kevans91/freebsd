@@ -52,6 +52,7 @@ enum {
 	MODE_LA57,
 	MODE_LA48,
 #endif
+	MODE_LOGSIGEXIT,
 };
 
 static pid_t
@@ -84,7 +85,7 @@ usage(void)
 {
 
 	fprintf(stderr, "Usage: proccontrol -m (aslr|protmax|trace|trapcap|"
-	    "stackgap|nonewprivs|wxmap"KPTI_USAGE LA_USAGE") [-q] "
+	    "stackgap|nonewprivs|wxmap"KPTI_USAGE LA_USAGE"|logsigexit) [-q] "
 	    "[-s (enable|disable)] [-p pid | command]\n");
 	exit(1);
 }
@@ -127,6 +128,8 @@ main(int argc, char *argv[])
 			else if (strcmp(optarg, "la48") == 0)
 				mode = MODE_LA48;
 #endif
+			else if (strcmp(optarg, "logsigexit") == 0)
+				mode = MODE_LOGSIGEXIT;
 			else
 				usage();
 			break;
@@ -196,6 +199,10 @@ main(int argc, char *argv[])
 			error = procctl(P_PID, pid, PROC_LA_STATUS, &arg);
 			break;
 #endif
+		case MODE_LOGSIGEXIT:
+			error = procctl(P_PID, pid, PROC_LOGSIGEXIT_STATUS,
+			    &arg);
+			break;
 		default:
 			usage();
 			break;
@@ -333,6 +340,19 @@ main(int argc, char *argv[])
 				printf(", la57 active\n");
 			break;
 #endif
+		case MODE_LOGSIGEXIT:
+			switch (arg) {
+			case PROC_LOGSIGEXIT_CTL_NOFORCE:
+				printf("not forced\n");
+				break;
+			case PROC_LOGSIGEXIT_CTL_FORCE_ENABLE:
+				printf("force enabled\n");
+				break;
+			case PROC_LOGSIGEXIT_CTL_FORCE_DISABLE:
+				printf("force disabled\n");
+				break;
+			}
+			break;
 		}
 	} else {
 		switch (mode) {
@@ -392,6 +412,11 @@ main(int argc, char *argv[])
 			error = procctl(P_PID, pid, PROC_LA_CTL, &arg);
 			break;
 #endif
+		case MODE_LOGSIGEXIT:
+			arg = enable ? PROC_LOGSIGEXIT_CTL_FORCE_ENABLE :
+			    PROC_LOGSIGEXIT_CTL_FORCE_DISABLE;
+			error = procctl(P_PID, pid, PROC_LOGSIGEXIT_CTL, &arg);
+			break;
 		default:
 			usage();
 			break;
