@@ -7,7 +7,7 @@
 
 PACKAGE=runtime
 CLEANFILES= osreldate.h version
-SUBDIR= arpa protocols rpcsvc rpc xlocale
+SUBDIR= arpa protocols rpcsvc rpc ssp xlocale
 .if ${MACHINE_CPUARCH} == "amd64"
 SUBDIR+=	i386
 .endif
