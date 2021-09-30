@@ -83,7 +83,7 @@ vsnprintf_l(char * __restrict str, size_t n, locale_t locale,
 	return (ret);
 }
 int
-vsnprintf(char * __restrict str, size_t n, const char * __restrict fmt,
+(vsnprintf)(char * __restrict str, size_t n, const char * __restrict fmt,
     __va_list ap)
 {
 	return vsnprintf_l(str, n, __get_locale(), fmt, ap);

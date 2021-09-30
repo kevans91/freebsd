@@ -55,16 +55,16 @@ typedef	intptr_t word;		/* "word" used for optimal copy speed */
 
 void *
 #ifdef MEMCOPY
-memcpy
+(memcpy)
 #else
-memmove
+(memmove)
 #endif
 (void *dst0, const void *src0, size_t length)
 #else
 #include <strings.h>
 
 void
-bcopy(const void *src0, void *dst0, size_t length)
+(bcopy)(const void *src0, void *dst0, size_t length)
 #endif
 {
 	char *dst = dst0;

@@ -50,7 +50,7 @@ __FBSDID("$FreeBSD$");
 #include "xlocale_private.h"
 
 int
-sprintf(char * __restrict str, char const * __restrict fmt, ...)
+(sprintf)(char * __restrict str, char const * __restrict fmt, ...)
 {
 	int ret;
 	va_list ap;

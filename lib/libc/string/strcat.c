@@ -38,7 +38,7 @@ __FBSDID("$FreeBSD$");
 #include <string.h>
 
 char *
-strcat(char * __restrict s, const char * __restrict append)
+(strcat)(char * __restrict s, const char * __restrict append)
 {
 	char *save = s;
 

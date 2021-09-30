@@ -52,7 +52,7 @@ __FBSDID("$FreeBSD$");
 #include "local.h"
 
 int
-snprintf(char * __restrict str, size_t n, char const * __restrict fmt, ...)
+(snprintf)(char * __restrict str, size_t n, char const * __restrict fmt, ...)
 {
 	size_t on;
 	int ret;

@@ -32,7 +32,7 @@ __FBSDID("$FreeBSD$");
 #include <string.h>
 
 char *
-stpncpy(char * __restrict dst, const char * __restrict src, size_t n)
+(stpncpy)(char * __restrict dst, const char * __restrict src, size_t n)
 {
 
 	for (; n--; dst++, src++) {

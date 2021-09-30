@@ -53,7 +53,7 @@ __FBSDID("$FreeBSD$");
 #define	WIDEVAL	0
 
 void
-bzero(void *dst0, size_t length)
+(bzero)(void *dst0, size_t length)
 #else
 #include <string.h>
 
@@ -62,7 +62,7 @@ bzero(void *dst0, size_t length)
 #define	WIDEVAL	c
 
 void *
-memset(void *dst0, int c0, size_t length)
+(memset)(void *dst0, int c0, size_t length)
 #endif
 {
 	size_t t;
