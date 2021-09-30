@@ -43,7 +43,7 @@ _blacklistd-helper+=	blacklistd-helper
 .endif
 
 .if ${MK_BOOTPD} != "no"
-SUBDIR+=	bootpd
+SUBDIR+=	bootp
 .endif
 
 .if ${MK_FINGER} != "no"
