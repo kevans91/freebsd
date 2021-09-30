@@ -41,6 +41,10 @@
 #include <sys/_null.h>
 #include <sys/_types.h>
 
+#if defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
+#include <ssp/unistd.h>
+#endif
+
 #ifndef _GID_T_DECLARED
 typedef	__gid_t		gid_t;
 #define	_GID_T_DECLARED
@@ -356,7 +360,10 @@ off_t	 lseek(int, off_t, int);
 long	 pathconf(const char *, int);
 int	 pause(void);
 int	 pipe(int *);
+#if !defined(_FORTIFY_SOURCE) || __SSP_FORTIFY_LEVEL == 0
+/* Avoid redeclaration from _FORTIFY_SOURCE */
 ssize_t	 read(int, void *, size_t);
+#endif
 int	 rmdir(const char *);
 int	 setgid(gid_t);
 int	 setpgid(pid_t, pid_t);

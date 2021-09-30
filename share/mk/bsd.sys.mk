@@ -292,10 +292,19 @@ CFLAGS.clang+=	 -Qunused-arguments
 CXXFLAGS.clang+=	 -Wno-c++11-extensions
 
 .if ${MK_SSP} != "no"
+FORTIFY_SOURCE?=	2
 # Don't use -Wstack-protector as it breaks world with -Werror.
 SSP_CFLAGS?=	-fstack-protector-strong
 CFLAGS+=	${SSP_CFLAGS}
+.else
+FORTIFY_SOURCE?=	0
 .endif # SSP
+.if ${FORTIFY_SOURCE} > 0
+# We default FORTIFY_SOURCE=2 if SSP is enabled, or default it to 0 without.
+# The program or user can tweak it as needed.
+CFLAGS+=	-D_FORTIFY_SOURCE=${FORTIFY_SOURCE}
+CXXFLAGS+=	-D_FORTIFY_SOURCE=${FORTIFY_SOURCE}
+.endif
 
 # Additional flags passed in CFLAGS and CXXFLAGS when MK_DEBUG_FILES is
 # enabled.
