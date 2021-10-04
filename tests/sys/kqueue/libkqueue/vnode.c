@@ -15,6 +15,7 @@
  */
 
 #include "common.h"
+#include <sys/un.h>
 
 int vnode_fd;
 
@@ -119,6 +120,48 @@ test_kevent_vnode_note_delete_fifo(void)
 
     success();
 }
+
+static void
+test_kevent_vnode_note_delete_un(void)
+{
+    struct sockaddr_un sun;
+    const char *test_id = "kevent(EVFILT_VNODE, NOTE_DELETE, UNSOCK)";
+    const char *sock_path = "./kqueue.sock";
+    int s;
+    struct kevent kev;
+
+    test_begin(test_id);
+
+    s = socket(PF_UNIX, SOCK_DGRAM, 0);
+    if (s < 0)
+        err(1, "socket");
+
+    bzero(&sun, sizeof(sun));
+    sun.sun_len = sizeof(sun);
+    sun.sun_family = AF_UNIX;
+    strcpy(sun.sun_path, sock_path);
+
+    EV_SET(&kev, s, EVFILT_VNODE, EV_ADD | EV_ONESHOT, NOTE_DELETE, 0, NULL);
+    if (kevent(kqfd, &kev, 1, NULL, 0, NULL) == 0)
+        errx(1, "unbound unix socket succeeded");
+
+    if (bind(s, (const struct sockaddr *)&sun, sizeof(sun)) < 0)
+        err(1, "bind");
+
+    if (kevent(kqfd, &kev, 1, NULL, 0, NULL) < 0) {
+        unlink(sock_path);
+        err(1, "kevent -- bound unix socket");
+    }
+
+    if (unlink(sock_path) < 0)
+        err(1, "unlink");
+
+    kevent_cmp(&kev, kevent_get(kqfd));
+    close(s);
+
+    success();
+}
+
 
 static void
 test_kevent_vnode_note_write(void)
@@ -318,5 +361,6 @@ test_evfilt_vnode(void)
     test_kevent_vnode_note_rename();
     test_kevent_vnode_note_delete();
     test_kevent_vnode_note_delete_fifo();
+    test_kevent_vnode_note_delete_un();
     close(kqfd);
 }

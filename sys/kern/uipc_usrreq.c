@@ -826,6 +826,25 @@ uipc_disconnect(struct socket *so)
 }
 
 static int
+uipc_kqfilter(struct socket *so, struct knote *kn)
+{
+	struct unpcb *unp;
+	struct vnode *vp;
+
+	unp = sotounpcb(so);
+	KASSERT(unp != NULL, ("uipc_kqfilter: unp == NULL"));
+
+	UNP_PCB_LOCK(unp);
+	vp = unp->unp_vnode;
+	UNP_PCB_UNLOCK(unp);
+
+	if (vp == NULL)
+		return (EINVAL);
+
+	return (VOP_KQFILTER(vp, kn));
+}
+
+static int
 uipc_listen(struct socket *so, int backlog, struct thread *td)
 {
 	struct unpcb *unp;
@@ -3382,6 +3401,7 @@ static struct protosw dgramproto = {
 	.pr_sockaddr =		uipc_sockaddr,
 	.pr_soreceive =		uipc_soreceive_dgram,
 	.pr_close =		uipc_close,
+	.pr_kqfilter =		uipc_kqfilter,
 };
 
 static struct protosw seqpacketproto = {
