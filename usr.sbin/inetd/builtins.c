@@ -73,11 +73,11 @@ static char *endring;
 
 struct biltin biltins[] = {
 	/* Echo received data */
-	{ "echo",	SOCK_STREAM,	1, -1,	echo_stream },
+	{ "echo",	SOCK_STREAM,	BIF_FORK, -1,	echo_stream },
 	{ "echo",	SOCK_DGRAM,	0, 1,	echo_dg },
 
 	/* Internet /dev/null */
-	{ "discard",	SOCK_STREAM,	1, -1,	discard_stream },
+	{ "discard",	SOCK_STREAM,	BIF_FORK, -1,	discard_stream },
 	{ "discard",	SOCK_DGRAM,	0, 1,	discard_dg },
 
 	/* Return 32 bit time since 1900 */
@@ -89,12 +89,12 @@ struct biltin biltins[] = {
 	{ "daytime",	SOCK_DGRAM,	0, 1,	daytime_dg },
 
 	/* Familiar character generator */
-	{ "chargen",	SOCK_STREAM,	1, -1,	chargen_stream },
+	{ "chargen",	SOCK_STREAM,	BIF_FORK, -1,	chargen_stream },
 	{ "chargen",	SOCK_DGRAM,	0, 1,	chargen_dg },
 
-	{ "tcpmux",	SOCK_STREAM,	1, -1,	(bi_fn_t *)tcpmux },
+	{ "tcpmux",	SOCK_STREAM,	BIF_FORK, -1,	(bi_fn_t *)tcpmux },
 
-	{ "auth",	SOCK_STREAM,	1, -1,	ident_stream },
+	{ "auth",	SOCK_STREAM,	BIF_FORK, -1,	ident_stream },
 
 	{ NULL,		0,		0, 0,	NULL }
 };

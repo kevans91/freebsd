@@ -144,8 +144,13 @@ typedef void (bi_fn_t)(int, struct servtab *);
 struct biltin {
 	const char *bi_service;		/* internally provided service name */
 	int	bi_socktype;		/* type of socket supported */
-	short	bi_fork;		/* 1 if should fork before call */
+	short	bi_flags;		/* BIF_* flags below */
 	int	bi_maxchild;		/* max number of children, -1=default */
 	bi_fn_t	*bi_fn;			/* function which performs it */
 };
 extern struct biltin biltins[];
+
+#define	BIF_FORK	0x0001		/* should fork before call */
+
+#define	SERVTAB_FORK(sep)	\
+	((sep)->se_bi == NULL || ((sep)->se_bi->bi_flags & BIF_FORK) != 0)

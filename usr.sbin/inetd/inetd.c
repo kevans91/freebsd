@@ -609,7 +609,7 @@ main(int argc, char **argv)
 		    n--;
 		    if (debug)
 			    warnx("someone wants %s", sep->se_service);
-		    dofork = !sep->se_bi || sep->se_bi->bi_fork || ISWRAP(sep);
+		    dofork = SERVTAB_FORK(sep) || ISWRAP(sep);
 		    conn = NULL;
 		    if (sep->se_accept && sep->se_socktype == SOCK_STREAM) {
 			    i = 1;
