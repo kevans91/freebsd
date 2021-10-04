@@ -46,6 +46,7 @@ struct sockopt;
 struct thread;
 struct sockaddr;
 struct ifnet;
+struct knote;
 struct mbuf;
 struct stat;
 struct ucred;
@@ -98,6 +99,7 @@ typedef int	pr_connectat_t(int, struct socket *, struct sockaddr *,
 typedef int	pr_aio_queue_t(struct socket *, struct kaiocb *);
 typedef int	pr_chmod_t(struct socket *, __mode_t, struct ucred *,
 		    struct thread *);
+typedef int	pr_kqfilter_t(struct socket *, struct knote *);
 
 struct protosw {
 	short	pr_type;		/* socket type used for */
@@ -138,6 +140,7 @@ struct protosw {
 	pr_sosetlabel_t	*pr_sosetlabel;	/* MAC, XXXGL: remove */
 	pr_setsbopt_t	*pr_setsbopt;	/* Socket buffer ioctls */
 	pr_chmod_t	*pr_chmod;	/* fchmod(2) */
+	pr_kqfilter_t	*pr_kqfilter;
 };
 #endif	/* defined(_KERNEL) || defined(_WANT_PROTOSW) */
 #ifdef _KERNEL
