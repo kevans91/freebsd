@@ -3717,6 +3717,7 @@ soo_kqfilter(struct file *fp, struct knote *kn)
 	struct sockbuf *sb;
 	sb_which which;
 	struct knlist *knl;
+	int error;
 
 	switch (kn->kn_filter) {
 	case EVFILT_READ:
@@ -3738,7 +3739,10 @@ soo_kqfilter(struct file *fp, struct knote *kn)
 		which = SO_SND;
 		break;
 	default:
-		return (EINVAL);
+		if (so->so_proto->pr_kqfilter == NULL)
+			return (EINVAL);
+		error = (*so->so_proto->pr_kqfilter)(so, kn);
+		return (error);
 	}
 
 	SOCK_LOCK(so);
