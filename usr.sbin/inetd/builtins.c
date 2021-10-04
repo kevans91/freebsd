@@ -37,6 +37,7 @@
 #include <sys/uio.h>
 #include <sys/utsname.h>
 
+#include <capsicum_helpers.h>
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
@@ -73,11 +74,11 @@ static char *endring;
 
 struct biltin biltins[] = {
 	/* Echo received data */
-	{ "echo",	SOCK_STREAM,	BIF_FORK, -1,	echo_stream },
+	{ "echo",	SOCK_STREAM,	BIF_CAPENTER, -1,	echo_stream },
 	{ "echo",	SOCK_DGRAM,	0, 1,	echo_dg },
 
 	/* Internet /dev/null */
-	{ "discard",	SOCK_STREAM,	BIF_FORK, -1,	discard_stream },
+	{ "discard",	SOCK_STREAM,	BIF_CAPENTER, -1,	discard_stream },
 	{ "discard",	SOCK_DGRAM,	0, 1,	discard_dg },
 
 	/* Return 32 bit time since 1900 */
@@ -89,9 +90,14 @@ struct biltin biltins[] = {
 	{ "daytime",	SOCK_DGRAM,	0, 1,	daytime_dg },
 
 	/* Familiar character generator */
-	{ "chargen",	SOCK_STREAM,	BIF_FORK, -1,	chargen_stream },
+	{ "chargen",	SOCK_STREAM,	BIF_CAPENTER, -1,	chargen_stream },
 	{ "chargen",	SOCK_DGRAM,	0, 1,	chargen_dg },
 
+	/*
+	 * tcpmux cap_enter is effectively ignored; we explicitly check if the
+	 * service is tcpmux, then we invoke it manually and proceed as if the
+	 * service it resolved to was selected.
+	 */
 	{ "tcpmux",	SOCK_STREAM,	BIF_FORK, -1,	(bi_fn_t *)tcpmux },
 
 	{ "auth",	SOCK_STREAM,	BIF_FORK, -1,	ident_stream },

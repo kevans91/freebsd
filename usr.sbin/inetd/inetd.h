@@ -36,6 +36,7 @@
 
 #include <netinet/in.h>
 
+#include <stdbool.h>
 #include <stdio.h>
 
 #define BUFSIZE 8192
@@ -151,6 +152,11 @@ struct biltin {
 extern struct biltin biltins[];
 
 #define	BIF_FORK	0x0001		/* should fork before call */
+#define	BIF_CAPENTER	0x0002		/* enter capability mode upon fork */
 
 #define	SERVTAB_FORK(sep)	\
-	((sep)->se_bi == NULL || ((sep)->se_bi->bi_flags & BIF_FORK) != 0)
+	((sep)->se_bi == NULL || \
+	((sep)->se_bi->bi_flags & (BIF_FORK | BIF_CAPENTER)) != 0)
+
+#define	SERVTAB_CAPENTER(sep)	\
+	((sep)->se_bi != NULL && ((sep)->se_bi->bi_flags & BIF_CAPENTER) != 0)
