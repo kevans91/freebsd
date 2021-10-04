@@ -52,6 +52,7 @@ enum shutdown_how;
  * similar to the vnode VOP interface.
  */
 struct ifnet;
+struct knote;
 struct stat;
 struct ucred;
 struct uio;
@@ -100,6 +101,7 @@ typedef int	pr_bindat_t(int, struct socket *, struct sockaddr *,
 typedef int	pr_connectat_t(int, struct socket *, struct sockaddr *,
 		    struct thread *);
 typedef int	pr_aio_queue_t(struct socket *, struct kaiocb *);
+typedef int	pr_kqfilter_t(struct socket *, struct knote *);
 
 struct protosw {
 	short	pr_type;		/* socket type used for */
@@ -139,6 +141,7 @@ struct protosw {
 	pr_sense_t	*pr_sense;	/* stat(2) */
 	pr_sosetlabel_t	*pr_sosetlabel;	/* MAC, XXXGL: remove */
 	pr_setsbopt_t	*pr_setsbopt;	/* Socket buffer ioctls */
+	pr_kqfilter_t	*pr_kqfilter;
 };
 /*#endif*/
 
