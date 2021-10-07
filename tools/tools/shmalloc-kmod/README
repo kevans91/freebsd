@@ -1,0 +1,4 @@
+$FreeBSD$
+
+This is a simple test kmod for enabling experimentation with boot-time-allocated
+SHM regions.
