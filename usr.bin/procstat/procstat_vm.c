@@ -46,14 +46,15 @@ procstat_vm(struct procstat *procstat, struct kinfo_proc *kipp)
 {
 	struct kinfo_vmentry *freep, *kve;
 	int ptrwidth;
-	int i, cnt;
+	int i, cnt, nres, nshr, nprv;
 	const char *str, *lstr;
 
+	nres = nshr = nprv = 0;
 	ptrwidth = 2*sizeof(void *) + 2;
 	if ((procstat_opts & PS_OPT_NOHEADER) == 0)
-		xo_emit("{T:/%5s %*s %*s %3s %4s %4s %3s %3s %-5s %-2s %-s}\n",
+		xo_emit("{T:/%5s %*s %*s %3s %4s %4s %4s %3s %3s %-5s %-2s %-s}\n",
 		    "PID", ptrwidth, "START", ptrwidth, "END", "PRT", "RES",
-		    "PRES", "REF", "SHD", "FLAG", "TP", "PATH");
+		    "PRES", "SRES", "REF", "SHD", "FLAG", "TP", "PATH");
 
 	xo_emit("{ek:process_id/%d}", kipp->ki_pid);
 
@@ -88,6 +89,11 @@ procstat_vm(struct procstat *procstat, struct kinfo_proc *kipp)
 		xo_emit("{:kve_resident/%4d/%d} ", kve->kve_resident);
 		xo_emit("{:kve_private_resident/%4d/%d} ",
 		    kve->kve_private_resident);
+		xo_emit("{:kve_shared_resident/%4d/%d} ",
+		    kve->kve_shared_resident);
+		nres += kve->kve_resident;
+		nprv += kve->kve_private_resident;
+		nshr += kve->kve_shared_resident;
 		xo_emit("{:kve_ref_count/%3d/%d} ", kve->kve_ref_count);
 		xo_emit("{:kve_shadow_count/%3d/%d} ", kve->kve_shadow_count);
 		xo_emit("{d:copy_on_write/%-1s}", kve->kve_flags &
@@ -167,6 +173,9 @@ procstat_vm(struct procstat *procstat, struct kinfo_proc *kipp)
 		xo_emit("{:kve_path/%-s/%s}\n", kve->kve_path);
 		xo_close_instance("vm");
 	}
+	xo_emit("{:label/%47s/%s} {:resident_total/%4d/%d} "
+	    "{:private_total/%4d/%d} {:shared_total/%4d/%d}\n", "Totals(pages)",
+	    nres, nprv, nshr);
 	xo_close_list("vm");
 	free(freep);
 }

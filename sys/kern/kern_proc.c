@@ -2650,6 +2650,9 @@ kern_proc_vmmap_out(struct proc *p, struct sbuf *sb, ssize_t maxlen, int flags)
 			if (obj->backing_object == NULL)
 				kve->kve_private_resident =
 				    obj->resident_page_count;
+			else
+				kve->kve_shared_resident =
+				    obj->resident_page_count;
 			kern_proc_vmmap_resident(map, entry,
 			    &kve->kve_resident, &super);
 			if (super)
