@@ -174,7 +174,8 @@ fallback:
 			switch (fbacklvl) {
 			case FBACK_MDENV:
 				fbacklvl++;
-				if (_res_checkenv(md_envp)) {
+				if (!loader_hints_disabled &&
+				    _res_checkenv(md_envp)) {
 					hintp = md_envp;
 					break;
 				}

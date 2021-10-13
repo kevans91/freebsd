@@ -129,8 +129,8 @@ may be specified in the static environment to disable the
 environment.
 Disabling the
 .Xr loader 8
-should be done with caution and due consideration for whether or not it supplies
-environment variables needed for properly booting the system.
+environment should be done with caution and due consideration for whether or not
+it supplies environment variables needed for properly booting the system.
 .Pp
 .Va static_env.disabled=1
 may be specified in the
@@ -207,6 +207,16 @@ added to the dynamic environment if they do not already have an override in
 the dynamic environment.
 The dynamic environment will then be used for all searches of hints.
 .Pp
+.Va loader_hints.disabled=1
+may be specified in the compiled-in environment to disable use of hints from
+the
+.Xr loader 8
+environment.
+Disabling hints from the
+.Xr loader 8
+environment should be done with caution and due consideration for whether or not
+it supplies hints needed for properly booting the system.
+.Pp
 .Va static_hints.disabled=1
 may be specified in either a compiled-in environment or the
 .Xr loader 8
@@ -214,6 +224,9 @@ environment to disable use of these hints files.
 This option has no effect if specified in any environment after the
 .Xr loader 8
 environment is processed.
+This option also has no effect if loader hints have been disabled by the static
+environment setting
+.Va loader_hints.disabled=1 .
 .Pp
 The file
 .Ar filename

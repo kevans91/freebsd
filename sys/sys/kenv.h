@@ -50,6 +50,7 @@ extern bool dynamic_kenv;
 extern struct mtx kenv_lock;
 extern char *kern_envp;
 extern char *md_envp;
+extern bool loader_hints_disabled;
 extern char static_env[];
 extern char static_hints[];	/* by config for now */
 

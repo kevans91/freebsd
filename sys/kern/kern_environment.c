@@ -58,6 +58,8 @@
 
 static char *_getenv_dynamic_locked(const char *name, int *idx);
 static char *_getenv_dynamic(const char *name, int *idx);
+static char *_getenv_static_from(char *chkenv, const char *name);
+static int kenv_to_bool(const char *val, bool *data);
 
 static char *kenv_acquire(const char *name);
 static void kenv_release(const char *buf);
@@ -76,6 +78,7 @@ char		*kern_envp;
 char		*md_envp;
 static int	md_env_len;
 static int	md_env_pos;
+bool		loader_hints_disabled;
 
 static char	*kernenv_next(char *);
 
@@ -353,7 +356,15 @@ init_static_kenv(char *buf, size_t len)
 			kern_envp[1] = '\0';
 		}
 	}
-	if (getenv_is_true("static_hints.disabled")) {
+
+	/*
+	 * Nothing to act on here, it'll fail if it's unset and it will
+	 * fail if it's malformed.  The former is not an error here, and
+	 * the latter case will already helpfully print an error.
+	 */
+	(void)kenv_to_bool(_getenv_static_from(static_hints,
+	    "loader_hints.disabled"), &loader_hints_disabled);
+	if (!loader_hints_disabled && getenv_is_true("static_hints.disabled")) {
 		static_hints[0] = '\0';
 		static_hints[1] = '\0';
 	}
@@ -414,6 +425,12 @@ init_dynamic_kenv_from(char *init_env, int *curpos)
 				goto sanitize;
 			}
 			*eqpos = 0;
+
+			/* Remove disabled hints from the kenv. */
+			if (loader_hints_disabled &&
+			    strncmp(cp, "hint.", 5) == 0)
+				goto sanitize;
+
 			/*
 			 * Handle duplicates in the environment as we go; we
 			 * add the duplicated assignments with _N suffixes.
@@ -1020,6 +1037,24 @@ error:
 	return (0);
 }
 
+static int
+kenv_to_bool(const char *val, bool *data)
+{
+	int ret;
+
+	ret = 0;
+	if (val == NULL)
+		return (EINVAL);
+
+	if ((strcmp(val, "1") == 0) || (strcasecmp(val, "true") == 0))
+		*data = true;
+	else if ((strcmp(val, "0") == 0) || (strcasecmp(val, "false") == 0))
+		*data = false;
+	else
+		ret = EDOM;
+	return (ret);
+}
+
 /*
  * Return a boolean value from an environment variable. This can be in
  * numerical or string form, i.e. "1" or "true".
@@ -1034,23 +1069,17 @@ getenv_bool(const char *name, bool *data)
 		return (0);
 
 	val = kern_getenv(name);
-	if (val == NULL)
-		return (0);
+	ret = kenv_to_bool(val, data);
+	freeenv(val);
 
-	if ((strcmp(val, "1") == 0) || (strcasecmp(val, "true") == 0)) {
-		*data = true;
-		ret = 1;
-	} else if ((strcmp(val, "0") == 0) || (strcasecmp(val, "false") == 0)) {
-		*data = false;
-		ret = 1;
-	} else {
+	if (ret == EDOM) {
 		/* Spit out a warning for malformed boolean variables. */
 		printf("Environment variable %s has non-boolean value \"%s\"\n",
 		    name, val);
 	}
-	freeenv(val);
 
-	return (ret);
+	/* Returns non-zero if result is valid. */
+	return (ret == 0);
 }
 
 /*
