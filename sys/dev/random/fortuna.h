@@ -29,10 +29,10 @@
 
 #ifdef _KERNEL
 typedef struct mtx mtx_t;
-#define	RANDOM_RESEED_INIT_LOCK(x)		mtx_init(&fortuna_state.fs_mtx, "reseed mutex", NULL, MTX_DEF)
+#define	RANDOM_RESEED_INIT_LOCK(x)		mtx_init(&fortuna_state.fs_mtx, "reseed mutex", NULL, MTX_SPIN)
 #define	RANDOM_RESEED_DEINIT_LOCK(x)		mtx_destroy(&fortuna_state.fs_mtx)
-#define	RANDOM_RESEED_LOCK(x)			mtx_lock(&fortuna_state.fs_mtx)
-#define	RANDOM_RESEED_UNLOCK(x)			mtx_unlock(&fortuna_state.fs_mtx)
+#define	RANDOM_RESEED_LOCK(x)			mtx_lock_spin(&fortuna_state.fs_mtx)
+#define	RANDOM_RESEED_UNLOCK(x)			mtx_unlock_spin(&fortuna_state.fs_mtx)
 #define	RANDOM_RESEED_ASSERT_LOCK_OWNED(x)	mtx_assert(&fortuna_state.fs_mtx, MA_OWNED)
 #define	RANDOM_RESEED_ASSERT_LOCK_NOT_OWNED()	mtx_assert(&fortuna_state.fs_mtx, MA_NOTOWNED)
 #else
