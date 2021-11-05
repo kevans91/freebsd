@@ -128,6 +128,20 @@ SRCS+=		opt_global.h
 CFLAGS+=	-include ${.OBJDIR}/opt_global.h
 .endif
 
+# These options produce more accurate results for analyze, e.g., by traversing
+# into a __dead2 function if some invariant doesn't hold.
+ANALYZE_OPTS+=	INVARIANTS INVARIANT_SUPPORT
+
+.if make(analyze)
+.for opt in ${ANALYZE_OPTS}
+# Avoid redefinitions if these options get introduced via more typical means.
+.if ${KERN_OPTS:M${opt}} == ""
+CFLAGS+=	-D${opt}
+KERN_OPTS+=	${opt}
+.endif
+.endfor
+.endif
+
 # Add -I paths for system headers.  Individual module makefiles don't
 # need any -I paths for this.  Similar defaults for .PATH can't be
 # set because there are no standard paths for non-headers.
