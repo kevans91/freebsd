@@ -311,13 +311,18 @@ manpath_warnings() {
 # Returns: True if able to resolve the file, false if it ended in tears.
 # Detects the presence of the .so directive and causes the file to be
 # redirected to another source file.
+#
+# $manpage will be clobbered with the last found reference upon completion.
 man_check_for_so() {
-	local IFS line tstr
+	local IFS line path tstr
 
 	unset IFS
+
 	if [ -n "$catpage" ]; then
 		return 0
 	fi
+
+	path="$1"
 
 	# We need to loop to accommodate multiple .so directives.
 	while true
@@ -511,6 +516,7 @@ man_find_and_display() {
 			decho "Found a usable page, displaying that"
 			unset use_cat
 			manpage="$1"
+			path=$(dirname "$manpage")/..
 			setup_cattool "$manpage"
 			p=$(cd "$(dirname "$manpage")" && pwd)
 			case "$(basename "$p")" in
