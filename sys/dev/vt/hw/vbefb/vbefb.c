@@ -48,13 +48,23 @@ __FBSDID("$FreeBSD$");
 #include <dev/vt/hw/fb/vt_fb.h>
 #include <dev/vt/colors/vt_termcolors.h>
 
+#if defined(__i386__) || defined(__amd64__)
+#define	VBEFB_EARLY_MAPPING
+#endif
+
 static vd_init_t vt_vbefb_init;
 static vd_fini_t vt_vbefb_fini;
 static vd_probe_t vt_vbefb_probe;
+#ifdef VBEFB_EARLY_MAPPING
+static vd_probe_writable_t vt_vbefb_probe_writable;
+#endif
 
 static struct vt_driver vt_vbefb_driver = {
 	.vd_name = "vbefb",
 	.vd_probe = vt_vbefb_probe,
+#ifdef VBEFB_EARLY_MAPPING
+	.vd_probe_writable = vt_vbefb_probe_writable,
+#endif
 	.vd_init = vt_vbefb_init,
 	.vd_fini = vt_vbefb_fini,
 	.vd_blank = vt_fb_blank,
@@ -96,6 +106,26 @@ vt_vbefb_probe(struct vt_device *vd)
 
 	return (CN_INTERNAL);
 }
+
+#ifdef VBEFB_EARLY_MAPPING
+static int
+vt_vbefb_probe_writable(struct vt_device *vd)
+{
+	struct fb_info *info;
+
+	info = vd->vd_softc;
+	if (virtual_avail == 0 || info->fb_vbase != 0)
+		return (ENXIO);
+
+	printf("%s: mapdev here\n", __func__);
+	info->fb_vbase = (intptr_t)pmap_mapdev_attr(info->fb_pbase,
+	    info->fb_size, VM_MEMATTR_WRITE_COMBINING);
+	info->fb_flags &= ~FB_FLAG_NOWRITE;
+	vt_fb_init_clear(vd);
+
+	return (0);
+}
+#endif
 
 static int
 vt_vbefb_init(struct vt_device *vd)
@@ -145,8 +175,15 @@ vt_vbefb_init(struct vt_device *vd)
 
 	info->fb_size = info->fb_height * info->fb_stride;
 	info->fb_pbase = vbefb->fb_addr;
-	info->fb_vbase = (intptr_t)pmap_mapdev_attr(info->fb_pbase,
-	    info->fb_size, VM_MEMATTR_WRITE_COMBINING);
+#ifdef VBEFB_EARLY_MAPPING
+	if(virtual_avail != 0) {
+		printf("%s: mapdev here\n", __func__);
+		info->fb_vbase = (intptr_t)pmap_mapdev_attr(info->fb_pbase,
+		    info->fb_size, VM_MEMATTR_WRITE_COMBINING);
+	} else {
+		info->fb_flags |= FB_FLAG_NOWRITE;
+	}
+#endif
 
 	vt_fb_init(vd);
 
@@ -159,5 +196,6 @@ vt_vbefb_fini(struct vt_device *vd, void *softc)
 	struct fb_info	*info = softc;
 
 	vt_fb_fini(vd, softc);
-	pmap_unmapdev(info->fb_vbase, info->fb_size);
+	if (info->fb_vbase != 0)
+		pmap_unmapdev(info->fb_vbase, info->fb_size);
 }

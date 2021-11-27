@@ -165,6 +165,24 @@ vt_fb_mmap(struct vt_device *vd, vm_ooffset_t offset, vm_paddr_t *paddr,
 	return (EINVAL);
 }
 
+static bool
+vt_fb_writable(struct vt_device *vd)
+{
+	struct fb_info *info;
+
+	info = vd->vd_softc;
+	if (__predict_true((info->fb_flags & FB_FLAG_NOWRITE) == 0))
+		return (true);
+
+	if (vd->vd_driver->vd_probe_writable == NULL)
+		return (false);
+
+	if (vd->vd_driver->vd_probe_writable(vd) == 0)
+		return (true);
+
+	return (false);
+}
+
 void
 vt_fb_setpixel(struct vt_device *vd, int x, int y, term_color_t color)
 {
@@ -176,7 +194,7 @@ vt_fb_setpixel(struct vt_device *vd, int x, int y, term_color_t color)
 	c = info->fb_cmap[color];
 	o = info->fb_stride * y + x * FBTYPE_GET_BYTESPP(info);
 
-	if (info->fb_flags & FB_FLAG_NOWRITE)
+	if (!vt_fb_writable(vd))
 		return;
 
 	KASSERT((info->fb_vbase != 0), ("Unmapped framebuffer"));
@@ -229,7 +247,7 @@ vt_fb_blank(struct vt_device *vd, term_color_t color)
 	info = vd->vd_softc;
 	c = info->fb_cmap[color];
 
-	if (info->fb_flags & FB_FLAG_NOWRITE)
+	if (!vt_fb_writable(vd))
 		return;
 
 	KASSERT((info->fb_vbase != 0), ("Unmapped framebuffer"));
@@ -284,7 +302,7 @@ vt_fb_bitblt_bitmap(struct vt_device *vd, const struct vt_window *vw,
 	bgc = info->fb_cmap[bg];
 	bpl = (width + 7) / 8; /* Bytes per source line. */
 
-	if (info->fb_flags & FB_FLAG_NOWRITE)
+	if (!vt_fb_writable(vd))
 		return;
 
 	KASSERT((info->fb_vbase != 0), ("Unmapped framebuffer"));
@@ -462,13 +480,28 @@ vt_fb_init_colors(struct fb_info *info)
 	}
 }
 
+void
+vt_fb_init_clear(struct vt_device *vd)
+{
+	int bg;
+	term_color_t c;
+
+	c = TC_BLACK;
+	if (TUNABLE_INT_FETCH("teken.bg_color", &bg) != 0) {
+		if (bg == TC_WHITE)
+			bg |= TC_LIGHT;
+		c = bg;
+	}
+	/* Clear the screen. */
+	vd->vd_driver->vd_blank(vd, c);
+}
+
 int
 vt_fb_init(struct vt_device *vd)
 {
 	struct fb_info *info;
 	u_int margin;
-	int bg, err;
-	term_color_t c;
+	int err;
 
 	info = vd->vd_softc;
 	vd->vd_height = MIN(VT_FB_MAX_HEIGHT, info->fb_height);
@@ -492,14 +525,8 @@ vt_fb_init(struct vt_device *vd)
 		info->fb_cmsize = 16;
 	}
 
-	c = TC_BLACK;
-	if (TUNABLE_INT_FETCH("teken.bg_color", &bg) != 0) {
-		if (bg == TC_WHITE)
-			bg |= TC_LIGHT;
-		c = bg;
-	}
-	/* Clear the screen. */
-	vd->vd_driver->vd_blank(vd, c);
+	if (vt_fb_writable(vd))
+		vt_fb_init_clear(vd);
 
 	/* Wakeup screen. KMS need this. */
 	vt_fb_postswitch(vd);

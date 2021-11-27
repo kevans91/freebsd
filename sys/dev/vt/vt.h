@@ -324,6 +324,7 @@ struct vt_window {
 
 typedef int vd_init_t(struct vt_device *vd);
 typedef int vd_probe_t(struct vt_device *vd);
+typedef int vd_probe_writable_t(struct vt_device *vd);
 typedef void vd_fini_t(struct vt_device *vd, void *softc);
 typedef void vd_postswitch_t(struct vt_device *vd);
 typedef void vd_blank_t(struct vt_device *vd, term_color_t color);
@@ -348,6 +349,7 @@ struct vt_driver {
 	char		 vd_name[16];
 	/* Console attachment. */
 	vd_probe_t	*vd_probe;
+	vd_probe_writable_t *vd_probe_writable;
 	vd_init_t	*vd_init;
 	vd_fini_t	*vd_fini;
 
