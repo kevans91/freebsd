@@ -48,6 +48,10 @@
 #if defined(__amd64__) || defined(__i386__)
 #include <contrib/dev/acpica/include/acpi.h>
 #include <machine/md_var.h>
+#include <vm/vm.h>
+#include <vm/pmap.h>
+
+#define	VGA_EARLY_MAPPING
 #endif
 
 struct vga_softc {
@@ -1276,6 +1280,11 @@ static int
 vga_probe(struct vt_device *vd)
 {
 
+#ifdef VGA_EARLY_MAPPING
+	/* Too early if we're booted with debug.late_console=0. */
+	if (virtual_avail == 0)
+		return (CN_DEAD);
+#endif
 	return (vga_acpi_disabled() ? CN_DEAD : CN_INTERNAL);
 }
 
