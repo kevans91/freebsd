@@ -105,6 +105,7 @@ SUBDIR=	alias \
 	nice \
 	nl \
 	nohup \
+	openrsync \
 	pagesize \
 	passwd \
 	paste \
