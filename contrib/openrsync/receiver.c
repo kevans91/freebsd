@@ -36,6 +36,10 @@
 
 #include "extern.h"
 
+#ifdef __FreeBSD__
+#include <capsicum_helpers.h>
+#endif
+
 #ifndef S_ISTXT
 #define S_ISTXT S_ISVTX
 #endif
@@ -191,6 +195,29 @@ rsync_receiver(struct sess *sess, int fdin, int fdout, const char *root)
 	struct download	*dl = NULL;
 	struct upload	*ul = NULL;
 	mode_t		 oumask;
+#ifdef __FreeBSD__
+	cap_rights_t	 rights;
+
+	if (fdin == fdout) {
+		if (caph_rights_limit(fdin, cap_rights_init(&rights,
+		    CAP_EVENT, CAP_READ, CAP_WRITE)) != 0) {
+			ERR("cap_rights_limit");
+			goto out;
+		}
+	} else {
+		if (caph_rights_limit(fdin, cap_rights_init(&rights,
+		    CAP_EVENT, CAP_READ)) != 0) {
+			ERR("cap_rights_limit");
+			goto out;
+		}
+
+		if (caph_rights_limit(fdout, cap_rights_init(&rights,
+		    CAP_EVENT, CAP_WRITE)) != 0) {
+			ERR("cap_rights_limit");
+			goto out;
+		}
+	}
+#endif
 
 	if (pledge("stdio unix rpath wpath cpath dpath fattr chown getpw unveil", NULL) == -1) {
 		ERR("pledge");
@@ -272,7 +299,11 @@ rsync_receiver(struct sess *sess, int fdin, int fdout, const char *root)
 
 	if (!sess->opts->dry_run) {
 #ifdef O_DIRECTORY
+#ifdef __FreeBSD__
+		dfd = open(root, O_RDONLY | O_DIRECTORY | O_RESOLVE_BENEATH, 0);
+#else
 		dfd = open(root, O_RDONLY | O_DIRECTORY, 0);
+#endif
 		if (dfd == -1) {
 			ERR("%s: open", root);
 			goto out;
@@ -288,6 +319,14 @@ rsync_receiver(struct sess *sess, int fdin, int fdout, const char *root)
 			ERRX("%s: not a directory", root);
 			goto out;
 		}
+#endif
+#ifdef __FreeBSD__
+		if (caph_rights_limit(dfd, cap_rights_init(&rights,
+		    CAP_CHFLAGSAT, CAP_CREATE, CAP_FCHMODAT, CAP_FCHOWNAT,
+		    CAP_FUTIMESAT, CAP_FSTATAT, CAP_LINKAT_SOURCE, CAP_MKDIRAT,
+		    CAP_MKFIFOAT, CAP_MKNODAT, CAP_READ, CAP_RENAMEAT_SOURCE,
+		    CAP_RENAMEAT_TARGET, CAP_SEEK, CAP_SYMLINKAT, CAP_UNLINKAT, CAP_WRITE)) == -1)
+			ERRX1("caph_rights-limit");
 #endif
 	}
 
