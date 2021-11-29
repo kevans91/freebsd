@@ -119,7 +119,7 @@ io_write_blocking(int fd, const void *buf, size_t sz)
 			ERRX("io_write_nonblocking: short write");
 			return 0;
 		}
-		buf += wsz;
+		buf = (const char *)buf + wsz;
 		sz -= wsz;
 	}
 
@@ -158,7 +158,7 @@ io_write_buf(struct sess *sess, int fd, const void *buf, size_t sz)
 		}
 		sess->total_write += wsz;
 		sz -= wsz;
-		buf += wsz;
+		buf = (const char *)buf + wsz;
 	}
 
 	return 1;
@@ -252,7 +252,7 @@ io_read_blocking(int fd, void *buf, size_t sz)
 			ERRX("io_read_nonblocking: short read");
 			return 0;
 		}
-		buf += rsz;
+		buf = (char *)buf + rsz;
 		sz -= rsz;
 	}
 
@@ -369,7 +369,7 @@ io_read_buf(struct sess *sess, int fd, void *buf, size_t sz)
 			}
 			sz -= rsz;
 			sess->mplex_read_remain -= rsz;
-			buf += rsz;
+			buf = (char *)buf + rsz;
 			sess->total_read += rsz;
 			continue;
 		}
@@ -465,7 +465,7 @@ io_buffer_buf(void *buf, size_t *bufpos, size_t buflen, const void *val,
 {
 
 	assert(*bufpos + valsz <= buflen);
-	memcpy(buf + *bufpos, val, valsz);
+	memcpy((char *)buf + *bufpos, val, valsz);
 	*bufpos += valsz;
 }
 
@@ -663,7 +663,7 @@ io_unbuffer_buf(const void *buf, size_t *bufpos, size_t bufsz, void *val,
 {
 
 	assert(*bufpos + valsz <= bufsz);
-	memcpy(val, buf + *bufpos, valsz);
+	memcpy(val, (const char *)buf + *bufpos, valsz);
 	*bufpos += valsz;
 }
 

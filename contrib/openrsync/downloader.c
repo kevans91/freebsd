@@ -497,7 +497,7 @@ again:
 		sz = tok == p->blk.blksz - 1 ? p->blk.rem : p->blk.len;
 		assert(sz);
 		assert(p->map != MAP_FAILED);
-		buf = p->map + (tok * p->blk.len);
+		buf = (char *)p->map + (tok * p->blk.len);
 
 		/*
 		 * Now we read from our block.

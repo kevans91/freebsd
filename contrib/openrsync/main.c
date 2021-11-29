@@ -427,7 +427,7 @@ main(int argc, char *argv[])
 		goto usage;
 
 	if (opts.port == NULL)
-		opts.port = (char *)"rsync";
+		opts.port = "rsync";
 
 	/* by default and for --timeout=0 disable poll_timeout */
 	if (poll_timeout == 0)

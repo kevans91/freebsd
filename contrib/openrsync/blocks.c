@@ -160,7 +160,7 @@ blk_find(struct sess *sess, struct blkstat *st,
 	if (!recomp) {
 		fhash = (st->s1 & 0xFFFF) | (st->s2 << 16);
 	} else {
-		fhash = hash_fast(st->map + st->offs, (size_t)osz);
+		fhash = hash_fast((char *)st->map + st->offs, (size_t)osz);
 		st->s1 = fhash & 0xFFFF;
 		st->s2 = fhash >> 16;
 	}
@@ -173,7 +173,7 @@ blk_find(struct sess *sess, struct blkstat *st,
 	if (st->hint < blks->blksz &&
 	    fhash == blks->blks[st->hint].chksum_short &&
 	    (size_t)osz == blks->blks[st->hint].len) {
-		hash_slow(st->map + st->offs, (size_t)osz, md, sess);
+		hash_slow((char *)st->map + st->offs, (size_t)osz, md, sess);
 		have_md = 1;
 		if (memcmp(md, blks->blks[st->hint].chksum_long, blks->csum) == 0) {
 			LOG4("%s: found matching hinted match: "
@@ -206,7 +206,8 @@ blk_find(struct sess *sess, struct blkstat *st,
 		    (intmax_t)ent->blk->offs, ent->blk->len);
 
 		if (have_md == 0) {
-			hash_slow(st->map + st->offs, (size_t)osz, md, sess);
+			hash_slow((char *)st->map + st->offs, (size_t)osz, md,
+			    sess);
 			have_md = 1;
 		}
 
@@ -224,7 +225,7 @@ blk_find(struct sess *sess, struct blkstat *st,
 	 * block in the sequence.
 	 */
 
-	map = st->map + st->offs;
+	map = (char *)st->map + st->offs;
 	st->s1 -= map[0];
 	st->s2 -= osz * map[0];
 

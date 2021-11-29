@@ -3,9 +3,7 @@ PROG=	openrsync
 MAN1=	openrsync.1
 MAN5=	rsync.5 rsyncd.5
 
-WARNS=	0
-LIBADD=	m
-CFLAGS+=	-I${.CURDIR}
+LIBADD=	m md
 
 .PATH:	${SRCTOP}/contrib/openrsync
 SRCS=	blocks.c	\
@@ -19,7 +17,6 @@ SRCS=	blocks.c	\
 	io.c		\
 	log.c		\
 	main.c		\
-	md4.c		\
 	misc.c		\
 	mkpath.c	\
 	mktemp.c	\
@@ -31,5 +28,10 @@ SRCS=	blocks.c	\
 	symlinks.c	\
 	tests.c		\
 	uploader.c
+
+CFLAGS+=	-I${.CURDIR}
+# Using md4 from libmd instead.
+CFLAGS+=	-DMD4_Init=MD4Init -DMD4_Update=MD4Update -DMD4_Final=MD4Final
+CFLAGS.socket.c=	-Wno-cast-align
 
 .include <bsd.prog.mk>

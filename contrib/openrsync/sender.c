@@ -131,7 +131,7 @@ send_up_fsm(struct sess *sess, size_t *phase,
 			return 0;
 		}
 		io_lowbuffer_buf(sess, *wb, &pos, *wbsz,
-			up->stat.map + up->stat.curpos, sz);
+			(char *)up->stat.map + up->stat.curpos, sz);
 
 		up->stat.curpos += sz;
 		if (up->stat.curpos == up->stat.curlen)
@@ -571,7 +571,7 @@ rsync_sender(struct sess *sess, int fdin,
 			assert(pfd[2].fd == -1);
 			assert(wbufsz - wbufpos);
 			ssz = write(fdout,
-				wbuf + wbufpos, wbufsz - wbufpos);
+				(char *)wbuf + wbufpos, wbufsz - wbufpos);
 			if (ssz == -1) {
 				ERR("write");
 				goto out;
