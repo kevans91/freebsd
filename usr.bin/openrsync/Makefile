@@ -1,4 +1,6 @@
 
+PACKAGE=	openrsync
+
 PROG=	openrsync
 MAN1=	openrsync.1
 MAN5=	rsync.5 rsyncd.5
