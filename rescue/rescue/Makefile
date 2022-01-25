@@ -223,6 +223,10 @@ CRUNCH_PROGS_usr.bin+= fetch
 CRUNCH_LIBS+= -lfetch -lssl
 .endif
 
+CRUNCH_PROGS_usr.bin+= kdump ktrace
+CRUNCH_LIBS+= -lsysdecode
+CRUNCH_BUILDOPTS+=	MK_CASPER=no
+
 CRUNCH_PROGS_usr.bin+= less
 CRUNCH_ALIAS_less= more
 
