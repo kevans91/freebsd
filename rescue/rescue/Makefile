@@ -218,6 +218,11 @@ CRUNCH_PROGS_usr.bin+= bzip2
 CRUNCH_ALIAS_bzip2= bunzip2 bzcat
 CRUNCH_LIBS+= -lbz2
 
+.if ${MK_OPENSSL} != "no"
+CRUNCH_PROGS_usr.bin+= fetch
+CRUNCH_LIBS+= -lfetch -lssl
+.endif
+
 CRUNCH_PROGS_usr.bin+= less
 CRUNCH_ALIAS_less= more
 
