@@ -418,7 +418,12 @@ rtld_get_env_val(char **env, const char *name, size_t name_len)
 		n = *m;
 		v = strchr(n, '=');
 		if (v == NULL) {
-			/* corrupt environment? */
+			/*
+			 * Corrupt environment?  Assert that we're not setuid,
+			 * because this should specifically be protected against
+			 * on security boundaries like that.
+			 */
+			assert(trust);
 			continue;
 		}
 		if (v - n == (ptrdiff_t)name_len &&
@@ -426,6 +431,19 @@ rtld_get_env_val(char **env, const char *name, size_t name_len)
 			return (v + 1);
 	}
 	return (NULL);
+}
+
+static void
+rtld_check_untrusted_env(char **env)
+{
+	char **m;
+
+	for (m = env; *m != NULL; m++) {
+		if (strchr(*m, '=') == NULL) {
+			_rtld_error("environment corrupt; aborting");
+			rtld_die();
+		}
+	}
 }
 
 static void
@@ -446,7 +464,12 @@ rtld_init_env_vars_for_prefix(char **env, const char *env_prefix)
 		n += prefix_len;
 		v = strchr(n, '=');
 		if (v == NULL) {
-			/* corrupt environment? */
+			/*
+			 * Corrupt environment?  Assert that we're not setuid,
+			 * because this should specifically be protected against
+			 * on security boundaries like that.
+			 */
+			assert(trust);
 			continue;
 		}
 		for (i = 0; i < (int)nitems(ld_env_vars); i++) {
@@ -468,6 +491,8 @@ rtld_init_env_vars_for_prefix(char **env, const char *env_prefix)
 static void
 rtld_init_env_vars(char **env)
 {
+	if (!trust)
+		rtld_check_untrusted_env(env);
 	rtld_init_env_vars_for_prefix(env, ld_env_prefix);
 }
 
