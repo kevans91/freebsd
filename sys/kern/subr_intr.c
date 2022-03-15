@@ -95,11 +95,18 @@ MALLOC_DEFINE(M_INTRNG, "intr", "intr interrupt handling");
 
 /* Main interrupt handler called from assembler -> 'hidden' for C code. */
 void intr_irq_handler(struct trapframe *tf);
+#if defined(__aarch64__)
+void intr_fiq_handler(struct trapframe *tf);
+#endif
 
 /* Root interrupt controller stuff. */
 device_t intr_irq_root_dev;
 static intr_irq_filter_t *irq_root_filter;
 static void *irq_root_arg;
+#if defined(__aarch64__)
+static intr_irq_filter_t *fiq_root_filter;
+static void *fiq_root_arg;
+#endif
 static u_int irq_root_ipicount;
 
 struct intr_pic_child {
@@ -360,6 +367,31 @@ intr_irq_handler(struct trapframe *tf)
 		pmc_hook(PCPU_GET(curthread), PMC_FN_USER_CALLCHAIN, tf);
 #endif
 }
+
+#if defined(__aarch64__)
+void
+intr_fiq_handler(struct trapframe *tf)
+{
+	struct trapframe * oldframe;
+	struct thread * td;
+
+	KASSERT(irq_root_filter != NULL, ("%s: no filter", __func__));
+
+	VM_CNT_INC(v_intr);
+	critical_enter();
+	td = curthread;
+	oldframe = td->td_intr_frame;
+	td->td_intr_frame = tf;
+	fiq_root_filter(fiq_root_arg);
+	td->td_intr_frame = oldframe;
+	critical_exit();
+#ifdef HWPMC_HOOKS
+	if (pmc_hook && TRAPF_USERMODE(tf) &&
+	    (PCPU_GET(curthread)->td_pflags & TDP_CALLCHAIN))
+		pmc_hook(PCPU_GET(curthread), PMC_FN_USER_CALLCHAIN, tf);
+#endif
+}
+#endif
 
 int
 intr_child_irq_handler(struct intr_pic *parent, uintptr_t irq)
@@ -921,6 +953,34 @@ intr_pic_claim_root(device_t dev, intptr_t xref, intr_irq_filter_t *filter,
 	debugf("irq root set to %s\n", device_get_nameunit(dev));
 	return (0);
 }
+
+#if defined(__aarch64__)
+int
+intr_pic_claim_fiq(device_t dev, intr_irq_filter_t *filter, void *arg)
+{
+	KASSERT(dev != NULL, ("%s: NULL device", __func__));
+
+	if (dev != intr_irq_root_dev) {
+		device_printf(dev, "FIQ device not root IRQ device\n");
+		return (EINVAL);
+	}
+
+	if (filter == NULL) {
+		device_printf(dev, "FIQ filter missing\n");
+		return (EINVAL);
+	}
+
+	if (fiq_root_filter != NULL) {
+		device_printf(dev, "another FIQ handler already set\n");
+		return (EBUSY);
+	}
+
+	fiq_root_filter = filter;
+	fiq_root_arg = arg;
+
+	return (0);
+}
+#endif
 
 /*
  * Add a handler to manage a sub range of a parents interrupts.

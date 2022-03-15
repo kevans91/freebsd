@@ -111,6 +111,9 @@ u_int intr_irq_next_cpu(u_int current_cpu, cpuset_t *cpumask);
 struct intr_pic *intr_pic_register(device_t, intptr_t);
 int intr_pic_deregister(device_t, intptr_t);
 int intr_pic_claim_root(device_t, intptr_t, intr_irq_filter_t *, void *, u_int);
+#if defined(__aarch64__)
+int intr_pic_claim_fiq(device_t, intr_irq_filter_t *, void *);
+#endif
 int intr_pic_add_handler(device_t, struct intr_pic *,
     intr_child_irq_filter_t *, void *, uintptr_t, uintptr_t);
 bool intr_is_per_cpu(struct resource *);

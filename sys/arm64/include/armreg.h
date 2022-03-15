@@ -196,7 +196,7 @@
 #define	DAIF_I			(1 << 1)
 #define	DAIF_F			(1 << 0)
 #define	DAIF_ALL		(DAIF_D | DAIF_A | DAIF_I | DAIF_F)
-#define	DAIF_INTR		(DAIF_I)	/* All exceptions that pass */
+#define	DAIF_INTR		(DAIF_I | DAIF_F) /* All exceptions that pass */
 						/* through the intr framework */
 
 /* DBGBCR<n>_EL1 - Debug Breakpoint Control Registers */
