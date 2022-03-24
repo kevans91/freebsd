@@ -12,7 +12,7 @@ CFLAGS+=	-I${SRCTOP}/lib/libc/include
 # _elf_aux_info is exported from libc as elf_aux_info(3), so just that for the
 # libssp build instead.
 CFLAGS+=	-D_elf_aux_info=elf_aux_info
-SRCS=		stack_protector.c fortify_stubs.c
+SRCS=		libc_stack_protector.c fortify_stubs.c
 
 CFLAGS.fortify_stubs.c=	-Wno-unused-parameter
 
