@@ -95,6 +95,10 @@ int	ofw_bus_search_intrmap(void *, int, void *, int, void *, int, void *,
 int ofw_bus_msimap(phandle_t, uint16_t, phandle_t *, uint32_t *);
 int ofw_bus_iommu_map(phandle_t, uint16_t, phandle_t *, uint32_t *);
 
+/* Routines for processing iommu references. */
+int ofw_bus_iommumap(phandle_t node, uint16_t pci_rid, device_t *dev,
+    uint32_t *sid);
+
 /* Routines for parsing device-tree data into resource lists. */
 int ofw_bus_reg_to_rl(device_t, phandle_t, pcell_t, pcell_t,
     struct resource_list *);

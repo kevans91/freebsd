@@ -68,6 +68,7 @@ static MALLOC_DEFINE(M_IOMMU, "IOMMU", "IOMMU framework");
 #define	IOMMU_LIST_LOCK()		sx_xlock(&iommu_sx)
 #define	IOMMU_LIST_UNLOCK()		sx_xunlock(&iommu_sx)
 #define	IOMMU_LIST_ASSERT_LOCKED()	sx_assert(&iommu_sx, SA_XLOCKED)
+#define	IOMMU_LIST_ASSERT_UNLOCKED()	sx_assert(&iommu_sx, SA_UNLOCKED)
 
 #define dprintf(fmt, ...)
 
@@ -481,12 +482,65 @@ iommu_unregister(struct iommu_unit *iommu)
 	return (0);
 }
 
+#ifdef FDT
+static struct iommu_unit *
+iommu_find_fdt(device_t child, bool verbose)
+{
+	struct iommu_entry *entry;
+	struct iommu_unit *iommu;
+	device_t dev;
+	phandle_t node;
+	uint16_t rid;
+	int error;
+
+	/*
+	 * We'll need to do an allocation to process the ofw map.
+	 */
+	IOMMU_LIST_ASSERT_UNLOCKED();
+
+	node = ofw_bus_get_node(child);
+	if (node == -1)
+		return (NULL);
+
+	node = OF_parent(node);	/* pcib */
+	rid = pci_get_rid(child);
+
+	/* Search iommu-map property first and foremost. */
+	error = ofw_bus_iommumap(node, rid, &dev, NULL);
+	if (error != 0)
+		return (NULL);
+
+	IOMMU_LIST_LOCK();
+	LIST_FOREACH(entry, &iommu_list, next) {
+		iommu = entry->iommu;
+		if (iommu->dev == dev) {
+			IOMMU_LIST_UNLOCK();
+			return (iommu);
+		}
+	}
+	IOMMU_LIST_UNLOCK();
+
+	/*
+	 * If the search failed, we'll still try the traditional IOMMU_FIND()
+	 * search just in case.  The odds are low that it will succeed
+	 * if we have an iommu-map.
+	 */
+	return (NULL);
+}
+#endif
+
 struct iommu_unit *
 iommu_find(device_t dev, bool verbose)
 {
 	struct iommu_entry *entry;
 	struct iommu_unit *iommu;
 	int error;
+
+#ifdef FDT
+	iommu = iommu_find_fdt(dev, verbose);
+	if (iommu != NULL)
+		return (iommu);
+#endif
 
 	IOMMU_LIST_LOCK();
 	LIST_FOREACH(entry, &iommu_list, next) {
