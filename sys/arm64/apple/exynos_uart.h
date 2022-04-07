@@ -47,6 +47,7 @@
  * Others have UFSTAT_TXFULL  (1 << 9)
  */
 #define	UFSTAT_TXFULL		(1 << 24)
+#define	UFSTAT_S5L_TXFULL	(0x1 << 9)
 
 #define	SSCOM_UINTM		0x038
 #define	SSCOM_UINTP		0x030
@@ -82,6 +83,9 @@
 #define	 UCON_RXMODE_INT	(1 << 0)
 #define	 UCON_RXMODE_DMA	(2 << 0)
 #define	 UCON_RXMODE_MASK	(3 << 0)
+#define  UCON_S5L_RX_TIMEOUT	(0x1 << 9)
+#define  UCON_S5L_RXTHRESH	(0x1 << 12)
+#define  UCON_S5L_TXTHRESH	(0x1 << 13)
 #define	SSCOM_UFCON		0x08		/* FIFO control */
 #define	 UFCON_TXTRIGGER_0	(0 << 6)
 #define	 UFCON_TXTRIGGER_4	(1 << 6)
@@ -100,6 +104,9 @@
 #define	 UTRSTAT_TXSHIFTER_EMPTY	( 1<< 2)
 #define	 UTRSTAT_TXEMPTY	(1 << 1)	/* TX fifo or buffer empty */
 #define	 UTRSTAT_RXREADY	(1 << 0)	/* RX fifo or buffer is not empty */
+#define	 UTRSTAT_S5L_RXTHRESH		(0x1 << 4)
+#define	 UTRSTAT_S5L_TXTHRESH		(0x1 << 5)
+#define	 UTRSTAT_S5L_RX_TIMEOUT		(0x1 << 9)
 #define	SSCOM_UERSTAT		0x14		/* Error status register */
 #define	 UERSTAT_BREAK		(1 << 3)	/* Break signal, not 2410 */
 #define	 UERSTAT_FRAME		(1 << 2)	/* Frame error */

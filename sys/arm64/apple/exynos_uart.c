@@ -47,6 +47,8 @@ __FBSDID("$FreeBSD$");
 
 #include "uart_if.h"
 
+struct exynos_uart_cfg;
+
 #define	DEF_CLK		100000000
 
 static int sscomspeed(long, long);
@@ -56,13 +58,42 @@ static int exynos4210_uart_param(struct uart_bas *, int, int, int, int);
  * Low-level UART interface.
  */
 static int exynos4210_probe(struct uart_bas *bas);
+static void exynos4210_init_common(struct exynos_uart_cfg *cfg,
+    struct uart_bas *bas, int, int, int, int);
 static void exynos4210_init(struct uart_bas *bas, int, int, int, int);
+static void exynos4210_s5l_init(struct uart_bas *bas, int, int, int, int);
 static void exynos4210_term(struct uart_bas *bas);
 static void exynos4210_putc(struct uart_bas *bas, int);
 static int exynos4210_rxready(struct uart_bas *bas);
 static int exynos4210_getc(struct uart_bas *bas, struct mtx *mtx);
 
 extern SLIST_HEAD(uart_devinfo_list, uart_devinfo) uart_sysdevs;
+
+enum exynos_uart_type {
+	EXUART_4210,
+	EXUART_S5L,
+};
+
+struct exynos_uart_cfg {
+	enum exynos_uart_type	cfg_type;
+	uint64_t		cfg_uart_full_mask;
+};
+
+static struct exynos_uart_cfg ex4210_cfg = {
+	.cfg_type = EXUART_4210,
+	.cfg_uart_full_mask = UFSTAT_TXFULL,
+};
+
+static struct exynos_uart_cfg s5l_cfg = {
+	.cfg_type = EXUART_S5L,
+	.cfg_uart_full_mask = UFSTAT_S5L_TXFULL,
+};
+
+/* Used purely for cfg mapping; see compat_data later for new devices. */
+static struct ofw_compat_data compat_cfg_data[] = {
+	{"apple,s5l-uart",	(uintptr_t)&s5l_cfg},
+	{NULL,			(uintptr_t)&ex4210_cfg},
+};
 
 static int
 sscomspeed(long speed, long frequency)
@@ -121,15 +152,27 @@ exynos4210_uart_param(struct uart_bas *bas, int baudrate, int databits,
 
 	uart_setreg(bas, SSCOM_ULCON, ulcon);
 
-	brd = sscomspeed(baudrate, bas->rclk);
-	uart_setreg(bas, SSCOM_UBRDIV, brd);
+	/* baudrate may be negative, in which case we just leave it alone. */
+	if (baudrate > 0) {
+		brd = sscomspeed(baudrate, bas->rclk);
+		uart_setreg(bas, SSCOM_UBRDIV, brd);
+	}
 
 	return (0);
 }
 
-struct uart_ops uart_exynos4210_ops = {
+static struct uart_ops uart_exynos4210_ops = {
 	.probe = exynos4210_probe,
 	.init = exynos4210_init,
+	.term = exynos4210_term,
+	.putc = exynos4210_putc,
+	.rxready = exynos4210_rxready,
+	.getc = exynos4210_getc,
+};
+
+static struct uart_ops uart_s5l_ops = {
+	.probe = exynos4210_probe,
+	.init = exynos4210_s5l_init,
 	.term = exynos4210_term,
 	.putc = exynos4210_putc,
 	.rxready = exynos4210_rxready,
@@ -144,8 +187,8 @@ exynos4210_probe(struct uart_bas *bas)
 }
 
 static void
-exynos4210_init(struct uart_bas *bas, int baudrate, int databits, int stopbits,
-    int parity)
+exynos4210_init_common(struct exynos_uart_cfg *cfg, struct uart_bas *bas,
+    int baudrate, int databits, int stopbits, int parity)
 {
 
 	if (bas->rclk == 0)
@@ -153,7 +196,14 @@ exynos4210_init(struct uart_bas *bas, int baudrate, int databits, int stopbits,
 
 	KASSERT(bas->rclk != 0, ("exynos4210_init: Invalid rclk"));
 
-	uart_setreg(bas, SSCOM_UCON, 0);
+	bas->driver1 = cfg;
+
+	if (cfg->cfg_type == EXUART_S5L) {
+		uart_setreg(bas, SSCOM_UTRSTAT, 0);
+	} else {
+		uart_setreg(bas, SSCOM_UCON, 0);
+	}
+
 	uart_setreg(bas, SSCOM_UFCON,
 	    UFCON_TXTRIGGER_8 | UFCON_RXTRIGGER_8 |
 	    UFCON_TXFIFO_RESET | UFCON_RXFIFO_RESET |
@@ -161,9 +211,32 @@ exynos4210_init(struct uart_bas *bas, int baudrate, int databits, int stopbits,
 	exynos4210_uart_param(bas, baudrate, databits, stopbits, parity);
 
 	/* Enable UART. */
-	uart_setreg(bas, SSCOM_UCON, UCON_TXMODE_INT | UCON_RXMODE_INT |
-	    UCON_TOINT);
-	uart_setreg(bas, SSCOM_UMCON, UMCON_RTS);
+	if (cfg->cfg_type == EXUART_S5L) {
+		uart_setreg(bas, SSCOM_UCON, uart_getreg(bas, SSCOM_UCON) |
+		    UCON_TOINT | UCON_S5L_RXTHRESH | UCON_S5L_RX_TIMEOUT);
+	} else {
+		uart_setreg(bas, SSCOM_UCON, uart_getreg(bas, SSCOM_UCON) |
+		    UCON_TXMODE_INT | UCON_RXMODE_INT | UCON_TOINT);
+		uart_setreg(bas, SSCOM_UMCON, UMCON_RTS);
+	}
+}
+
+static void
+exynos4210_init(struct uart_bas *bas, int baudrate, int databits, int stopbits,
+    int parity)
+{
+
+	return (exynos4210_init_common(&ex4210_cfg, bas, baudrate, databits,
+	    stopbits, parity));
+}
+
+static void
+exynos4210_s5l_init(struct uart_bas *bas, int baudrate, int databits, int stopbits,
+    int parity)
+{
+
+	return (exynos4210_init_common(&s5l_cfg, bas, baudrate, databits,
+	    stopbits, parity));
 }
 
 static void
@@ -175,9 +248,12 @@ exynos4210_term(struct uart_bas *bas)
 static void
 exynos4210_putc(struct uart_bas *bas, int c)
 {
+	struct exynos_uart_cfg *cfg;
+
+	cfg = bas->driver1;
 
 	while ((bus_space_read_4(bas->bst, bas->bsh, SSCOM_UFSTAT) &
-		UFSTAT_TXFULL) == UFSTAT_TXFULL)
+		cfg->cfg_uart_full_mask) == cfg->cfg_uart_full_mask)
 		continue;
 
 	uart_setreg(bas, SSCOM_UTXH, c);
@@ -186,23 +262,32 @@ exynos4210_putc(struct uart_bas *bas, int c)
 static int
 exynos4210_rxready(struct uart_bas *bas)
 {
+	struct exynos_uart_cfg *cfg;
+	int ufstat, utrstat;
 
-	return ((uart_getreg(bas, SSCOM_UTRSTAT) & UTRSTAT_RXREADY) ==
-	    UTRSTAT_RXREADY);
+	cfg = bas->driver1;
+	utrstat = bus_space_read_4(bas->bst, bas->bsh, SSCOM_UTRSTAT);
+
+	if (cfg->cfg_type == EXUART_S5L) {
+		ufstat = bus_space_read_4(bas->bst, bas->bsh, SSCOM_UFSTAT);
+
+		return ((utrstat & UTRSTAT_RXREADY) != 0 ||
+		    (ufstat & (UFSTAT_RXCOUNT | UFSTAT_RXFULL)) != 0);
+	} else {
+		return ((uart_getreg(bas, SSCOM_UTRSTAT) & UTRSTAT_RXREADY) ==
+		    UTRSTAT_RXREADY);
+	}
 }
 
 static int
 exynos4210_getc(struct uart_bas *bas, struct mtx *mtx)
 {
-	int utrstat;
 
-	utrstat = bus_space_read_1(bas->bst, bas->bsh, SSCOM_UTRSTAT);
-	while (!(utrstat & UTRSTAT_RXREADY)) {
-		utrstat = bus_space_read_1(bas->bst, bas->bsh, SSCOM_UTRSTAT);
+	while (!exynos4210_rxready(bas)) {
 		continue;
 	}
 
-	return (bus_space_read_1(bas->bst, bas->bsh, SSCOM_URXH));
+	return (uart_getreg(bas, SSCOM_URXH));
 }
 
 static int exynos4210_bus_probe(struct uart_softc *sc);
@@ -211,6 +296,7 @@ static int exynos4210_bus_flush(struct uart_softc *, int);
 static int exynos4210_bus_getsig(struct uart_softc *);
 static int exynos4210_bus_ioctl(struct uart_softc *, int, intptr_t);
 static int exynos4210_bus_ipend(struct uart_softc *);
+static int s5l_bus_ipend(struct uart_softc *);
 static int exynos4210_bus_param(struct uart_softc *, int, int, int, int);
 static int exynos4210_bus_receive(struct uart_softc *);
 static int exynos4210_bus_setsig(struct uart_softc *, int);
@@ -223,6 +309,20 @@ static kobj_method_t exynos4210_methods[] = {
 	KOBJMETHOD(uart_getsig,		exynos4210_bus_getsig),
 	KOBJMETHOD(uart_ioctl,		exynos4210_bus_ioctl),
 	KOBJMETHOD(uart_ipend,		exynos4210_bus_ipend),
+	KOBJMETHOD(uart_param,		exynos4210_bus_param),
+	KOBJMETHOD(uart_receive,	exynos4210_bus_receive),
+	KOBJMETHOD(uart_setsig,		exynos4210_bus_setsig),
+	KOBJMETHOD(uart_transmit,	exynos4210_bus_transmit),
+	{0, 0 }
+};
+
+static kobj_method_t s5l_methods[] = {
+	KOBJMETHOD(uart_probe,		exynos4210_bus_probe),
+	KOBJMETHOD(uart_attach, 	exynos4210_bus_attach),
+	KOBJMETHOD(uart_flush,		exynos4210_bus_flush),
+	KOBJMETHOD(uart_getsig,		exynos4210_bus_getsig),
+	KOBJMETHOD(uart_ioctl,		exynos4210_bus_ioctl),
+	KOBJMETHOD(uart_ipend,		s5l_bus_ipend),
 	KOBJMETHOD(uart_param,		exynos4210_bus_param),
 	KOBJMETHOD(uart_receive,	exynos4210_bus_receive),
 	KOBJMETHOD(uart_setsig,		exynos4210_bus_setsig),
@@ -243,9 +343,15 @@ exynos4210_bus_probe(struct uart_softc *sc)
 static int
 exynos4210_bus_attach(struct uart_softc *sc)
 {
+	struct exynos_uart_cfg *cfg;
 
 	sc->sc_hwiflow = 0;
 	sc->sc_hwoflow = 0;
+
+	cfg = (struct exynos_uart_cfg *)ofw_bus_search_compatible(sc->sc_dev, compat_cfg_data)->ocd_data;
+	MPASS(cfg != NULL);
+	MPASS(sc->sc_sysdev == NULL || cfg == sc->sc_sysdev->bas.driver1);
+	sc->sc_bas.driver1 = cfg;
 
 	return (0);
 }
@@ -253,9 +359,11 @@ exynos4210_bus_attach(struct uart_softc *sc)
 static int
 exynos4210_bus_transmit(struct uart_softc *sc)
 {
+	struct exynos_uart_cfg *cfg;
 	int i;
 	int reg;
 
+	cfg = sc->sc_bas.driver1;
 	uart_lock(sc->sc_hwmtx);
 
 	for (i = 0; i < sc->sc_txdatasz; i++) {
@@ -268,9 +376,19 @@ exynos4210_bus_transmit(struct uart_softc *sc)
 	uart_unlock(sc->sc_hwmtx);
 
 	/* unmask TX interrupt */
-	reg = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh, SSCOM_UINTM);
-	reg &= ~(1 << 2);
-	bus_space_write_4(sc->sc_bas.bst, sc->sc_bas.bsh, SSCOM_UINTM, reg);
+	if (cfg->cfg_type == EXUART_S5L) {
+		reg = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh,
+		    SSCOM_UTRSTAT);
+		reg &= ~UTRSTAT_S5L_TXTHRESH;
+		bus_space_write_4(sc->sc_bas.bst, sc->sc_bas.bsh, SSCOM_UTRSTAT,
+		    reg);
+	} else {
+		reg = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh,
+		    SSCOM_UINTM);
+		reg &= ~(1 << 2);
+		bus_space_write_4(sc->sc_bas.bst, sc->sc_bas.bsh, SSCOM_UINTM,
+		    reg);
+	}
 
 	return (0);
 }
@@ -312,6 +430,30 @@ exynos4210_bus_param(struct uart_softc *sc, int baudrate, int databits,
 	uart_unlock(sc->sc_hwmtx);
 
 	return (error);
+}
+
+static int
+s5l_bus_ipend(struct uart_softc *sc)
+{
+	int ipend;
+	uint32_t utrstat;
+
+	ipend = 0;
+	uart_lock(sc->sc_hwmtx);
+	utrstat = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh,
+	    SSCOM_UTRSTAT);
+
+        if (utrstat & (UTRSTAT_S5L_RXTHRESH | UTRSTAT_S5L_RX_TIMEOUT))
+		ipend |= SER_INT_RXREADY;
+
+        if (utrstat & UTRSTAT_S5L_TXTHRESH)
+		ipend |= SER_INT_TXIDLE;
+
+	bus_space_write_4(sc->sc_bas.bst, sc->sc_bas.bsh, SSCOM_UTRSTAT,
+	    utrstat);
+	uart_unlock(sc->sc_hwmtx);
+
+	return (ipend);
 }
 
 static int
@@ -381,8 +523,18 @@ static struct uart_class uart_exynos4210_class = {
 	.uc_rshift = 0
 };
 
+static struct uart_class uart_s5l_class = {
+	"s5l class",
+	s5l_methods,
+	1,
+	.uc_ops = &uart_s5l_ops,
+	.uc_range = 8,
+	.uc_rclk = 0,
+	.uc_rshift = 0
+};
+
 static struct ofw_compat_data compat_data[] = {
-	{"apple,s5l-uart",		(uintptr_t)&uart_exynos4210_class},
+	{"apple,s5l-uart",		(uintptr_t)&uart_s5l_class},
 	{"samsung,exynos4210-uart",	(uintptr_t)&uart_exynos4210_class},
 	{NULL,			(uintptr_t)NULL},
 };
