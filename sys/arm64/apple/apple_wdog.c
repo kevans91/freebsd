@@ -33,6 +33,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/bus.h>
 #include <sys/eventhandler.h>
 #include <sys/kernel.h>
+#include <sys/limits.h>
 #include <sys/lock.h>
 #include <sys/module.h>
 #include <sys/mutex.h>
@@ -83,7 +84,6 @@ struct aplwd_softc {
 static struct aplwd_softc *aplwd_lsc = NULL;
 
 static struct ofw_compat_data compat_data[] = {
-	{"apple,reboot-v0",	1},
 	{"apple,wdt",		1},
 	{NULL,			0}
 };
@@ -141,11 +141,8 @@ aplwd_attach(device_t dev)
 	error = clk_get_freq(sc->clk, &sc->clk_freq);
 	if (error != 0) {
 		device_printf(dev, "cannot get base frequency\n");
-		goto fail;
+		goto fail_clk;
 	}
-// temp/debug:
-device_printf(dev, "base frequency %jd\n", (intmax_t) sc->clk_freq);
-sc->clk_freq = 24000000;
 
 	aplwd_lsc = sc;
 	mtx_init(&sc->mtx, "Apple Watchdog", "aplwd", MTX_DEF);
@@ -158,7 +155,10 @@ sc->clk_freq = 24000000;
 
 	return (0);
 
+fail_clk:
+	clk_disable(sc->clk);
 fail:
+	bus_release_resource(dev, SYS_RES_MEMORY, 0, sc->res);
 	return (error);
 }
 
@@ -167,7 +167,7 @@ aplwd_watchdog_fn(void *private, u_int cmd, int *error)
 {
 	struct aplwd_softc *sc;
 	uint64_t sec;
-	uint32_t ticks;
+	uint32_t ticks, sec_max;
 
 	sc = private;
 	mtx_lock(&sc->mtx);
@@ -176,20 +176,20 @@ aplwd_watchdog_fn(void *private, u_int cmd, int *error)
 
 	if (cmd > 0) {
 		sec = ((uint64_t)1 << (cmd & WD_INTERVAL)) / 1000000000;
-#if 0
-		if (sec == 0 || sec > 15) {
+		sec_max = UINT_MAX / sc->clk_freq;
+		if (sec == 0 || sec > sec_max) {
 			/*
 			 * Can't arm
 			 * disable watchdog as watchdog(9) requires
 			 */
 			device_printf(sc->dev,
-			    "Can't arm, timeout must be between 1-15 seconds\n");
+			    "Can't arm, timeout must be between 1-%d seconds\n",
+			    sec_max);
 			WRITE(sc, APLWD_WD1_CNTL, 0);
 			mtx_unlock(&sc->mtx);
 			*error = EINVAL;
 			return;
 		}
-#endif
 
 		ticks = sec * sc->clk_freq;
 		WRITE(sc, APLWD_WD1_TIMER, 0);
