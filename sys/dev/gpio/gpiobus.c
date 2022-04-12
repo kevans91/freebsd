@@ -343,8 +343,10 @@ gpiobus_init_softc(device_t dev)
 	    rman_manage_region(&sc->sc_intr_rman, 0, ~0) != 0)
 		panic("%s: failed to set up rman.", __func__);
 
-	if (GPIO_PIN_MAX(sc->sc_dev, &sc->sc_npins) != 0)
+	if (GPIO_PIN_MAX(sc->sc_dev, &sc->sc_npins) != 0) {
+		rman_fini(&sc->sc_intr_rman);
 		return (ENXIO);
+	}
 
 	KASSERT(sc->sc_npins >= 0, ("GPIO device with no pins"));
 
@@ -353,8 +355,10 @@ gpiobus_init_softc(device_t dev)
 
 	sc->sc_pins = malloc(sizeof(*sc->sc_pins) * sc->sc_npins, M_DEVBUF,
 	    M_NOWAIT | M_ZERO);
-	if (sc->sc_pins == NULL)
+	if (sc->sc_pins == NULL) {
+		rman_fini(&sc->sc_intr_rman);
 		return (ENOMEM);
+	}
 
 	/* Initialize the bus lock. */
 	GPIOBUS_LOCK_INIT(sc);
