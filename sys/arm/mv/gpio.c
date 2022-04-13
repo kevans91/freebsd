@@ -187,7 +187,7 @@ static driver_t mv_gpio_driver = {
 EARLY_DRIVER_MODULE(mv_gpio, simplebus, mv_gpio_driver, 0, 0,
     BUS_PASS_INTERRUPT + BUS_PASS_ORDER_LAST);
 
-struct ofw_compat_data compat_data[] = {
+static struct ofw_compat_data compat_data[] = {
 	{ "mrvl,gpio", 1 },
 	{ "marvell,orion-gpio", 1 },
 	{ NULL, 0 }
