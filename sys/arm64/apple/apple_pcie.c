@@ -67,6 +67,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/endian.h>
+#include <sys/gpio.h>
 #include <sys/kernel.h>
 #include <sys/module.h>
 #include <sys/bus.h>
@@ -84,6 +85,8 @@ __FBSDID("$FreeBSD$");
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcib_private.h>
+
+#include <dev/gpio/gpiobusvar.h>
 
 #include <machine/bus.h>
 #include <machine/intr.h>
@@ -155,11 +158,42 @@ __FBSDID("$FreeBSD$");
 //#define REG_VALUE_MSI_CONFIG	0xffe06540
 #endif
 
+#define	PCIE_CORE_LANE_CONF(port)       (0x84000 + (port) * 0x4000)
+#define	 PCIE_CORE_LANE_CONF_REFCLK0REQ	(1 << 0)
+#define	 PCIE_CORE_LANE_CONF_REFCLK1REQ	(1 << 1)
+#define	 PCIE_CORE_LANE_CONF_REFCLK0ACK	(1 << 2)
+#define	 PCIE_CORE_LANE_CONF_REFCLK1ACK	(1 << 3)
+#define	 PCIE_CORE_LANE_CONF_REFCLK0EN	(1 << 9)
+#define	 PCIE_CORE_LANE_CONF_REFCLK1EN	(1 << 10)
+#define	PCIE_CORE_LANE_CTRL(port)       (0x84004 + (port) * 0x4000)
+#define	 PCIE_CORE_LANE_CTRL_CFGACC     (1 << 15)
+
+/* The next 5 should possibly use PCIE_PORT_*. */
 #define	PCIE_MSI_CTRL		0x0124
 #define	 PCIE_MSI_CTRL_EN	(1U << 0)
 #define	 PCIE_MSI_CTRL_32	(5U << 4)
 #define	PCIE_MSI_REMAP		0x0128
 #define	PCIE_MSI_DOORBELL	0x0168
+
+#define PCIE_PORT_LTSSM_CTRL		0x0080
+#define  PCIE_PORT_LTSSM_CTRL_START	(1 << 0)
+#define PCIE_PORT_MSI_CTRL		0x0124
+#define  PCIE_PORT_MSI_CTRL_ENABLE	(1 << 0)
+#define  PCIE_PORT_MSI_CTRL_32		(5 << 4)
+#define PCIE_PORT_MSI_REMAP		0x0128
+#define PCIE_PORT_MSI_DOORBELL		0x0168
+#define PCIE_PORT_LINK_STAT		0x0208
+#define  PCIE_PORT_LINK_STAT_UP		(1 << 0)
+#define PCIE_PORT_APPCLK		0x0800
+#define  PCIE_PORT_APPCLK_EN		(1 << 0)
+#define  PCIE_PORT_APPCLK_CGDIS		(1 << 8)
+#define PCIE_PORT_STAT			0x0804
+#define  PCIE_PORT_STAT_READY		(1 << 0)
+#define PCIE_PORT_REFCLK		0x0810
+#define  PCIE_PORT_REFCLK_EN		(1 << 0)
+#define  PCIE_PORT_REFCLK_CGDIS		(1 << 8)
+#define PCIE_PORT_PERST			0x0814
+#define  PCIE_PORT_PERST_DIS		(1 << 0)
 
 #define PCIE_NPORTS		3
 
@@ -186,7 +220,9 @@ struct apple_pcie_softc {
 	device_t			dev;
 	struct mtx			config_mtx;	/* XXX needed? */
 	struct mtx			msi_mtx;
-	struct resource 		*res[_RES_NITEMS];
+	struct resource 		*ires[_RES_NITEMS];
+	struct resource 		*rc_res;
+	struct resource 		*port_res[PCIE_NPORTS];
 	void				*ih[PCIE_NIRQ];
 	device_t			aic_dev;
 	struct intr_map_data_fdt	*msi_fdt_data;
@@ -379,9 +415,15 @@ apple_pcie_compose_quad(struct apple_pcie_softc *sc, u_int bus, u_int slot,
 {
 
 	if ((bus < sc->base.base.bus_start) || (bus > sc->base.base.bus_end))
+{
+device_printf(sc->dev, "bad bus %u-%u\n", sc->base.base.bus_start, sc->base.base.bus_end);
 		return (PCI_BAD_ADDR);
+}
 	if ((slot > PCI_SLOTMAX) || (func > PCI_FUNCMAX) || (reg > PCIE_REGMAX))
+{
+device_printf(sc->dev, "bad addr\n");
 		return (PCI_BAD_ADDR);
+}
 
 	/* shifts for ECAM */
 	return ((bus << 20) | (slot << 15) | (func << 12) | reg);
@@ -770,6 +812,7 @@ apple_pcie_setup_port(struct apple_pcie_softc *sc, u_int portno)
 		device_printf(sc->dev, "couldn't map %s regs\n", regname);
 		return;
 	}
+	sc->port_res[portno] = res;
 
 	/* Doorbell address must be below 4GB */
 	KASSERT((sc->msi_addr & ~0xffffffffUL) == 0, ("msi_addr > 4G"));
@@ -779,15 +822,183 @@ apple_pcie_setup_port(struct apple_pcie_softc *sc, u_int portno)
 	bus_write_4(res, PCIE_MSI_REMAP, 0);
 	bus_write_4(res, PCIE_MSI_DOORBELL, (uint32_t)sc->msi_addr);
 
-	bus_free_resource(sc->dev, SYS_RES_MEMORY, res);
+	//bus_free_resource(sc->dev, SYS_RES_MEMORY, res);
+}
+
+/* should subsume apple_pcie_setup_port if we keep it */
+static void
+apple_pcie_init_port(struct apple_pcie_softc *sc, phandle_t port_node)
+{
+	pcell_t reg[5];
+	//pcell_t *gpio;
+	u_int port;
+	uint32_t stat;
+	//size_t len;
+
+	if (OF_getencprop(port_node, "reg", reg, sizeof(reg)) != sizeof(reg))
+		 return;
+	port = reg[0] >> 11;		/* XXX macro */
+	if (port > PCIE_NPORTS)
+{
+device_printf(sc->dev, "port %u?\n", port);
+		return;
+}
+	if (sc->port_res[port] == NULL)
+{
+device_printf(sc->dev, "port_res %u?\n", port);
+		return;
+}
+	stat = bus_read_4(sc->port_res[port], PCIE_PORT_LINK_STAT);
+	if (stat & PCIE_PORT_LINK_STAT_UP)
+{
+device_printf(sc->dev, "port %u: link up\n", port);
+		return;
+}
+#if 1
+	struct resource *pres = sc->port_res[port];
+	int timo;
+	device_t dev = sc->dev;
+
+	//len = OF_getencprop_alloc(port_node, "reset-gpios", &gpio);
+	//PSET4(sc, port, PCIE_PORT_APPCLK, PCIE_PORT_APPCLK_EN);
+	bus_write_4(pres, PCIE_PORT_APPCLK,
+	    bus_read_4(pres, PCIE_PORT_APPCLK) | PCIE_PORT_APPCLK_EN);
+
+#if 0
+	/* Assert PERST#. */
+	//reset_gpio = malloc(reset_gpiolen, M_TEMP, M_WAITOK);
+	//OF_getpropintarray(node, "reset-gpios", reset_gpio, reset_gpiolen);
+	gpio_controller_config_pin(reset_gpio, GPIO_CONFIG_OUTPUT);
+	gpio_controller_set_pin(reset_gpio, 1);
+#else
+	struct gpiobus_pin *gpio_rset;
+	int error;
+
+	if (ofw_gpiobus_parse_gpios(dev, "reset-gpios", &gpio_rset) > 1) {
+		device_printf(dev, "too many reset gpios\n");
+		return;
+	}
+
+	if (gpio_rset != NULL) {
+		error = GPIO_PIN_SETFLAGS(gpio_rset->dev, gpio_rset->pin,
+		    GPIO_PIN_OUTPUT);
+		if (error != 0) {
+			device_printf(dev, "Cannot config GPIO pin %d on %s\n",
+			    gpio_rset->pin,
+			    device_get_nameunit(gpio_rset->dev));
+			return;
+		}
+
+		error = GPIO_PIN_SET(gpio_rset->dev, gpio_rset->pin, 1);
+		if (error != 0) {
+			device_printf(dev, "Cannot set GPIO pin %d on %s\n",
+			    gpio_rset->pin,
+			    device_get_nameunit(gpio_rset->dev));
+			return;
+		}
+
+	} else {
+		device_printf(dev, "Unable to find reset GPIO\n");
+		return;
+	}
+#endif
+
+	/* Setup Refclk. */
+#define	RSET4(sc, reg, bits) \
+	bus_write_4((sc)->rc_res, (reg), \
+	    bus_read_4((sc)->rc_res, (reg)) | (bits))
+#define	RCLR4(sc, reg, bits) \
+	bus_write_4((sc)->rc_res, (reg), \
+	    bus_read_4((sc)->rc_res, (reg)) & ~(bits))
+#define	PREAD4(sc, port, reg) \
+	bus_read_4((sc)->port_res[port], (reg))
+#define	PWRITE4(sc, port, reg, val) \
+	bus_write_4((sc)->port_res[port], (reg), (val))
+#define	PSET4(sc, port, reg, bits) \
+	bus_write_4((sc)->port_res[port], (reg), \
+	    bus_read_4((sc)->port_res[port], (reg)) | (bits))
+#define	PCLR4(sc, port, reg, bits) \
+	bus_write_4((sc)->port_res[port], (reg), \
+	    bus_read_4((sc)->port_res[port], (reg)) & ~(bits))
+
+	RSET4(sc, PCIE_CORE_LANE_CTRL(port), PCIE_CORE_LANE_CTRL_CFGACC);
+	RSET4(sc, PCIE_CORE_LANE_CONF(port), PCIE_CORE_LANE_CONF_REFCLK0REQ);
+	for (timo = 500; timo > 0; timo--) {
+		stat = bus_read_4(sc->rc_res, PCIE_CORE_LANE_CONF(port));
+		if (stat & PCIE_CORE_LANE_CONF_REFCLK0ACK)
+			break;
+		DELAY(100);
+	}
+	RSET4(sc, PCIE_CORE_LANE_CONF(port), PCIE_CORE_LANE_CONF_REFCLK1REQ);
+	for (timo = 500; timo > 0; timo--) {
+		stat = bus_read_4(sc->rc_res, PCIE_CORE_LANE_CONF(port));
+		if (stat & PCIE_CORE_LANE_CONF_REFCLK1ACK)
+			break;
+		DELAY(100);
+	}
+	RCLR4(sc, PCIE_CORE_LANE_CTRL(port), PCIE_CORE_LANE_CTRL_CFGACC);
+	RSET4(sc, PCIE_CORE_LANE_CONF(port),
+	    PCIE_CORE_LANE_CONF_REFCLK0EN | PCIE_CORE_LANE_CONF_REFCLK1EN);
+	PSET4(sc, port, PCIE_PORT_REFCLK, PCIE_PORT_REFCLK_EN);
+
+	/*
+	 * PERST# must remain asserted for at least 100us after the
+	 * reference clock becomes stable.
+	 */
+	DELAY(100);
+
+	/* Deassert PERST#. */
+	PSET4(sc, port, PCIE_PORT_PERST, PCIE_PORT_PERST_DIS);
+#if 0
+	gpio_controller_set_pin(reset_gpio, 0);
+	free(reset_gpio, M_TEMP, reset_gpiolen);
+#else
+	error = GPIO_PIN_SET(gpio_rset->dev, gpio_rset->pin, 0);
+	if (error != 0) {
+		device_printf(dev, "Cannot clear GPIO pin %d on %s\n",
+		    gpio_rset->pin, device_get_nameunit(gpio_rset->dev));
+		return;
+	}
+	free(gpio_rset, M_DEVBUF);
+#endif
+
+	for (timo = 2500; timo > 0; timo--) {
+		stat = PREAD4(sc, port, PCIE_PORT_STAT);
+		if (stat & PCIE_PORT_STAT_READY)
+			break;
+		DELAY(100);
+	}
+	if ((stat & PCIE_PORT_STAT_READY) == 0)
+{
+		device_printf(sc->dev, "didn't become ready");
+		return;
+}
+
+	PCLR4(sc, port, PCIE_PORT_REFCLK, PCIE_PORT_REFCLK_CGDIS);
+	PCLR4(sc, port, PCIE_PORT_APPCLK, PCIE_PORT_APPCLK_CGDIS);
+
+	/* Bring up the link. */
+	PWRITE4(sc, port, PCIE_PORT_LTSSM_CTRL, PCIE_PORT_LTSSM_CTRL_START);
+	for (timo = 1000; timo > 0; timo--) {
+		stat = PREAD4(sc, port, PCIE_PORT_LINK_STAT);
+		if (stat & PCIE_PORT_LINK_STAT_UP)
+			break;
+		DELAY(100);
+	}
+	if ((stat & PCIE_PORT_STAT_READY) == 0)
+{
+		device_printf(sc->dev, "didn't link up");
+		return;
+}
+#endif
 }
 
 static int
 apple_pcie_msi_attach(device_t dev)
 {
 	struct apple_pcie_softc *sc = device_get_softc(dev);
-	phandle_t node, xref;
-	int i, error;
+	phandle_t node, port_node, xref;
+	int rid, i, error;
 	cell_t *cells;
 	ssize_t len;
 
@@ -840,8 +1051,27 @@ device_printf(dev, "msi_start %d nmsi %d\n", sc->msi_start, sc->nmsi);
 	/* Clear any pending interrupts. */
 	bcm_pcib_set_reg(sc, REG_MSI_CLR, 0xffffffff);
 #endif
+
 	for (i = 0; i < PCIE_NPORTS; ++i)
 		apple_pcie_setup_port(sc, i);
+
+	if (ofw_bus_find_string_index(node, "reg-names", "rc", &rid) != 0) {
+		device_printf(sc->dev, "couldn't get rc regs\n");
+		return (ENXIO);
+	}
+	sc->rc_res = bus_alloc_resource_any(sc->dev, SYS_RES_MEMORY, &rid,
+	    RF_ACTIVE);
+	if (sc->rc_res == NULL) {
+		device_printf(sc->dev, "couldn't map rc regs\n");
+		return (ENXIO);
+	}
+	for (port_node = OF_child(node); port_node > 0;
+	    port_node = OF_peer(port_node)) {
+		apple_pcie_init_port(sc, port_node);
+	}
+
+	/* Wait at least 100ms after link training completes. */
+	DELAY(100000);
 
 	sc->msi_isrcs = malloc(sizeof(*sc->msi_isrcs) * sc->nmsi, M_DEVBUF,
 	    M_WAITOK | M_ZERO);
@@ -988,6 +1218,7 @@ apple_pcie_attach(device_t dev)
 	if (error)
 		return (error);
 
+device_printf(dev, "bst %p bsh %lx\n", sc->base.base.bst, sc->base.base.bsh);
 	error = apple_pcie_check_ranges(dev);
 	if (error)
 		return (error);
@@ -1073,25 +1304,25 @@ apple_pcie_attach(device_t dev)
 	bcm_pcib_relocate_bridge_window(dev);
 #endif
 
-	if (bus_alloc_resources(dev, pcie_spec, sc->res) != 0) {
+	if (bus_alloc_resources(dev, pcie_spec, sc->ires) != 0) {
 		device_printf(dev, "cannot allocate resources\n");
 		return (ENXIO);
 	}
 
 	/* Configure interrupt placeholders. */
-	error = bus_setup_intr(dev, sc->res[_RES_IRQ0],
+	error = bus_setup_intr(dev, sc->ires[_RES_IRQ0],
 	    INTR_TYPE_MISC | INTR_MPSAFE, NULL, pcie_intr0, sc, &sc->ih[0]);
 	if (error != 0) {
 		device_printf(dev, "cannot setup interrupt handler0\n");
 		return (error);
 	}
-	error = bus_setup_intr(dev, sc->res[_RES_IRQ1],
+	error = bus_setup_intr(dev, sc->ires[_RES_IRQ1],
 	    INTR_TYPE_MISC | INTR_MPSAFE, NULL, pcie_intr1, sc, &sc->ih[1]);
 	if (error != 0) {
 		device_printf(dev, "cannot setup interrupt handler1\n");
 		return (error);
 	}
-	error = bus_setup_intr(dev, sc->res[_RES_IRQ2],
+	error = bus_setup_intr(dev, sc->ires[_RES_IRQ2],
 	    INTR_TYPE_MISC | INTR_MPSAFE, NULL, pcie_intr2, sc, &sc->ih[2]);
 	if (error != 0) {
 		device_printf(dev, "cannot setup interrupt handler2\n");
