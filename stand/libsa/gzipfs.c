@@ -178,7 +178,7 @@ zf_open(const char *fname, struct open_file *f)
     sprintf(zfname, "%s.gz", fname);
 
     /* Try to open the compressed datafile */
-    rawfd = open(zfname, O_RDONLY);
+    rawfd = open_ondev(zfname, O_RDONLY, (struct devdesc *)f->f_devdata);
     free(zfname);
     if (rawfd == -1)
 	return(ENOENT);

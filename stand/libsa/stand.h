@@ -329,6 +329,7 @@ extern int	fgetstr(char *buf, int size, int fd);
 
 extern int	mount(const char *dev, const char *path, int flags, void *data);
 extern int	unmount(const char *dev, int flags);
+extern int	open_ondev(const char *, int, struct devdesc *);
 extern int	open(const char *, int);
 #define	O_RDONLY	0x0
 #define O_WRONLY	0x1
@@ -451,7 +452,8 @@ extern void		exit(int) __dead2;
 extern int		getchar(void);
 extern int		ischar(void);
 extern void		putchar(int);
-extern int		devopen(struct open_file *, const char *, const char **);
+extern int		devopen(struct open_file *, const char *, const char **,
+    struct devdesc *);
 extern int		devclose(struct open_file *f);
 extern void		panic(const char *, ...) __dead2 __printflike(1, 2);
 extern void		panic_action(void) __weak_symbol __dead2;

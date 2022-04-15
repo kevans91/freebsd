@@ -25,6 +25,7 @@
  */
 
 #include <stand.h>
+#include <assert.h>
 #include <string.h>
 
 #include "bootstrap.h"
@@ -34,14 +35,37 @@
 #endif
 
 int
-devopen(struct open_file *f, const char *fname, const char **file) 
+devopen(struct open_file *f, const char *fname, const char **file,
+    struct devdesc *odev)
 {
 	struct devdesc *dev;
 	int result;
 
-	result = archsw.arch_getdev((void **)&dev, fname, file);
-	if (result)
-		return (result);
+	dev = NULL;
+	if (odev == NULL || (*fname != '/' && strchr(fname, ':') != NULL)) {
+		/*
+		 * If we weren't passed a device to open on, or if we were
+		 * passed a filename that looks like it could have another
+		 * device specified, then we'll extract that.
+		 */
+		result = archsw.arch_getdev((void **)&dev, fname, file);
+		if (result)
+			return (result);
+	}
+
+	if (dev == NULL) {
+		/*
+		 * We must have had an open device passed to us and the above
+		 * arch_getdev() didn't happen.  Each file is assumed to have a
+		 * distinct f_devdata that it's OK to free, so grab a copy.
+		 */
+		assert(odev != NULL);
+		dev = malloc(odev->d_size);
+		if (dev == NULL)
+			return (ENOMEM);
+		memcpy(dev, odev, odev->d_size);
+		*file = fname;
+	}
 
 	/* point to device-specific data so that device open can use it */
 	f->f_dev = dev->d_dev;

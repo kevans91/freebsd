@@ -133,7 +133,7 @@ o_rainit(struct open_file *f)
 }
 
 int
-open(const char *fname, int mode)
+open_ondev(const char *fname, int mode, struct devdesc *dev)
 {
 	struct fs_ops *fs;
 	struct open_file *f;
@@ -162,7 +162,7 @@ open(const char *fname, int mode)
 		goto err;
 	}
 
-	error = devopen(f, fname, &file);
+	error = devopen(f, fname, &file, dev);
 	if (error ||
 	    (((f->f_flags & F_NODEV) == 0) && f->f_dev == NULL))
 		goto err;
@@ -203,4 +203,11 @@ ok:
 	o_rainit(f);
 	TSEXIT();
 	return (fd);
+}
+
+int
+open(const char *fname, int mode)
+{
+
+	return (open_ondev(fname, mode, NULL));
 }
