@@ -1642,6 +1642,7 @@ zfs_parsedev(struct devdesc **idev, const char *devspec, const char **path)
 	dev = malloc(sizeof(*dev));
 	if (dev == NULL)
 		return (ENOMEM);
+	dev->dd.d_size = sizeof(*dev);
 	dev->pool_guid = spa->spa_guid;
 	rv = zfs_lookup_dataset(spa, rootname, &dev->root_guid);
 	if (rv != 0) {

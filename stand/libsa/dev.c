@@ -72,10 +72,11 @@ default_parsedev(struct devdesc **dev, const char *devspec,
 	int unit, err;
 	char *cp;
 
-	idev = malloc(sizeof(struct devdesc));
+	idev = malloc(sizeof(*idev));
 	if (idev == NULL)
 		return (ENOMEM);
 
+	idev->d_size = sizeof(*idev);
 	unit = 0;
 	cp = (char *)devspec;	/* strtol interface, alas */
 

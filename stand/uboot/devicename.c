@@ -103,6 +103,9 @@ uboot_parsedev(struct uboot_devdesc **dev, const char *devspec,
 	if (dv == NULL)
 		return(ENOENT);
 	idev = malloc(sizeof(struct uboot_devdesc));
+	if (idev == NULL)
+		return(ENOMEM);
+	idev->dd.d_size = sizeof(*idev);
 	err = 0;
 	np = (devspec + strlen(dv->dv_name));
 

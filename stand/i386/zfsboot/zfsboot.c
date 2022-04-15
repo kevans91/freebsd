@@ -710,6 +710,7 @@ i386_zfs_probe(void)
 		if (pool_guid != 0 && bdev == NULL) {
 			bdev = malloc(sizeof (struct i386_devdesc));
 			bzero(bdev, sizeof (struct i386_devdesc));
+			bdev->zfs.dd.d_size = sizeof(*bdev);
 			bdev->zfs.dd.d_dev = &zfs_dev;
 			bdev->zfs.pool_guid = pool_guid;
 		}

@@ -103,6 +103,7 @@ ofw_common_parsedev(struct devdesc **dev, const char *devspec, const char **path
 		printf("ofw_parsedev: malloc failed\n");
 		return (ENOMEM);
 	};
+	idev->dd.d_size = sizeof(*idev);
 	strlcpy(idev->d_path, devspec, min(rem_path - devspec + 1,
 		sizeof(idev->d_path)));
 	*dev = &idev->dd;
