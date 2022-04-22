@@ -250,6 +250,13 @@ static const struct cpu_parts cpu_parts_qcom[] = {
 	CPU_PART_NONE,
 };
 
+/* Apple */
+static const struct cpu_parts cpu_parts_apple[] = {
+	{ CPU_PART_M1_ICESTORM, "M1 Icestorm" },
+	{ CPU_PART_M1_FIRESTORM, "M1 Firestorm" },
+	CPU_PART_NONE,
+};
+
 /* Unknown */
 static const struct cpu_parts cpu_parts_none[] = {
 	CPU_PART_NONE,
@@ -260,7 +267,7 @@ static const struct cpu_parts cpu_parts_none[] = {
  */
 const struct cpu_implementers cpu_implementers[] = {
 	{ CPU_IMPL_AMPERE,	"Ampere",	cpu_parts_none },
-	{ CPU_IMPL_APPLE,	"Apple",	cpu_parts_none },
+	{ CPU_IMPL_APPLE,	"Apple",	cpu_parts_apple },
 	{ CPU_IMPL_APM,		"APM",		cpu_parts_apm },
 	{ CPU_IMPL_ARM,		"ARM",		cpu_parts_arm },
 	{ CPU_IMPL_BROADCOM,	"Broadcom",	cpu_parts_none },
