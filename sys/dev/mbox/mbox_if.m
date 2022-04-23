@@ -37,6 +37,19 @@
 
 INTERFACE mbox;
 
+HEADER {
+	typedef void (*mbox_rx_fn)(void *data, int channel);
+};
+
+CODE {
+	static int
+	null_setup_channel(device_t dev, int channel, mbox_rx_fn *rx_fn,
+	    void *rx_data)
+	{
+		return (ENXIO);
+	}
+};
+
 #ifdef FDT
 HEADER {
 	int mbox_default_ofw_map(device_t , phandle_t, int, pcell_t *,
@@ -55,6 +68,13 @@ METHOD int map {
 	intptr_t	*id;
 } DEFAULT mbox_default_ofw_map;
 #endif
+
+METHOD int setup_channel {
+	device_t	dev;
+	int		channel;
+	mbox_rx_fn	*rx_fn;
+	void		*rx_data;
+} DEFAULT null_setup_channel;
 
 METHOD int read {
 	device_t	dev;

@@ -79,6 +79,13 @@ mbox_release(mbox_t mb)
 }
 
 int
+mbox_setup_channel(mbox_t mb, mbox_rx_fn *rx_fn, void *data)
+{
+
+	return (MBOX_SETUP_CHANNEL(mb->provider_dev, mb->mbox_id, rx_fn, data));
+}
+
+int
 mbox_read(mbox_t mb, uint32_t *data)
 {
 

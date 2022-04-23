@@ -57,6 +57,7 @@ int mbox_get_by_id(device_t consumer_dev, device_t provider_dev,
     intptr_t id, mbox_t *mb);
 void mbox_release(mbox_t mb);
 
+int mbox_setup_channel(mbox_t mb, mbox_rx_fn *rx_fn, void *data);
 int mbox_read(mbox_t mb, uint32_t *data);
 int mbox_write(mbox_t mb, uint32_t data);
 
