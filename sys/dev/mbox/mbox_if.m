@@ -79,11 +79,13 @@ METHOD int setup_channel {
 METHOD int read {
 	device_t	dev;
 	int		channel;
-	uint32_t	*data;
+	void		*data;
+	size_t		datasz;
 };
 
 METHOD int write {
 	device_t	dev;
 	int		channel;
-	uint32_t	data;
+	const void	*data;
+	size_t		datasz;
 };

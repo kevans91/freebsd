@@ -65,8 +65,9 @@ static device_probe_t		ti_mbox_probe;
 static device_attach_t		ti_mbox_attach;
 static device_detach_t		ti_mbox_detach;
 static void			ti_mbox_intr(void *);
-static int			ti_mbox_read(device_t, int, uint32_t *);
-static int			ti_mbox_write(device_t, int, uint32_t);
+static int			ti_mbox_read(device_t, int, void *, size_t);
+static int			ti_mbox_write(device_t, int, const void *,
+    size_t);
 
 struct ti_mbox_softc {
 	struct mtx		sc_mtx;
@@ -225,24 +226,28 @@ ti_mbox_intr(void *arg)
 }
 
 static int
-ti_mbox_read(device_t dev, int chan, uint32_t *data)
+ti_mbox_read(device_t dev, int chan, void *data, size_t datasz)
 {
 	struct ti_mbox_softc *sc;
 
 	if (chan < 0 || chan > 7)
 		return (EINVAL);
+	if (datasz != sizeof(uint32_t))
+		return (EINVAL);
 	sc = device_get_softc(dev);
-
-	return (ti_mbox_reg_read(sc, TI_MBOX_MESSAGE(chan)));
+	*(uint32_t *)data = ti_mbox_reg_read(sc, TI_MBOX_MESSAGE(chan));
+	return (0);
 }
 
 static int
-ti_mbox_write(device_t dev, int chan, uint32_t data)
+ti_mbox_write(device_t dev, int chan, const void *data, size_t datasz)
 {
 	int limit = 500;
 	struct ti_mbox_softc *sc;
 
 	if (chan < 0 || chan > 7)
+		return (EINVAL);
+	if (datasz != sizeof(uint32_t))
 		return (EINVAL);
 	sc = device_get_softc(dev);
 	TI_MBOX_LOCK(sc);
@@ -256,7 +261,7 @@ ti_mbox_write(device_t dev, int chan, uint32_t data)
 		TI_MBOX_UNLOCK(sc);
 		return (EAGAIN);
 	}
-	ti_mbox_reg_write(sc, TI_MBOX_MESSAGE(chan), data);
+	ti_mbox_reg_write(sc, TI_MBOX_MESSAGE(chan), *(const uint32_t *)data);
 
 	return (0);
 }

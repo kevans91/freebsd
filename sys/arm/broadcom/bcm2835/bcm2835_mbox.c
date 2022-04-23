@@ -211,12 +211,16 @@ bcm_mbox_attach(device_t dev)
  * Mailbox API
  */
 static int
-bcm_mbox_write(device_t dev, int chan, uint32_t data)
+bcm_mbox_write(device_t dev, int chan, const void *data, size_t datasz)
 {
 	int limit = 1000;
 	struct bcm_mbox_softc *sc = device_get_softc(dev);
 
-	dprintf("bcm_mbox_write: chan %d, data %08x\n", chan, data);
+	if (datasz != sizeof(uint32_t))
+		return (EINVAL);
+
+	dprintf("bcm_mbox_write: chan %d, data %08x\n", chan,
+	    *(const uint32_t *)data);
 	MBOX_LOCK(sc);
 	sc->have_message[chan] = 0;
 	while ((mbox_read_4(sc, REG_STATUS) & STATUS_FULL) && --limit)
@@ -226,19 +230,21 @@ bcm_mbox_write(device_t dev, int chan, uint32_t data)
 		MBOX_UNLOCK(sc);
 		return (EAGAIN);
 	}
-	mbox_write_4(sc, REG_WRITE, MBOX_MSG(chan, data));
+	mbox_write_4(sc, REG_WRITE, MBOX_MSG(chan, *(const uint32_t *)data));
 	MBOX_UNLOCK(sc);
 
 	return (0);
 }
 
 static int
-bcm_mbox_read(device_t dev, int chan, uint32_t *data)
+bcm_mbox_read(device_t dev, int chan, void *data, size_t datasz)
 {
 	struct bcm_mbox_softc *sc = device_get_softc(dev);
 	int err, read_chan;
 
 	dprintf("bcm_mbox_read: chan %d\n", chan);
+	if (datasz != sizeof(uint32_t))
+		return (EINVAL);
 
 	err = 0;
 	MBOX_LOCK(sc);
@@ -266,12 +272,13 @@ bcm_mbox_read(device_t dev, int chan, uint32_t *data)
 	 *  get data from intr handler, the same channel is never coming
 	 *  because of holding sc lock.
 	 */
-	*data = MBOX_DATA(sc->msg[chan]);
+	*(uint32_t *)data = MBOX_DATA(sc->msg[chan]);
 	sc->msg[chan] = 0;
 	sc->have_message[chan] = 0;
 out:
 	MBOX_UNLOCK(sc);
-	dprintf("bcm_mbox_read: chan %d, data %08x\n", chan, *data);
+	dprintf("bcm_mbox_read: chan %d, data %08x\n", chan,
+	    *(uint32_t *)data);
 
 	return (err);
 }
@@ -424,8 +431,9 @@ bcm2835_mbox_property(void *msg, size_t msg_size)
 	bus_dmamap_sync(msg_tag, msg_map,
 	    BUS_DMASYNC_PREWRITE);
 
-	MBOX_WRITE(mbox, BCM2835_MBOX_CHAN_PROP, (uint32_t)msg_phys);
-	MBOX_READ(mbox, BCM2835_MBOX_CHAN_PROP, &reg);
+	reg = (uint32_t)msg_phys;
+	MBOX_WRITE(mbox, BCM2835_MBOX_CHAN_PROP, &reg, sizeof(reg));
+	MBOX_READ(mbox, BCM2835_MBOX_CHAN_PROP, &reg, sizeof(reg));
 
 	bus_dmamap_sync(msg_tag, msg_map,
 	    BUS_DMASYNC_PREREAD);

@@ -527,5 +527,5 @@ bcm_mbox_write(int channel, uint32_t data)
         mbox = devclass_get_device(devclass_find("mbox"), 0);
 
         if (mbox)
-                MBOX_WRITE(mbox, channel, data);
+                MBOX_WRITE(mbox, channel, &data, sizeof(data));
 }

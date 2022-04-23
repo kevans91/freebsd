@@ -58,8 +58,8 @@ int mbox_get_by_id(device_t consumer_dev, device_t provider_dev,
 void mbox_release(mbox_t mb);
 
 int mbox_setup_channel(mbox_t mb, mbox_rx_fn *rx_fn, void *data);
-int mbox_read(mbox_t mb, uint32_t *data);
-int mbox_write(mbox_t mb, uint32_t data);
+int mbox_read(mbox_t mb, void *data, size_t datasz);
+int mbox_write(mbox_t mb, const void *data, size_t datasz);
 
 #ifdef FDT
 int mbox_get_by_ofw_name(device_t consumer_dev, phandle_t node, char *name,

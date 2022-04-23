@@ -86,17 +86,17 @@ mbox_setup_channel(mbox_t mb, mbox_rx_fn *rx_fn, void *data)
 }
 
 int
-mbox_read(mbox_t mb, uint32_t *data)
+mbox_read(mbox_t mb, void *data, size_t datasz)
 {
 
-	return (MBOX_READ(mb->provider_dev, mb->mbox_id, data));
+	return (MBOX_READ(mb->provider_dev, mb->mbox_id, data, datasz));
 }
 
 int
-mbox_write(mbox_t mb, uint32_t data)
+mbox_write(mbox_t mb, const void *data, size_t datasz)
 {
 
-	return (MBOX_WRITE(mb->provider_dev, mb->mbox_id, data));
+	return (MBOX_WRITE(mb->provider_dev, mb->mbox_id, data, datasz));
 }
 
 #ifdef FDT
