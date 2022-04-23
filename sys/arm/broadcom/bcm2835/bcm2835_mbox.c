@@ -40,6 +40,8 @@
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
+#include <dev/mbox/mbox.h>
+
 #include <arm/broadcom/bcm2835/bcm2835_firmware.h>
 #include <arm/broadcom/bcm2835/bcm2835_mbox.h>
 #include <arm/broadcom/bcm2835/bcm2835_mbox_prop.h>
@@ -200,6 +202,7 @@ bcm_mbox_attach(device_t dev)
 		(void)mbox_read_4(sc, REG_READ);
 
 	mbox_write_4(sc, REG_CONFIG, CONFIG_DATA_IRQ);
+	mbox_register_ofw_provider(dev);
 
 	return (0);
 }

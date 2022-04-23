@@ -30,7 +30,31 @@
 # system wide mailbox.
 #
 
+#ifdef FDT
+#include <sys/types.h>
+#include <dev/ofw/ofw_bus.h>
+#endif
+
 INTERFACE mbox;
+
+#ifdef FDT
+HEADER {
+	int mbox_default_ofw_map(device_t , phandle_t, int, pcell_t *,
+	    intptr_t *);
+};
+
+#
+# map fdt property cells to mbox id
+# Returns 0 on success or a standard errno value.
+#
+METHOD int map {
+	device_t	provider_dev;
+	phandle_t	xref;
+	int		ncells;
+	pcell_t		*cells;
+	intptr_t	*id;
+} DEFAULT mbox_default_ofw_map;
+#endif
 
 METHOD int read {
 	device_t	dev;

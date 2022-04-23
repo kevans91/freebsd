@@ -40,6 +40,8 @@
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
+#include <dev/mbox/mbox.h>
+
 #include <arm/broadcom/bcm2835/bcm2835_firmware.h>
 #include <arm/broadcom/bcm2835/bcm2835_mbox.h>
 #include <arm/broadcom/bcm2835/bcm2835_mbox_prop.h>
@@ -47,7 +49,7 @@
 
 struct bcm2835_firmware_softc {
 	struct simplebus_softc	sc;
-	phandle_t	sc_mbox;
+	mbox_t	sc_mbox;
 };
 
 static struct ofw_compat_data compat_data[] = {
@@ -77,18 +79,17 @@ bcm2835_firmware_attach(device_t dev)
 	struct sysctl_ctx_list *ctx;
 	struct sysctl_oid *tree_node;
 	struct sysctl_oid_list *tree;
-	phandle_t node, mbox;
+	phandle_t node;
 	int rv;
 
 	sc = device_get_softc(dev);
 
 	node = ofw_bus_get_node(dev);
-	rv = OF_getencprop(node, "mboxes", &mbox, sizeof(mbox));
+	rv = mbox_get_by_ofw_idx(dev, node, 0, &sc->sc_mbox);
 	if (rv <= 0) {
 		device_printf(dev, "can't read mboxes property\n");
 		return (ENXIO);
 	}
-	sc->sc_mbox = mbox;
 
 	OF_device_register_xref(OF_xref_from_node(node), dev);
 
