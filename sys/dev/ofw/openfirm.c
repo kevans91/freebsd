@@ -704,6 +704,25 @@ OF_device_register_xref(phandle_t xref, device_t dev)
 	panic("Attempt to register device before xreflist_init");
 }
 
+int
+OF_device_unregister_xref(phandle_t xref, device_t dev)
+{
+	struct xrefinfo *xi;
+
+	if (xref_init_done) {
+		xi = xrefinfo_find(xref, FIND_BY_XREF);
+		KASSERT(xi != NULL, ("phandle not associated with a device"));
+
+		if (xi->dev != dev)
+			return (0);
+
+		xi->dev = NULL;
+		return (0);
+	}
+	panic("Attempt to unregister device before xreflist_init");
+}
+
+
 /*  Call the method in the scope of a given instance. */
 int
 OF_call_method(const char *method, ihandle_t instance, int nargs, int nreturns,

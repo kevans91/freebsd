@@ -1687,6 +1687,8 @@ dev/extres/hwreset/hwreset_array.c	optional hwreset
 dev/extres/hwreset/hwreset_if.m	optional hwreset
 dev/extres/nvmem/nvmem.c	optional nvmem fdt
 dev/extres/nvmem/nvmem_if.m	optional nvmem
+dev/extres/powerdom/powerdom.c		optional powerdom
+dev/extres/powerdom/powerdom_if.m	optional powerdom
 dev/extres/regulator/regdev_if.m	optional regulator fdt
 dev/extres/regulator/regnode_if.m	optional regulator
 dev/extres/regulator/regulator.c	optional regulator
