@@ -725,31 +725,33 @@ vm_fault_lock_vnode(struct faultstate *fs)
  * Allocate a page directly or via the object populate method.
  */
 static int
-vm_fault_allocate(struct faultstate *fs, int *oom)
+vm_fault_allocate(struct faultstate *fs, vm_offset_t vaddr, vm_prot_t prot,
+    vm_prot_t fault_type, int fault_flags, boolean_t wired, vm_page_t *m_hold,
+    int *oom)
 {
 	struct domainset *dset;
 	int alloc_req;
 	int rv;
 
-
 	if ((fs->object->flags & OBJ_SIZEVNLOCK) != 0) {
-		rv = vm_fault_lock_vnode(fs, true);
-		MPASS(rv == KERN_SUCCESS || rv == KERN_RESOURCE_SHORTAGE);
+		rv = vm_fault_lock_vnode(fs);
+		MPASS(rv == KERN_SUCCESS ||
+		    rv == KERN_RESOURCE_SHORTAGE);
 		if (rv == KERN_RESOURCE_SHORTAGE)
 			return (rv);
 	}
-
 	if (fs->pindex >= fs->object->size)
 		return (KERN_OUT_OF_BOUNDS);
 
 	if (fs->object == fs->first_object &&
 	    (fs->first_object->flags & OBJ_POPULATE) != 0 &&
 	    fs->first_object->shadow_count == 0) {
-		rv = vm_fault_populate(fs);
+		rv = vm_fault_populate(fs, prot, fault_type,
+		    fault_flags, wired, m_hold);
 		switch (rv) {
 		case KERN_SUCCESS:
 		case KERN_FAILURE:
-		case KERN_RESTART:
+		case KERN_RESOURCE_SHORTAGE:
 			return (rv);
 		case KERN_NOT_RECEIVER:
 			/*
@@ -765,30 +767,35 @@ vm_fault_allocate(struct faultstate *fs, int *oom)
 	/*
 	 * Allocate a new page for this object/offset pair.
 	 *
-	 * Unlocked read of the p_flag is harmless. At worst, the P_KILLED
-	 * might be not observed there, and allocation can fail, causing
+	 * Unlocked read of the p_flag is harmless. At
+	 * worst, the P_KILLED might be not observed
+	 * there, and allocation can fail, causing
 	 * restart and new reading of the p_flag.
 	 */
 	dset = fs->object->domain.dr_policy;
 	if (dset == NULL)
 		dset = curthread->td_domain.dr_policy;
-	if (!vm_page_count_severe_set(&dset->ds_mask) || P_KILLED(curproc)) {
+	if (!vm_page_count_severe_set(&dset->ds_mask) ||
+	    P_KILLED(curproc)) {
 #if VM_NRESERVLEVEL > 0
-		vm_object_color(fs->object, atop(fs->vaddr) - fs->pindex);
+		vm_object_color(fs->object, atop(vaddr) -
+		    fs->pindex);
 #endif
 		alloc_req = P_KILLED(curproc) ?
 		    VM_ALLOC_SYSTEM : VM_ALLOC_NORMAL;
 		if (fs->object->type != OBJT_VNODE &&
 		    fs->object->backing_object == NULL)
 			alloc_req |= VM_ALLOC_ZERO;
-		fs->m = vm_page_alloc(fs->object, fs->pindex, alloc_req);
+		fs->m = vm_page_alloc(fs->object, fs->pindex,
+		    alloc_req);
 	}
 	if (fs->m == NULL) {
-		unlock_and_deallocate(fs);
+		unlock_and_deallocate(&fs);
 		if (vm_pfault_oom_attempts < 0 ||
 		    *oom < vm_pfault_oom_attempts) {
 			(*oom)++;
-			vm_waitpfault(dset, vm_pfault_oom_wait * hz);
+			vm_waitpfault(dset,
+			    vm_pfault_oom_wait * hz);
 		}
 		if (bootverbose)
 			printf(
@@ -797,8 +804,8 @@ vm_fault_allocate(struct faultstate *fs, int *oom)
 		vm_pageout_oom(VM_OOM_MEM_PF);
 		return (KERN_RESOURCE_SHORTAGE);
 	}
-	*oom = 0;
 
+	*oom = 0;
 	return (KERN_NOT_RECEIVER);
 }
 
@@ -932,7 +939,8 @@ RetryFault_oom:
 	fs.pindex = fs.first_pindex;
 
 	if ((fs.entry->eflags & MAP_ENTRY_SPLIT_BOUNDARY_MASK) != 0) {
-		rv = vm_fault_allocate(&fs, &oom);
+		rv = vm_fault_allocate(&fs, vaddr, prot, fault_type,
+		    fault_flags, wired, m_hold, &oom);
 		switch (rv) {
 		case KERN_SUCCESS:
 		case KERN_FAILURE:
@@ -1039,7 +1047,8 @@ RetryFault_oom:
 		 */
 		if (fs.object->type != OBJT_DEFAULT ||
 		    fs.object == fs.first_object) {
-			rv = vm_fault_allocate(&fs, &oom);
+			rv = vm_fault_allocate(&fs, vaddr, prot, fault_type,
+			    fault_flags, wired, m_hold, &oom);
 
 			switch (rv) {
 			case KERN_SUCCESS:
