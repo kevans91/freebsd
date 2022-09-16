@@ -1364,6 +1364,4 @@ static device_method_t apple_pcie_methods[] = {
 DEFINE_CLASS_1(pcib, apple_pcie_driver, apple_pcie_methods,
     sizeof(struct apple_pcie_softc), generic_pcie_fdt_driver);
 
-static devclass_t apple_pcie_devclass;
-DRIVER_MODULE(apple_pcie, simplebus, apple_pcie_driver, apple_pcie_devclass,
-    0, 0);
+DRIVER_MODULE(apple_pcie, simplebus, apple_pcie_driver, 0, 0);

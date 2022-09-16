@@ -691,8 +691,6 @@ static device_method_t apple_pinctrl_methods[] = {
 	DEVMETHOD_END
 };
 
-static devclass_t apple_pinctrl_devclass;
-
 static driver_t apple_pinctrl_driver = {
 	"gpio",
 	apple_pinctrl_methods,
@@ -700,4 +698,4 @@ static driver_t apple_pinctrl_driver = {
 };
 
 EARLY_DRIVER_MODULE(apple_pinctrl, simplebus, apple_pinctrl_driver,
-    apple_pinctrl_devclass, 0, 0, BUS_PASS_INTERRUPT + BUS_PASS_ORDER_LATE);
+    0, 0, BUS_PASS_INTERRUPT + BUS_PASS_ORDER_LATE);

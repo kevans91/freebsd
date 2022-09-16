@@ -252,6 +252,5 @@ static driver_t aplwd_driver = {
 	aplwd_methods,
 	sizeof(struct aplwd_softc),
 };
-static devclass_t aplwd_devclass;
 
-DRIVER_MODULE(aplwd, simplebus, aplwd_driver, aplwd_devclass, 0, 0);
+DRIVER_MODULE(aplwd, simplebus, aplwd_driver, 0, 0);
