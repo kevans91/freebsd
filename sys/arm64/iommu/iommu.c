@@ -482,13 +482,14 @@ iommu_unregister(struct iommu_unit *iommu)
 	return (0);
 }
 
+#if 0
 #ifdef FDT
 static struct iommu_unit *
 iommu_find_fdt(device_t child, bool verbose)
 {
 	struct iommu_entry *entry;
 	struct iommu_unit *iommu;
-	device_t dev;
+	device_t dev, root;
 	phandle_t node;
 	uint16_t rid;
 	int error;
@@ -498,15 +499,30 @@ iommu_find_fdt(device_t child, bool verbose)
 	 */
 	IOMMU_LIST_ASSERT_UNLOCKED();
 
-	node = ofw_bus_get_node(child);
+	rid = pci_get_rid(device_get_parent(child));
+	if (rid == 0) {
+		device_printf(child, "skip, rid == 0\n");
+		return (NULL);
+	}
+
+	root = pci_find_pcie_root_port(child);
+	dev = device_get_parent(device_get_parent(root));
+	node = ofw_bus_get_node(dev);
+
+	printf("%s: node == %d\n", __func__, node);
 	if (node == -1)
 		return (NULL);
 
-	node = OF_parent(node);	/* pcib */
-	rid = pci_get_rid(child);
+	rid <<= 5;
+	printf("%s: search for rid %d\n", __func__, rid);
+#if 0
+	printf("%s: b=%u, s=%u, f=%u\n", __func__,
+	    pci_get_bus(child), pci_get_slot(child), pci_get_function(child));
+#endif
 
 	/* Search iommu-map property first and foremost. */
-	error = ofw_bus_iommumap(node, rid, &dev, NULL);
+	error = ofw_bus_iommu_map(node, rid, ofw_bus_get_node(dev), NULL);
+	printf("%s: error %d\n", __func__, error);
 	if (error != 0)
 		return (NULL);
 
@@ -528,6 +544,7 @@ iommu_find_fdt(device_t child, bool verbose)
 	return (NULL);
 }
 #endif
+#endif
 
 struct iommu_unit *
 iommu_find(device_t dev, bool verbose)
@@ -536,10 +553,12 @@ iommu_find(device_t dev, bool verbose)
 	struct iommu_unit *iommu;
 	int error;
 
+#if 0
 #ifdef FDT
 	iommu = iommu_find_fdt(dev, verbose);
 	if (iommu != NULL)
 		return (iommu);
+#endif
 #endif
 
 	IOMMU_LIST_LOCK();
