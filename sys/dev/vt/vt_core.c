@@ -598,11 +598,12 @@ vt_window_switch(struct vt_window *vw)
 		 * switch to console mode when panicking, making sure the panic
 		 * is readable (even when a GUI was using ttyv0).
 		 */
+		/* XXX Still necessary? */
+		VT_UNLOCK(vd);
 		if ((kdb_active || KERNEL_PANICKED()) &&
 		    vd->vd_driver->vd_postswitch)
 			vd->vd_driver->vd_postswitch(vd);
 		inside_vt_window_switch = false;
-		VT_UNLOCK(vd);
 		return (0);
 	}
 	if (!(vw->vw_flags & (VWF_OPENED|VWF_CONSOLE))) {
