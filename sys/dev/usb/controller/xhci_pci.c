@@ -499,48 +499,44 @@ xhci_pci_detach(device_t self)
 }
 
 static int
-xhci_pci_take_controller(device_t self)
+xhci_pci_take_controller_cb(struct xhci_softc *sc, uint32_t eecp, uint32_t eec)
 {
-	struct xhci_softc *sc = device_get_softc(self);
-	uint32_t cparams;
-	uint32_t eecp;
-	uint32_t eec;
 	uint16_t to;
 	uint8_t bios_sem;
 
-	cparams = XREAD4(sc, capa, XHCI_HCSPARAMS0);
+	if (XHCI_XECP_ID(eec) != XHCI_ID_USB_LEGACY)
+		return (0);
 
-	eec = -1;
-
-	/* Synchronise with the BIOS if it owns the controller. */
-	for (eecp = XHCI_HCS0_XECP(cparams) << 2; eecp != 0 && XHCI_XECP_NEXT(eec);
-	    eecp += XHCI_XECP_NEXT(eec) << 2) {
-		eec = XREAD4(sc, capa, eecp);
-
-		if (XHCI_XECP_ID(eec) != XHCI_ID_USB_LEGACY)
-			continue;
-		bios_sem = XREAD1(sc, capa, eecp +
-		    XHCI_XECP_BIOS_SEM);
+	/*
+	 * Note that there's only one such capability, we can halt the search
+	 * after we've found it.
+	 */
+	bios_sem = XREAD1(sc, capa, eecp + XHCI_XECP_BIOS_SEM);
+	if (bios_sem == 0)
+		return (1);
+	device_printf(sc->sc_bus.bdev, "waiting for BIOS to give up control\n");
+	XWRITE1(sc, capa, eecp + XHCI_XECP_OS_SEM, 1);
+	to = 500;
+	while (1) {
+		bios_sem = XREAD1(sc, capa, eecp + XHCI_XECP_BIOS_SEM);
 		if (bios_sem == 0)
-			continue;
-		device_printf(sc->sc_bus.bdev, "waiting for BIOS "
-		    "to give up control\n");
-		XWRITE1(sc, capa, eecp +
-		    XHCI_XECP_OS_SEM, 1);
-		to = 500;
-		while (1) {
-			bios_sem = XREAD1(sc, capa, eecp +
-			    XHCI_XECP_BIOS_SEM);
-			if (bios_sem == 0)
-				break;
+			break;
 
-			if (--to == 0) {
-				device_printf(sc->sc_bus.bdev,
-				    "timed out waiting for BIOS\n");
-				break;
-			}
-			usb_pause_mtx(NULL, hz / 100);	/* wait 10ms */
+		if (--to == 0) {
+			device_printf(sc->sc_bus.bdev,
+			    "timed out waiting for BIOS\n");
+			break;
 		}
+		usb_pause_mtx(NULL, hz / 100);	/* wait 10ms */
 	}
-	return (0);
+
+	return (1);
+}
+
+static int
+xhci_pci_take_controller(device_t self)
+{
+
+	return (xhci_foreach_extended_capability(self,
+	    xhci_pci_take_controller_cb));
 }

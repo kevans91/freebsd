@@ -587,6 +587,20 @@ void	xhci_interrupt(struct xhci_softc *);
 void	xhci_uninit(struct xhci_softc *);
 int	xhci_pci_attach(device_t);
 
+/*
+ * Iterate through extended capabilities, abstracting away the specific register
+ * walk to enumerate them.  The callback function may return one of:
+ *
+ * value < 0: halt the search, consider it an error.
+ * value == 0: continue the search.
+ * value > 0: halt the search, consider it a success.
+ *
+ * xhci_foreach_extended_capability will return 0 on success, or the negative
+ * return value from the callback on failure.
+ */
+typedef int (*xhci_xecp_fn_t)(struct xhci_softc *, uint32_t, uint32_t);
+int	xhci_foreach_extended_capability(device_t, xhci_xecp_fn_t);
+
 DECLARE_CLASS(xhci_pci_driver);
 
 #endif					/* _XHCI_H_ */

@@ -4386,6 +4386,28 @@ xhci_set_endpoint_mode(struct usb_device *udev, struct usb_endpoint *ep,
 	}
 }
 
+int
+xhci_foreach_extended_capability(device_t self, xhci_xecp_fn_t xecp_fn)
+{
+	struct xhci_softc *sc = device_get_softc(self);
+	uint32_t cparams, eecp, eec;
+	int error;
+
+	cparams = XREAD4(sc, capa, XHCI_HCSPARAMS0);
+	eec = -1;
+	error = 0;
+	for (eecp = XHCI_HCS0_XECP(cparams) << 2; eecp != 0 &&
+	    XHCI_XECP_NEXT(eec); eecp += XHCI_XECP_NEXT(eec) << 2) {
+		eec = XREAD4(sc, capa, eecp);
+
+		error = xecp_fn(sc, eecp, eec);
+		if (error != 0)
+			break;
+	}
+
+	return (error >= 0 ? 0 : error);
+}
+
 static const struct usb_bus_methods xhci_bus_methods = {
 	.endpoint_init = xhci_ep_init,
 	.endpoint_uninit = xhci_ep_uninit,
