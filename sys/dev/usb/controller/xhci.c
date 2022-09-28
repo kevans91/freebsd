@@ -506,6 +506,31 @@ xhci_reset_controller(struct xhci_softc *sc)
 	return (0);
 }
 
+static int
+xhci_handle_dbc_cb(struct xhci_softc *sc, uint32_t eecp, uint32_t eec)
+{
+
+	if (XHCI_XECP_ID(eec) != XHCI_ID_USB_DBC)
+		return (0);
+
+	/* XXX DO MORE */
+	return (1);
+}
+
+static void
+xhci_handle_dbc(device_t self)
+{
+	int error;
+
+	error = xhci_foreach_extended_capability(self, xhci_handle_dbc_cb);
+	if (error <= 0)
+		return;
+
+	/* error == 1 means we have it. */
+	device_printf(self, "debug capable xhci controller\n");
+
+}
+
 usb_error_t
 xhci_init(struct xhci_softc *sc, device_t self, uint8_t dma32)
 {
@@ -565,6 +590,9 @@ xhci_init(struct xhci_softc *sc, device_t self, uint8_t dma32)
 
 	device_printf(self, "%d bytes context size, %d-bit DMA\n",
 	    sc->sc_ctx_is_64_byte ? 64 : 32, (int)sc->sc_bus.dma_bits);
+
+	/* XXX Attach a new device to deal with it? */
+	xhci_handle_dbc(self);
 
 	/* enable 64Kbyte control endpoint quirk */
 	sc->sc_bus.control_ep_quirk = (xhcictlquirk ? 1 : 0);
