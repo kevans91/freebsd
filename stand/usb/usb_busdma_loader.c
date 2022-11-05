@@ -173,12 +173,6 @@ usb_pc_common_mem_cb(struct usb_page_cache *pc,
 	usb_size_t rem;
 	bus_size_t off;
 	bus_addr_t phys = (uintptr_t)vaddr;	/* XXX */
-	uint32_t nseg;
-
-	if (length == 0)
-		nseg = 1;
-	else
-		nseg = ((length + USB_PAGE_SIZE - 1) / USB_PAGE_SIZE);
 
 	pg = pc->page_start;
 	pg->physaddr = phys & ~(USB_PAGE_SIZE - 1);

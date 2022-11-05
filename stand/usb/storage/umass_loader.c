@@ -29,6 +29,7 @@
  */
 
 #include <sys/param.h>
+#include <sys/disk.h>
 
 #include <bootstrap.h>
 #include <stdarg.h>
@@ -181,6 +182,7 @@ static int
 umass_disk_print(int verbose)
 {
 	struct disk_devdesc dev;
+	int ret;
 
 	printf("%s devices:", umass_disk.dv_name);
 	if (pager_output("\n") != 0)
@@ -191,8 +193,8 @@ umass_disk_print(int verbose)
 	ret = pager_output("    umass0   UMASS device\n");
 	if (ret != 0)
 		return (ret);
-	dev.d_dev = &umass_disk;
-	dev.d_unit = 0;
+	dev.dd.d_dev = &umass_disk;
+	dev.dd.d_unit = 0;
 	dev.d_slice = D_SLICENONE;
 	dev.d_partition = D_PARTNONE;
 

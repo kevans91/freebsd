@@ -666,7 +666,7 @@ extern int (*ofw_bus_is_compatible_cb)(device_t dev, char *name);
 #endif
 
 /* Should be defined in user application since it is machine-dependent */
-extern int delay(unsigned int);
+extern void delay(int);
 
 /* BUS dma */
 #define	BUS_SPACE_MAXADDR_24BIT	0xFFFFFF
