@@ -88,10 +88,10 @@ struct sysctl_req {
 #define	DEVMETHOD(what,func) { #what, (void *)&func }
 #define	DEVMETHOD_END {0,0}
 #define	EARLY_DRIVER_MODULE(a, b, c, d, e, f, g)	DRIVER_MODULE(a, b, c, d, e, f)
-#define	DRIVER_MODULE(name, busname, driver, devclass, evh, arg)	\
+#define	DRIVER_MODULE(name, busname, driver, evh, arg)	\
   static struct module_data bsd_##name##_##busname##_driver_mod = {	\
 	evh, arg, #busname, #name, #busname "/" #name,			\
-	&driver, &devclass, { 0, 0 } };					\
+	&driver, NULL, { 0, 0 } };					\
 SYSINIT(bsd_##name##_##busname##_driver_mod, SI_SUB_DRIVERS,		\
   SI_ORDER_MIDDLE, module_register,					\
   &bsd_##name##_##busname##_driver_mod)
