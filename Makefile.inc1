@@ -2004,7 +2004,7 @@ _pkgbootstrap: .PHONY
 #
 # Determine PKG_ABI from newvers.sh if not already set.
 #
-.if !defined(PKG_ABI) && (make(create-world-packages-jobs) || make(create-kernel-packages*) || make(real-update-packages) || make (create-source-packages) || make(sign-packages))
+.if !defined(PKG_ABI) && (make(create-world-packages-jobs) || make(create-kernel-packages*) || make(sign-update-packages) || make (create-source-packages) || make(sign-packages))
 PKG_ABI=${_TYPE}:${MAJOR_REVISION}:${TARGET_ARCH}
 .endif
 PKG_BIN_VERSION!=${PKG_CMD} --version </dev/null 2>/dev/null |\
@@ -2015,9 +2015,9 @@ PKG_EXT=	${PKG_FORMAT}
 PKG_EXT=	pkg
 .endif
 
-.if !defined(PKG_VERSION_FROM) && make(real-update-packages)
+.if !defined(PKG_VERSION_FROM) && make(sign-update-packages)
 .if defined(PKG_ABI)
-.if exists(${REPODIR}/${PKG_ABI})
+.if exists(${REPODIR}/${PKG_ABI}/latest)
 PKG_VERSION_FROM!=/usr/bin/readlink ${REPODIR}/${PKG_ABI}/latest
 PKG_VERSION_FROM_DIR=	${REPODIR}/${PKG_ABI}/${PKG_VERSION_FROM}
 .else
@@ -2046,8 +2046,10 @@ package-pkg: .PHONY
 
 real-packages:	stage-packages create-packages sign-packages .PHONY
 
-real-update-packages: stage-packages .PHONY
-	${_+_}${MAKE} -C ${.CURDIR} PKG_VERSION=${PKG_VERSION} create-packages
+real-update-packages: stage-packages create-packages .PHONY
+	${_+_}${MAKE} -C ${.CURDIR} sign-update-packages
+
+sign-update-packages: .PHONY
 .if empty(PKG_VERSION_FROM_DIR)
 	@echo "==> Bootstrapping repository, not checking for new packages"
 .else

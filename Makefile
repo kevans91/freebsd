@@ -176,8 +176,8 @@ TGTS=	all all-man buildenv buildenvvars buildetc buildkernel buildworld \
 	create-packages-kernel-repo create-packages-world-repo \
 	create-packages-source create-packages \
 	update-packages packages installconfig real-packages real-update-packages \
-	sign-packages package-pkg print-dir test-system-compiler test-system-linker \
-	test-includes
+	sign-packages sign-update-packages package-pkg print-dir \
+	test-system-compiler test-system-linker test-includes
 
 .for libcompat in ${_ALL_libcompats}
 TGTS+=	build${libcompat} distribute${libcompat} install${libcompat}
