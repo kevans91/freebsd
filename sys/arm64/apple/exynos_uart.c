@@ -436,7 +436,7 @@ static int
 s5l_bus_ipend(struct uart_softc *sc)
 {
 	int ipend;
-	uint32_t utrstat;
+	uint32_t uerstat, utrstat;
 
 	ipend = 0;
 	uart_lock(sc->sc_hwmtx);
@@ -448,6 +448,11 @@ s5l_bus_ipend(struct uart_softc *sc)
 
         if (utrstat & UTRSTAT_S5L_TXTHRESH)
 		ipend |= SER_INT_TXIDLE;
+
+	uerstat = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh,
+	    SSCOM_UERSTAT);
+	if ((uerstat & UERSTAT_BREAK) != 0)
+		ipend |= SER_INT_BREAK;
 
 	bus_space_write_4(sc->sc_bas.bst, sc->sc_bas.bsh, SSCOM_UTRSTAT,
 	    utrstat);
