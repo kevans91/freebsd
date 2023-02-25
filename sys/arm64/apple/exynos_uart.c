@@ -213,7 +213,8 @@ exynos4210_init_common(struct exynos_uart_cfg *cfg, struct uart_bas *bas,
 	/* Enable UART. */
 	if (cfg->cfg_type == EXUART_S5L) {
 		uart_setreg(bas, SSCOM_UCON, uart_getreg(bas, SSCOM_UCON) |
-		    UCON_TOINT | UCON_S5L_RXTHRESH | UCON_S5L_RX_TIMEOUT);
+		    UCON_TOINT | UCON_S5L_RXTHRESH | UCON_S5L_RX_TIMEOUT |
+		    UCON_S5L_TXTHRESH);
 	} else {
 		uart_setreg(bas, SSCOM_UCON, uart_getreg(bas, SSCOM_UCON) |
 		    UCON_TXMODE_INT | UCON_RXMODE_INT | UCON_TOINT);
@@ -253,7 +254,7 @@ exynos4210_putc(struct uart_bas *bas, int c)
 	cfg = bas->driver1;
 
 	while ((bus_space_read_4(bas->bst, bas->bsh, SSCOM_UFSTAT) &
-		cfg->cfg_uart_full_mask) == cfg->cfg_uart_full_mask)
+	    cfg->cfg_uart_full_mask) != 0)
 		continue;
 
 	uart_setreg(bas, SSCOM_UTXH, c);
@@ -371,17 +372,19 @@ exynos4210_bus_transmit(struct uart_softc *sc)
 		uart_barrier(&sc->sc_bas);
 	}
 
-	sc->sc_txbusy = 1;
-
-	uart_unlock(sc->sc_hwmtx);
+	if ((bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh, SSCOM_UFSTAT) &
+	    cfg->cfg_uart_full_mask) != 0)
+		sc->sc_txbusy = 1;
 
 	/* unmask TX interrupt */
 	if (cfg->cfg_type == EXUART_S5L) {
 		reg = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh,
-		    SSCOM_UTRSTAT);
-		reg &= ~UTRSTAT_S5L_TXTHRESH;
-		bus_space_write_4(sc->sc_bas.bst, sc->sc_bas.bsh, SSCOM_UTRSTAT,
-		    reg);
+		    SSCOM_UCON);
+		if ((reg & UCON_S5L_TXTHRESH) == 0) {
+			reg |= UCON_S5L_TXTHRESH;
+			bus_space_write_4(sc->sc_bas.bst, sc->sc_bas.bsh,
+			    UCON_S5L_TXTHRESH, reg);
+		}
 	} else {
 		reg = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh,
 		    SSCOM_UINTM);
@@ -389,6 +392,8 @@ exynos4210_bus_transmit(struct uart_softc *sc)
 		bus_space_write_4(sc->sc_bas.bst, sc->sc_bas.bsh, SSCOM_UINTM,
 		    reg);
 	}
+
+	uart_unlock(sc->sc_hwmtx);
 
 	return (0);
 }
