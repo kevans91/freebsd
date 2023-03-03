@@ -350,9 +350,8 @@ nexus_activate_resource_flags(device_t bus, device_t child, int type, int rid,
 				    &use_np);
 			if (use_np)
 				args.memattr = VM_MEMATTR_DEVICE_NP;
-			else if ((flags & BUS_SPACE_MAP_POSTED) != 0) {
+			else
 				args.memattr = VM_MEMATTR_DEVICE_nGnRE;
-			}
 			err = nexus_map_resource(bus, child, type, r, &args,
 			    &map);
 			if (err != 0) {
@@ -529,10 +528,6 @@ nexus_fdt_activate_resource(device_t bus, device_t child, int type, int rid,
 			}
 		}
 
-		devclass_t child_class = device_get_devclass(child);
-		if (child_class == devclass_find("bge")) {
-			flags |= BUS_SPACE_MAP_POSTED;
-		}
 		break;
 	default:
 		break;
