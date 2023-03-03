@@ -1711,6 +1711,7 @@ MLINKS+=nv.9 libnv.9 \
 MLINKS+=OF_child.9 OF_parent.9 \
 	OF_child.9 OF_peer.9
 MLINKS+=OF_device_from_xref.9 OF_device_register_xref.9 \
+	OF_device_from_xref.9 OF_device_unregister_xref.9 \
 	OF_device_from_xref.9 OF_xref_from_device.9
 MLINKS+=OF_getprop.9 OF_getencprop.9 \
 	OF_getprop.9 OF_getencprop_alloc.9 \
