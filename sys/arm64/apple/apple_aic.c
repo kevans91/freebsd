@@ -94,6 +94,8 @@
 #define CNTV_CTL_ENABLE		(1 << 0)
 #define CNTV_CTL_IMASK		(1 << 1)
 #define CNTV_CTL_ISTATUS	(1 << 2)
+#define	CNTV_CTL_BITS		\
+    (CNTV_CTL_ENABLE | CNTV_CTL_IMASK | CNTV_CTL_ISTATUS)
 
 #define	AIC_MAXCPUS		32
 #define	AIC_MAXDIES		4
@@ -113,9 +115,17 @@ enum apple_aic_irq_type {
 struct apple_aic_irqsrc {
 	struct intr_irqsrc	ai_isrc;
 	enum apple_aic_irq_type	ai_type;
-	enum intr_polarity	ai_pol;
-	enum intr_trigger	ai_trig;
-	u_int			ai_irq;
+	union {
+		struct {
+			/* AIC_TYPE_IRQ */
+			enum intr_polarity	ai_pol;
+			enum intr_trigger	ai_trig;
+			u_int			ai_irq;
+		};
+		struct {
+
+		};
+	};
 };
 
 #ifdef SMP
@@ -229,7 +239,7 @@ apple_aic_attach(device_t dev)
 			die_isrcs[j].ai_pol = INTR_POLARITY_CONFORM;
 			die_isrcs[j].ai_trig = INTR_TRIGGER_CONFORM;
 			die_isrcs[j].ai_type = AIC_TYPE_INVAL;
-			die_isrcs[j].ai_irq = i;
+			die_isrcs[j].ai_irq = j;
 
 			error = intr_isrc_register(isrc, dev, 0, "%s,d%us%u", name,
 			    i, j);
@@ -392,13 +402,11 @@ apple_aic_setup_intr(device_t dev, struct intr_irqsrc *isrc,
 	case AIC_TYPE_IRQ:
 		/* XXX die sensitive? */
 		aic_next_cpu = intr_irq_next_cpu(aic_next_cpu, &all_cpus);
-		/* XXX Need to translate CPU number in next line??? */
-		bus_write_4(sc->sc_mem, AIC_TARGET_CPU(irq), 1 << aic_next_cpu);
+		bus_write_4(sc->sc_mem, AIC_TARGET_CPU(irq),
+		    1 << sc->sc_cpuids[aic_next_cpu]);
 		break;
 	case AIC_TYPE_FIQ:
 		isrc->isrc_flags |= INTR_ISRCF_PPI;
-		/* XXX why limit clock to the BSP ??? */
-		CPU_SET(PCPU_GET(cpuid), &isrc->isrc_cpu);
 		break;
 	default:
 		return (EINVAL);
@@ -422,13 +430,15 @@ apple_aic_enable_intr(device_t dev, struct intr_irqsrc *isrc)
 	u_int irq;
 
 	ai = (struct apple_aic_irqsrc *)isrc;
+	irq = ai->ai_irq;
 	switch(ai->ai_type) {
 	case AIC_TYPE_IRQ:
 		sc = device_get_softc(dev);
-		irq = ai->ai_irq;
 		bus_write_4(sc->sc_mem, AIC_MASK_CLEAR(irq), AIC_IRQ_MASK(irq));
 		break;
 	case AIC_TYPE_IPI:
+		/* Nothing needed here. */
+		break;
 	case AIC_TYPE_FIQ:
 		/* TODO */
 		break;
@@ -440,18 +450,46 @@ apple_aic_enable_intr(device_t dev, struct intr_irqsrc *isrc)
 static void
 apple_aic_disable_intr(device_t dev, struct intr_irqsrc *isrc)
 {
+	struct apple_aic_irqsrc *ai;
+	struct apple_aic_softc *sc;
+	u_int irq;
+
+	ai = (struct apple_aic_irqsrc *)isrc;
+	irq = ai->ai_irq;
+	switch(ai->ai_type) {
+	case AIC_TYPE_IRQ:
+		sc = device_get_softc(dev);
+		bus_write_4(sc->sc_mem, AIC_MASK_SET(irq), AIC_IRQ_MASK(irq));
+		break;
+	case AIC_TYPE_IPI:
+		/* Nothing needed here. */
+		break;
+	case AIC_TYPE_FIQ:
+		/* TODO */
+		break;
+	default:
+		panic("%s: %x\n", __func__, ai->ai_type);
+	}
 	panic("%s\n", __func__);
 }
 
 static void
 apple_aic_post_filter(device_t dev, struct intr_irqsrc *isrc)
 {
+	struct apple_aic_softc *sc;
 	struct apple_aic_irqsrc *ai;
+	int irq;
 
 	ai = (struct apple_aic_irqsrc *)isrc;
+	irq = ai->ai_irq;
 	switch(ai->ai_type) {
 	case AIC_TYPE_IRQ:
+		sc = device_get_softc(dev);
+		bus_write_4(sc->sc_mem, AIC_SW_CLEAR(irq), AIC_IRQ_MASK(irq));
+		bus_write_4(sc->sc_mem, AIC_MASK_CLEAR(irq), AIC_IRQ_MASK(irq));
+#if 0
 		panic("%s: %x\n", __func__, ai->ai_type);
+#endif
 		break;
 	case AIC_TYPE_FIQ:
 		/* TODO */
@@ -464,13 +502,31 @@ apple_aic_post_filter(device_t dev, struct intr_irqsrc *isrc)
 static void
 apple_aic_pre_ithread(device_t dev, struct intr_irqsrc *isrc)
 {
-	panic("%s\n", __func__);
+	struct apple_aic_softc *sc;
+	struct apple_aic_irqsrc *ai;
+	int irq;
+
+	ai = (struct apple_aic_irqsrc *)isrc;
+	sc = device_get_softc(dev);
+	irq = ai->ai_irq;
+	bus_write_4(sc->sc_mem, AIC_SW_CLEAR(irq), AIC_IRQ_MASK(irq));
+	//apple_aic_disable_intr(dev, isrc);
+	/* ACK IT */
 }
 
 static void
 apple_aic_post_ithread(device_t dev, struct intr_irqsrc *isrc)
 {
-	panic("%s\n", __func__);
+	struct apple_aic_softc *sc;
+	struct apple_aic_irqsrc *ai;
+	int irq;
+
+	ai = (struct apple_aic_irqsrc *)isrc;
+	sc = device_get_softc(dev);
+	irq = ai->ai_irq;
+
+	bus_write_4(sc->sc_mem, AIC_MASK_CLEAR(irq), AIC_IRQ_MASK(irq));
+	//apple_aic_enable_intr(dev, isrc);
 }
 
 static void
@@ -527,16 +583,12 @@ apple_aic_irq(void *arg)
 		panic("%s: unexpected irq %d", __func__, irq);
 
 	aisrc = &sc->sc_isrcs[die][irq];
-	bus_write_4(sc->sc_mem, AIC_SW_CLEAR(irq), AIC_IRQ_MASK(irq));
-
 	if (intr_isrc_dispatch(&aisrc->ai_isrc, tf) != 0) {
 		device_printf(sc->sc_dev, "Stray irq %u:%u disabled\n",
 		    die, irq);
 		return (FILTER_STRAY);
 	}
 
-	device_printf(sc->sc_dev, "irq %d\n", irq);
-	bus_write_4(sc->sc_mem, AIC_MASK_CLEAR(irq), AIC_IRQ_MASK(irq));
 	return (FILTER_HANDLED);
 }
 
@@ -555,16 +607,19 @@ apple_aic_fiq(void *arg)
 		apple_aic_ipi_received(sc, tf);
 	}
 
-
 	/*
 	 * Lets hope the FIQ is due to a timer. There are other sources, but
 	 * we don't handle them yet.
 	 */
+#if 0
 	if ((READ_SPECIALREG(cntp_ctl_el0) & CNTV_CTL_ISTATUS) != 0)
 		intr_isrc_dispatch(&sc->sc_isrcs[0][1].ai_isrc, tf);
+#endif
 
-	if ((READ_SPECIALREG(cntv_ctl_el0) & CNTV_CTL_ISTATUS) != 0)
+	if ((READ_SPECIALREG(cntv_ctl_el0) & CNTV_CTL_BITS) ==
+	    (CNTV_CTL_ENABLE | CNTV_CTL_ISTATUS)) {
 		intr_isrc_dispatch(&sc->sc_isrcs[0][0 /* 2 */].ai_isrc, tf);
+	}
 
 #if 0
 	reg = READ_SPECIALREG(AIC_FIQ_VM_TIMER);
