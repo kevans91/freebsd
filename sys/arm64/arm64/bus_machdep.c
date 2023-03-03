@@ -37,6 +37,9 @@
 
 #include <machine/bus.h>
 
+#include <sys/types.h>
+#include <sys/systm.h>
+
 uint8_t  generic_bs_r_1(void *, bus_space_handle_t, bus_size_t);
 uint16_t generic_bs_r_2(void *, bus_space_handle_t, bus_size_t);
 uint32_t generic_bs_r_4(void *, bus_space_handle_t, bus_size_t);
@@ -103,6 +106,8 @@ generic_bs_map(void *t, bus_addr_t bpa, bus_size_t size, int flags,
 	ma = VM_MEMATTR_DEVICE;
 	if (flags == BUS_SPACE_MAP_NONPOSTED)
 		ma = VM_MEMATTR_DEVICE_NP;
+	else if (flags == BUS_SPACE_MAP_POSTED)
+		ma = VM_MEMATTR_DEVICE_nGnRE;
 	va = pmap_mapdev_attr(bpa, size, ma);
 	if (va == NULL)
 		return (ENOMEM);

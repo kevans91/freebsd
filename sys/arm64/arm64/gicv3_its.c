@@ -983,8 +983,23 @@ gicv3_its_attach(device_t dev)
 	 */
 	ctlr = gic_its_read_4(sc, GITS_CTLR);
 	if ((ctlr & GITS_CTLR_EN) != 0) {
+		size_t us_left;
+
 		ctlr &= ~GITS_CTLR_EN;
 		gic_its_write_4(sc, GITS_CTLR, ctlr);
+		if ((ctlr & GITS_CTLR_QUIESCENT) != 0)
+			device_printf(dev, "Wait for quiescence\n");
+
+		for (us_left = 1000000; us_left > 0 &&
+		    (ctlr & GITS_CTLR_QUIESCENT) == 0; us_left--, DELAY(1)) {
+			ctlr = gic_its_read_4(sc, GITS_CTLR);
+		}
+
+		if (us_left == 0) {
+			device_printf(dev,
+			    "Timeout while waiting for ITS quiescence.\n");
+			return (ETIMEDOUT);
+		}
 	}
 
 	/* Allocate the private tables */

@@ -522,8 +522,8 @@ ofw_bus_iommu_map(phandle_t node, uint16_t pci_rid, phandle_t *iommu_parent,
 	err = ENOENT;
 	mask = 0xffffffff;
 	OF_getencprop(node, "iommu-map-mask", &mask, sizeof(mask));
-
 	masked_rid = pci_rid & mask;
+	printf("%s: masked rid == %x\n", __func__, masked_rid);
 	for (i = 0; i < len; i += 4) {
 		rid_base = map[i + 0];
 		rid_length = map[i + 3];

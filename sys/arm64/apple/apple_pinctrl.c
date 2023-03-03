@@ -104,7 +104,7 @@ struct apple_pinctrl_softc {
 #define	APPLE_PINCTRL_LOCK_ASSERT(sc)	mtx_assert(&(sc)->sc_mtx, MA_OWNED)
 
 static struct ofw_compat_data compat_data[] = {
-	{"apple,t8103-pinctrl",	1},
+	{"apple,pinctrl",	1},
 	{NULL,			0},
 };
 
@@ -437,6 +437,8 @@ apple_pinctrl_pin_configure(struct apple_pinctrl_softc *sc, uint32_t pin,
 	else if ((flags & GPIO_PIN_OUTPUT) != 0)
 		reg |= GPIO_PIN_MODE_OUTPUT;
 
+	device_printf(sc->sc_dev, "set pin %d to %x\n",
+	    pin, reg);
 	HWRITE4(sc, GPIO_PIN(pin), reg);
 }
 
@@ -555,6 +557,8 @@ apple_pinctrl_pin_set(device_t dev, uint32_t pin, unsigned int value)
 		HSET4(sc, GPIO_PIN(pin), GPIO_PIN_DATA);
 	else
 		HCLR4(sc, GPIO_PIN(pin), GPIO_PIN_DATA);
+	device_printf(sc->sc_dev, "set pin %d to %x\n",
+	    pin, HREAD4(sc, GPIO_PIN(pin)));
 	APPLE_PINCTRL_UNLOCK(sc);
 	return (0);
 }

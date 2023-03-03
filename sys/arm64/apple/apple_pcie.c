@@ -198,8 +198,7 @@ __FBSDID("$FreeBSD$");
 #define PCIE_NPORTS		3
 
 struct apple_pcie_irqsrc {
-	struct intr_irqsrc	*isrc;
-	u_int			irq;		/* XXX needed? */
+	struct intr_irqsrc	isrc;
 	bool			allocated;
 };
 
@@ -230,6 +229,7 @@ struct apple_pcie_softc {
 	pci_addr_t			msi_addr;
 	int				msi_start;
 	int				nmsi;
+	int				msi_count;
 };
 
 static struct ofw_compat_data compat_data[] = {
@@ -551,13 +551,15 @@ apple_pcie_msi_intr(void *arg)
 
 /* shared allocation code for MSI and MSIX */
 static int
-apple_pcie_alloc_intr(struct apple_pcie_softc *sc, int count,
+apple_pcie_alloc_intr(struct apple_pcie_softc *sc, int count, int maxcount,
     struct intr_irqsrc **srcs)
 {
-	int first_int, i, error;
+	int first_int, i;
 
-	/* Find a contiguous region of free message-signalled interrupts. */
+	/* Find a ctiguous region of free message-signalled interrupts. */
 	for (first_int = 0; first_int + count < sc->nmsi; ) {
+		if ((first_int & (maxcount - 1)) != 0)
+			goto next;
 		for (i = first_int; i < first_int + count; ++i) {
 			if (sc->msi_isrcs[i].allocated)
 				goto next;
@@ -576,21 +578,9 @@ found:
 	/* Mark the messages as in use; map the interrupts. */
 	for (i = first_int; i < first_int + count; ++i) {
 		sc->msi_isrcs[i].allocated = true;
-		sc->msi_isrcs[i].isrc = *srcs;
+		/* XXX kill it? */
 		sc->msi_fdt_data->cells[1] = sc->msi_start + i;
-		error = PIC_MAP_INTR(sc->aic_dev,
-		    (struct intr_map_data *)sc->msi_fdt_data, srcs);
-		if (error) {
-			device_printf(sc->dev, "PIC_MAP_INTR failed %d\n",
-			    i + first_int);
-			for (; i >= first_int; i--) {
-				sc->msi_isrcs[i].allocated = false;
-				sc->msi_isrcs[i].isrc = NULL;
-			}
-			break;
-		}
-		sc->msi_isrcs[i].isrc = *srcs;
-		srcs++;
+		*srcs++ = &sc->msi_isrcs[i].isrc;
 	}
 	return (first_int);
 }
@@ -600,57 +590,12 @@ apple_pcie_alloc_msi(device_t dev, device_t child, int count, int maxcount,
     device_t *pic, struct intr_irqsrc **srcs)
 {
 	struct apple_pcie_softc *sc;
-	int first_int, msicap, error;
-	uint32_t val;
-
-	if ((error = pci_find_cap(dev, PCIY_MSI, &msicap)) != 0) {
-		device_printf(dev, "MSI capability not found?\n");
-		return (error);
-	}
-device_printf(dev, "%s\n", __func__);
-	if ((powerof2(count) == 0) || (count > 8))
-		return (EINVAL);
+	int first;
 
 	sc = device_get_softc(dev);
-
-	mtx_lock(&sc->msi_mtx);
-	if ((first_int = apple_pcie_alloc_intr(sc, count, srcs)) == -1) {
-		mtx_unlock(&sc->msi_mtx);
+	first = apple_pcie_alloc_intr(sc, count, maxcount, srcs);
+	if (first == -1)
 		return (ENXIO);
-	}
-
-	//*pic = device_get_parent(dev);
-	*pic = sc->aic_dev;
-
-	val = pci_read_config(dev, msicap + PCIR_MSI_CTRL, 2);
-	pci_write_config(dev, msicap + PCIR_MSI_CTRL,
-	    val &~ PCIM_MSICTRL_MSI_ENABLE, 2);
-
-	/* Update control register with actual count. */
-	val = pci_read_config(dev, msicap + PCIR_MSI_CTRL, 2);
-	val &= ~PCIM_MSICTRL_MME_MASK;
-	val |= (ffs(count) - 1) << 4;
-	pci_write_config(dev, msicap + PCIR_MSI_CTRL, val, 2);
-
-	val = pci_read_config(dev, msicap + PCIR_MSI_CTRL, 2);
-	pci_write_config(dev, msicap + PCIR_MSI_ADDR,
-	    sc->msi_addr & 0xffffffff, 4);
-	if (val & PCIM_MSICTRL_64BIT) {
-		pci_write_config(dev, msicap + PCIR_MSI_ADDR_HIGH,
-		    (sc->msi_addr >> 32) & 0xffffffff, 4);
-		pci_write_config(dev, msicap + PCIR_MSI_DATA_64BIT,
-		    first_int, 4);
-	} else {
-		pci_write_config(dev, msicap + PCIR_MSI_DATA, first_int, 4);
-	}
-	pci_write_config(dev, msicap + PCIR_MSI_CTRL,
-	    val | PCIM_MSICTRL_MSI_ENABLE, 2);
-
-	mtx_unlock(&sc->msi_mtx);
-
-	if (bootverbose)
-		device_printf(dev, "allocate MSI intr %d - %d\n",
-		    first_int, first_int + count - 1);
 	return (0);
 }
 
@@ -658,69 +603,23 @@ static int
 apple_pcie_alloc_msix(device_t dev, device_t child, device_t *pic,
     struct intr_irqsrc **srcs)
 {
-	struct apple_pcie_softc *sc;
-	int first_int, msixcap, error;
-	uint32_t val;
 
-	if ((error = pci_find_cap(dev, PCIY_MSIX, &msixcap)) != 0) {
-		device_printf(dev, "MSIX capability not found?\n");
-		return (error);
-	}
-
-	sc = device_get_softc(dev);
-
-device_printf(dev, "%s\n", __func__);
-	mtx_lock(&sc->msi_mtx);
-	if ((first_int = apple_pcie_alloc_intr(sc, 1, srcs)) == -1) {
-		mtx_unlock(&sc->msi_mtx);
-		return (ENXIO);
-	}
-
-	//*pic = device_get_parent(dev);
-	*pic = sc->aic_dev;
-
-	val = pci_read_config(dev, msixcap + PCIR_MSIX_CTRL, 2);
-	pci_write_config(dev, msixcap + PCIR_MSIX_CTRL,
-	    val &~ PCIM_MSIXCTRL_MSIX_ENABLE, 2);
-
-	/* TODO: ??? */
-	device_printf(dev, "TODO: msix vectors etc???\n");
-#if 0	/* XXX NetBSD does this in apple_pcie_msi_msix_enable; do we need? */
-	/* What would msix_vec be? */
-	const uint64_t addr = sc->sc_msi_addr;
-	const uint32_t data = msi;
-	const uint64_t entry_base = PCI_MSIX_TABLE_ENTRY_SIZE * msix_vec;
-	bus_space_write_4(bst, bsh, entry_base + PCI_MSIX_TABLE_ENTRY_ADDR_LO,
-	    (uint32_t)addr);
-	bus_space_write_4(bst, bsh, entry_base + PCI_MSIX_TABLE_ENTRY_ADDR_HI,
-	    (uint32_t)(addr >> 32));
-	bus_space_write_4(bst, bsh, entry_base + PCI_MSIX_TABLE_ENTRY_DATA,
-	    data);
-	val = bus_space_read_4(bst, bsh,
-	    entry_base + PCI_MSIX_TABLE_ENTRY_VECTCTL);
-	val &= ~PCI_MSIX_VECTCTL_MASK;
-	bus_space_write_4(bst, bsh, entry_base + PCI_MSIX_TABLE_ENTRY_VECTCTL,
-	    val);
-#endif
-
-	val = pci_read_config(dev, msixcap + PCIR_MSIX_CTRL, 2);
-	pci_write_config(dev, msixcap + PCIR_MSIX_CTRL,
-	    val | PCIM_MSIXCTRL_MSIX_ENABLE, 2);
-	mtx_unlock(&sc->msi_mtx);
-
-	if (bootverbose)
-		device_printf(dev, "allocate MSIX intr %d\n", first_int);
-	return (0);
+	return (ENXIO);
 }
 
 static int
-apple_pcie_find_intr(struct apple_pcie_softc *sc, struct intr_irqsrc *src)
+apple_pcie_find_intr(struct apple_pcie_softc *sc, struct intr_irqsrc *src,
+    struct apple_pcie_irqsrc **msi_msg)
 {
 	int i;
 
-	for (i = 0; i < sc->nmsi; i++)
-		if (sc->msi_isrcs[i].isrc == src)
+	for (i = 0; i < sc->nmsi; i++) {
+		if (src == &sc->msi_isrcs[i].isrc) {
+			*msi_msg = &sc->msi_isrcs[i];
 			return (i);
+		}
+	}
+
 	return (-1);
 }
 
@@ -733,19 +632,17 @@ apple_pcie_map_msi(device_t dev, device_t child, struct intr_irqsrc *isrc,
 	int i;
 
 	sc = device_get_softc(dev);
-	i = apple_pcie_find_intr(sc, isrc);
-	if (i == -1)
+	i = apple_pcie_find_intr(sc, isrc, &msi_msg);
+	if (i == -1) {
+		device_printf(dev, "not found?\n");
 		return (EINVAL);
-device_printf(dev, "TODO: pcie map %d\n", i);
+	}
 
-	msi_msg = &sc->msi_isrcs[i];
+	device_printf(dev, "found %d\n", i);
 
 	*addr = sc->msi_addr;
-#ifdef IMPL	/* XXX */
-	*data = (REG_VALUE_MSI_CONFIG & 0xffff) | i;
-#else
-	*data =  msi_msg->irq;
-#endif
+	*data = msi_msg->isrc.isrc_irq;
+
 	return (0);
 }
 
@@ -753,6 +650,7 @@ static int
 apple_pcie_release_msi(device_t dev, device_t child, int count,
     struct intr_irqsrc **isrc)
 {
+#if 0
 	struct apple_pcie_softc *sc;
 	struct apple_pcie_irqsrc *msi_isrc;
 	int i, first_int, msicap;
@@ -782,14 +680,18 @@ apple_pcie_release_msi(device_t dev, device_t child, int count,
 
 	mtx_unlock(&sc->msi_mtx);
 	return (0);
+#endif
+	return (ENXIO);
 }
 
 static int
 apple_pcie_release_msix(device_t dev, device_t child,
     struct intr_irqsrc *srcs)
 {
-
+#if 0
 	return (apple_pcie_release_msi(dev, child, 1, &srcs));
+#endif
+	return (ENXIO);
 }
 
 
@@ -813,6 +715,8 @@ apple_pcie_setup_port(struct apple_pcie_softc *sc, u_int portno)
 		return;
 	}
 	sc->port_res[portno] = res;
+	device_printf(sc->dev, "port%u, [%jx, %jx)\n", portno,
+	    rman_get_start(res), rman_get_start(res) + rman_get_size(res));
 
 	/* Doorbell address must be below 4GB */
 	KASSERT((sc->msi_addr & ~0xffffffffUL) == 0, ("msi_addr > 4G"));
@@ -825,85 +729,6 @@ apple_pcie_setup_port(struct apple_pcie_softc *sc, u_int portno)
 	//bus_free_resource(sc->dev, SYS_RES_MEMORY, res);
 }
 
-/* should subsume apple_pcie_setup_port if we keep it */
-static void
-apple_pcie_init_port(struct apple_pcie_softc *sc, phandle_t port_node)
-{
-	pcell_t reg[5];
-	//pcell_t *gpio;
-	u_int port;
-	uint32_t stat;
-	//size_t len;
-
-	if (OF_getencprop(port_node, "reg", reg, sizeof(reg)) != sizeof(reg))
-		 return;
-	port = reg[0] >> 11;		/* XXX macro */
-	if (port > PCIE_NPORTS)
-{
-device_printf(sc->dev, "port %u?\n", port);
-		return;
-}
-	if (sc->port_res[port] == NULL)
-{
-device_printf(sc->dev, "port_res %u?\n", port);
-		return;
-}
-	stat = bus_read_4(sc->port_res[port], PCIE_PORT_LINK_STAT);
-	if (stat & PCIE_PORT_LINK_STAT_UP)
-{
-device_printf(sc->dev, "port %u: link up\n", port);
-		return;
-}
-#if 1
-	struct resource *pres = sc->port_res[port];
-	int timo;
-	device_t dev = sc->dev;
-
-	//len = OF_getencprop_alloc(port_node, "reset-gpios", &gpio);
-	//PSET4(sc, port, PCIE_PORT_APPCLK, PCIE_PORT_APPCLK_EN);
-	bus_write_4(pres, PCIE_PORT_APPCLK,
-	    bus_read_4(pres, PCIE_PORT_APPCLK) | PCIE_PORT_APPCLK_EN);
-
-#if 0
-	/* Assert PERST#. */
-	//reset_gpio = malloc(reset_gpiolen, M_TEMP, M_WAITOK);
-	//OF_getpropintarray(node, "reset-gpios", reset_gpio, reset_gpiolen);
-	gpio_controller_config_pin(reset_gpio, GPIO_CONFIG_OUTPUT);
-	gpio_controller_set_pin(reset_gpio, 1);
-#else
-	struct gpiobus_pin *gpio_rset;
-	int error;
-
-	if (ofw_gpiobus_parse_gpios(dev, "reset-gpios", &gpio_rset) > 1) {
-		device_printf(dev, "too many reset gpios\n");
-		return;
-	}
-
-	if (gpio_rset != NULL) {
-		error = GPIO_PIN_SETFLAGS(gpio_rset->dev, gpio_rset->pin,
-		    GPIO_PIN_OUTPUT);
-		if (error != 0) {
-			device_printf(dev, "Cannot config GPIO pin %d on %s\n",
-			    gpio_rset->pin,
-			    device_get_nameunit(gpio_rset->dev));
-			return;
-		}
-
-		error = GPIO_PIN_SET(gpio_rset->dev, gpio_rset->pin, 1);
-		if (error != 0) {
-			device_printf(dev, "Cannot set GPIO pin %d on %s\n",
-			    gpio_rset->pin,
-			    device_get_nameunit(gpio_rset->dev));
-			return;
-		}
-
-	} else {
-		device_printf(dev, "Unable to find reset GPIO\n");
-		return;
-	}
-#endif
-
-	/* Setup Refclk. */
 #define	RSET4(sc, reg, bits) \
 	bus_write_4((sc)->rc_res, (reg), \
 	    bus_read_4((sc)->rc_res, (reg)) | (bits))
@@ -920,6 +745,95 @@ device_printf(sc->dev, "port %u: link up\n", port);
 #define	PCLR4(sc, port, reg, bits) \
 	bus_write_4((sc)->port_res[port], (reg), \
 	    bus_read_4((sc)->port_res[port], (reg)) & ~(bits))
+
+/* should subsume apple_pcie_setup_port if we keep it */
+static void
+apple_pcie_init_port(struct apple_pcie_softc *sc, phandle_t port_node)
+{
+	int timo;
+	gpio_pin_t gpio_pwren, gpio_rset;
+	int error;
+	pcell_t reg[5];
+	//pcell_t *gpio;
+	u_int port;
+	uint32_t stat;
+	//size_t len;
+
+	if (OF_getencprop(port_node, "reg", reg, sizeof(reg)) != sizeof(reg))
+		 return;
+	port = reg[0] >> 11;		/* XXX macro */
+	device_printf(sc->dev, "port %u setup\n", port);
+	if (port > PCIE_NPORTS) {
+		device_printf(sc->dev, "port %u?\n", port);
+		return;
+	}
+	if (sc->port_res[port] == NULL) {
+		device_printf(sc->dev, "port_res %u?\n", port);
+		return;
+	}
+	stat = bus_read_4(sc->port_res[port], PCIE_PORT_LINK_STAT);
+	if (stat & PCIE_PORT_LINK_STAT_UP) {
+		device_printf(sc->dev, "port %u: link up\n", port);
+		return;
+	}
+
+	device_t dev = sc->dev;
+
+	//len = OF_getencprop_alloc(port_node, "reset-gpios", &gpio);
+
+	/* XXX Both leaked right now upon error. */
+	gpio_pwren = NULL;
+	gpio_rset = NULL;
+	if (gpio_pin_get_by_ofw_property(dev, port_node, "pwren-gpios",
+	    &gpio_pwren) != 0) {
+		device_printf(dev, "Unable to find power GPIO\n");
+	}
+	if (gpio_pin_get_by_ofw_property(dev, port_node, "reset-gpios",
+	    &gpio_rset) != 0) {
+		device_printf(dev, "Unable to find reset GPIO\n");
+		return;
+	}
+
+	PSET4(sc, port, PCIE_PORT_APPCLK, PCIE_PORT_APPCLK_EN);
+
+	error = GPIO_PIN_SETFLAGS(gpio_rset->dev, gpio_rset->pin,
+	    GPIO_PIN_OUTPUT);
+	if (error != 0) {
+		device_printf(dev, "Cannot config GPIO pin %d on %s\n",
+		    gpio_rset->pin,
+		    device_get_nameunit(gpio_rset->dev));
+		return;
+	}
+
+	error = gpio_pin_set_active(gpio_rset, true);
+	if (error != 0) {
+		device_printf(dev, "Cannot set GPIO pin %d on %s\n",
+		    gpio_rset->pin,
+		    device_get_nameunit(gpio_rset->dev));
+		return;
+	}
+
+	/* Power up the device if necessary. */
+	if (gpio_pwren != NULL) {
+		error = GPIO_PIN_SETFLAGS(gpio_pwren->dev, gpio_pwren->pin,
+		    GPIO_PIN_OUTPUT);
+		if (error != 0) {
+			device_printf(dev, "Cannot config GPIO pin %d on %s\n",
+			    gpio_pwren->pin,
+			    device_get_nameunit(gpio_pwren->dev));
+			return;
+		}
+
+		error = gpio_pin_set_active(gpio_pwren, true);
+		if (error != 0) {
+			device_printf(dev, "Cannot set GPIO pin %d on %s\n",
+			    gpio_pwren->pin,
+			    device_get_nameunit(gpio_pwren->dev));
+			return;
+		}
+	}
+
+	/* Setup Refclk. */
 
 	RSET4(sc, PCIE_CORE_LANE_CTRL(port), PCIE_CORE_LANE_CTRL_CFGACC);
 	RSET4(sc, PCIE_CORE_LANE_CONF(port), PCIE_CORE_LANE_CONF_REFCLK0REQ);
@@ -945,22 +859,21 @@ device_printf(sc->dev, "port %u: link up\n", port);
 	 * PERST# must remain asserted for at least 100us after the
 	 * reference clock becomes stable.
 	 */
-	DELAY(100);
+	if (gpio_pwren != NULL)
+		DELAY(100000);
+	else
+		DELAY(100);
 
 	/* Deassert PERST#. */
 	PSET4(sc, port, PCIE_PORT_PERST, PCIE_PORT_PERST_DIS);
-#if 0
-	gpio_controller_set_pin(reset_gpio, 0);
-	free(reset_gpio, M_TEMP, reset_gpiolen);
-#else
-	error = GPIO_PIN_SET(gpio_rset->dev, gpio_rset->pin, 0);
+
+	error = gpio_pin_set_active(gpio_rset, false);
 	if (error != 0) {
 		device_printf(dev, "Cannot clear GPIO pin %d on %s\n",
 		    gpio_rset->pin, device_get_nameunit(gpio_rset->dev));
 		return;
 	}
 	free(gpio_rset, M_DEVBUF);
-#endif
 
 	for (timo = 2500; timo > 0; timo--) {
 		stat = PREAD4(sc, port, PCIE_PORT_STAT);
@@ -968,11 +881,10 @@ device_printf(sc->dev, "port %u: link up\n", port);
 			break;
 		DELAY(100);
 	}
-	if ((stat & PCIE_PORT_STAT_READY) == 0)
-{
-		device_printf(sc->dev, "didn't become ready");
+	if ((stat & PCIE_PORT_STAT_READY) == 0) {
+		device_printf(sc->dev, "didn't become ready\n");
 		return;
-}
+	}
 
 	PCLR4(sc, port, PCIE_PORT_REFCLK, PCIE_PORT_REFCLK_CGDIS);
 	PCLR4(sc, port, PCIE_PORT_APPCLK, PCIE_PORT_APPCLK_CGDIS);
@@ -985,12 +897,10 @@ device_printf(sc->dev, "port %u: link up\n", port);
 			break;
 		DELAY(100);
 	}
-	if ((stat & PCIE_PORT_STAT_READY) == 0)
-{
-		device_printf(sc->dev, "didn't link up");
+	if ((stat & PCIE_PORT_STAT_READY) == 0) {
+		device_printf(sc->dev, "didn't link up\n");
 		return;
-}
-#endif
+	}
 }
 
 static int
@@ -1000,7 +910,9 @@ apple_pcie_msi_attach(device_t dev)
 	phandle_t node, port_node, xref;
 	int rid, i, error;
 	cell_t *cells;
+	const char *name;
 	ssize_t len;
+
 
 	sc->msi_fdt_data = malloc(sizeof(*sc->msi_fdt_data) +
 	    FDT_INTR_NCELLS * sizeof(*sc->msi_fdt_data->cells),
@@ -1075,8 +987,17 @@ device_printf(dev, "msi_start %d nmsi %d\n", sc->msi_start, sc->nmsi);
 
 	sc->msi_isrcs = malloc(sizeof(*sc->msi_isrcs) * sc->nmsi, M_DEVBUF,
 	    M_WAITOK | M_ZERO);
-	for (i = 0; i < sc->nmsi; i++)
-		sc->msi_isrcs[i].irq = i;
+	name = device_get_nameunit(dev);
+	for (i = 0; i < sc->nmsi; i++) {
+		struct intr_irqsrc *isrc = &sc->msi_isrcs[i].isrc;
+
+		isrc->isrc_irq = sc->msi_start + i;
+		error = intr_isrc_register(isrc, dev, 0, "%s,%u",
+		    name, isrc->isrc_irq);
+		/* XXX unwind other failures? */
+		if (error != 0)
+			return (ENXIO);
+	}
 
 	xref = OF_xref_from_node(node);
 	OF_device_register_xref(xref, dev);

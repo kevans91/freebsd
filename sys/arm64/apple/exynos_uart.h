@@ -47,7 +47,7 @@
  * Others have UFSTAT_TXFULL  (1 << 9)
  */
 #define	UFSTAT_TXFULL		(1 << 24)
-#define	UFSTAT_S5L_TXFULL	(0x1 << 9)
+#define	UFSTAT_S5L_TXFULL	(1 << 9)
 
 #define	SSCOM_UINTM		0x038
 #define	SSCOM_UINTP		0x030

@@ -20,8 +20,23 @@
 cpu		ARM64
 ident		GENERIC
 
+# For now
+envvar		"hint.xhci.0.disabled=1"
+envvar		"hint.xhci.1.disabled=1"
+#envvar		"hw.usb.debug=20"
+#envvar		"hw.usb.xhci.debug=20"
+#envvar		"hw.usb.ctrl.debug=20"
+#envvar		"hw.usb.uhub.debug=20"
+envvar		"hw.usb.xhci.use_polling=1"
+#envvar		"hw.ncpu=1"	# Memory issues in USB
+
 include		"std.arm64"
 include		"std.dev"
+
+#options 	KTR
+#options 	KTR_MASK=KTR_TRAP|KTR_SYSC
+#options 	KTR_VERBOSE
+#options 	DIAGNOSTIC
 
 # Include SoC specific configuration
 include		"std.al"

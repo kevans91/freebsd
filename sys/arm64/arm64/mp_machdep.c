@@ -77,6 +77,8 @@
 
 #include <dev/psci/psci.h>
 
+#include <ddb/ddb.h>
+
 #include "pic_if.h"
 
 #define	MP_BOOTSTACK_SIZE	(kstack_pages * PAGE_SIZE)
@@ -398,7 +400,9 @@ ipi_hardclock(void *dummy __unused)
 static void
 ipi_preempt(void *dummy __unused)
 {
+#if 0
 	CTR1(KTR_SMP, "%s: IPI_PREEMPT", __func__);
+#endif
 	sched_preempt(curthread);
 }
 
@@ -434,6 +438,16 @@ ipi_stop(void *dummy __unused)
 	CPU_CLR_ATOMIC(cpu, &started_cpus);
 	CPU_CLR_ATOMIC(cpu, &stopped_cpus);
 	CTR0(KTR_SMP, "IPI_STOP (restart)");
+}
+
+DB_SHOW_COMMAND(stoppedcpus, db_show_stoppedcpus)
+{
+
+	printf("[cpu%d] Stopped:\n", PCPU_GET(cpuid));
+	for (u_int i = 0; i < mp_ncpus; i++) {
+		if (CPU_ISSET(i, &stopped_cpus))
+			printf(" cpu %d\n", i);
+	}
 }
 
 struct cpu_group *
@@ -1014,7 +1028,8 @@ ipi_cpu(int cpu, u_int ipi)
 	CPU_ZERO(&cpus);
 	CPU_SET(cpu, &cpus);
 
-	CTR3(KTR_SMP, "%s: cpu: %d, ipi: %x", __func__, cpu, ipi);
+	if (ipi != IPI_PREEMPT)
+		CTR3(KTR_SMP, "%s: cpu: %d, ipi: %x", __func__, cpu, ipi);
 	intr_ipi_send(cpus, ipi);
 }
 

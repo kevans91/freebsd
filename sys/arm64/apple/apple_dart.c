@@ -630,11 +630,15 @@ apple_dart_ctx_alloc(device_t dev, struct iommu_domain *iodom, device_t child,
 	struct apple_dart_domain *domain;
 	struct apple_dart_softc *sc;
 	struct apple_dart_ctx *ctx;
+#if 0
 	device_t iommudev;
+#endif
 	phandle_t node;
 	uint16_t rid;
 	u_int sid;
+#if 0
 	int err;
+#endif
 
 	sc = device_get_softc(dev);
 	domain = (struct apple_dart_domain *)iodom;
@@ -642,9 +646,13 @@ apple_dart_ctx_alloc(device_t dev, struct iommu_domain *iodom, device_t child,
 
 	rid = pci_get_rid(child);
 
-	err = ofw_bus_iommumap(node, rid, &iommudev, &sid);
+	/* XXX */
+	sid = 3;
+#if 0
+	err = ofw_bus_iommu_map(node, rid, &iommudev, &sid);
 	if (err != 0)
 		return (NULL);
+#endif
 
 	if (!apple_dart_sid_acquire(domain, sid, disabled))
 		return (NULL);

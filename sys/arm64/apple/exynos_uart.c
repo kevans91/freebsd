@@ -198,6 +198,7 @@ exynos4210_init_common(struct exynos_uart_cfg *cfg, struct uart_bas *bas,
 
 	bas->driver1 = cfg;
 
+	/* Clear interrupts */
 	if (cfg->cfg_type == EXUART_S5L) {
 		uart_setreg(bas, SSCOM_UTRSTAT, 0);
 	} else {
@@ -383,7 +384,7 @@ exynos4210_bus_transmit(struct uart_softc *sc)
 		if ((reg & UCON_S5L_TXTHRESH) == 0) {
 			reg |= UCON_S5L_TXTHRESH;
 			bus_space_write_4(sc->sc_bas.bst, sc->sc_bas.bsh,
-			    UCON_S5L_TXTHRESH, reg);
+			    SSCOM_UCON, reg);
 		}
 	} else {
 		reg = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh,

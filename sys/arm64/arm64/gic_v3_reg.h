@@ -268,6 +268,7 @@
 #define	GITS_PIDR2_ARCH_GICv4	GICR_PIDR2_ARCH_GICv4
 
 #define	GITS_CTLR		(0x0000)
+#define		GITS_CTLR_QUIESCENT	(1 << 31)
 #define		GITS_CTLR_EN	(1 << 0)
 
 #define	GITS_IIDR		(0x0004)
