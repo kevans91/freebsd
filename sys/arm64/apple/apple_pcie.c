@@ -1260,6 +1260,50 @@ device_printf(dev, "bst %p bsh %lx\n", sc->base.base.bst, sc->base.base.bsh);
 	return (bus_generic_attach(dev));
 }
 
+static int
+apple_pcie_activate_resource(device_t dev, device_t child, int type, int rid,
+    struct resource *r)
+{
+	rman_res_t start, end;
+	int res;
+
+	if ((res = rman_activate_resource(r)) != 0)
+		return (res);
+
+	start = rman_get_start(r);
+	end = rman_get_end(r);
+	res = pci_host_generic_translate_resource(dev, type, start, end,
+	    &start, &end);
+	if (res != 0) {
+		rman_deactivate_resource(r);
+		return (res);
+	}
+
+	rman_set_start(r, start);
+	rman_set_end(r, end);
+
+	/* Hijack memory requests and map them nGnRE */
+	if (type == SYS_RES_MEMORY && (rman_get_flags(r) & RF_UNMAPPED) == 0) {
+		struct resource_map_request req;
+		struct resource_map map;
+
+		resource_init_map_request(&req);
+		req.memattr = VM_MEMATTR_DEVICE_nGnRE;
+		res = bus_map_resource(child, type, r, &req, &map);
+		if (res != 0) {
+			rman_deactivate_resource(r);
+			return (res);
+		}
+
+		rman_set_mapping(r, &map);
+
+		return (0);
+	}
+
+	return (BUS_ACTIVATE_RESOURCE(device_get_parent(dev), child, type,
+	    rid, r));
+}
+
 /*
  * Device method table.
  */
@@ -1267,6 +1311,8 @@ static device_method_t apple_pcie_methods[] = {
 	/* Device interface. */
 	DEVMETHOD(device_probe,			apple_pcie_probe),
 	DEVMETHOD(device_attach,		apple_pcie_attach),
+
+	DEVMETHOD(bus_activate_resource,	apple_pcie_activate_resource),
 
 	/* PCIB interface. */
 	DEVMETHOD(pcib_read_config,		apple_pcie_read_config),

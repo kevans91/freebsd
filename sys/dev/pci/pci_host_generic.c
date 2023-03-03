@@ -383,8 +383,8 @@ pci_host_generic_core_release_resource(device_t dev, device_t child, int type,
 	return (bus_generic_release_resource(dev, child, type, rid, res));
 }
 
-static int
-generic_pcie_translate_resource_common(device_t dev, int type, rman_res_t start,
+int
+pci_host_generic_translate_resource(device_t dev, int type, rman_res_t start,
     rman_res_t end, rman_res_t *new_start, rman_res_t *new_end)
 {
 	struct generic_pcie_core_softc *sc;
@@ -446,7 +446,7 @@ generic_pcie_translate_resource(device_t bus, int type,
 {
 	rman_res_t newend; /* unused */
 
-	return (generic_pcie_translate_resource_common(
+	return (pci_host_generic_translate_resource(
 	    bus, type, start, 0, newstart, &newend));
 }
 
@@ -512,7 +512,7 @@ generic_pcie_activate_resource(device_t dev, device_t child, int type,
 
 	start = rman_get_start(r);
 	end = rman_get_end(r);
-	res = generic_pcie_translate_resource_common(dev, type, start, end,
+	res = pci_host_generic_translate_resource(dev, type, start, end,
 	    &start, &end);
 	if (res != 0) {
 		rman_deactivate_resource(r);
