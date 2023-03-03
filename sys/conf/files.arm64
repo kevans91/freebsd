@@ -489,8 +489,12 @@ arm/annapurna/alpine/alpine_serdes.c		optional al_serdes fdt		\
 
 # Apple M1
 arm64/apple/apple_aic.c				optional soc_apple_t8103 fdt
+arm64/apple/apple_dart.c			optional soc_apple_t8103 fdt iommu \
+	compile-with "${NORMAL_C} ${NO_WUNUSED_BUT_SET_VARIABLE}"
+arm64/apple/apple_mbox.c			optional soc_apple_t8103 fdt
 arm64/apple/apple_pcie.c			optional soc_apple_t8103 fdt pci
 arm64/apple/apple_pinctrl.c			optional soc_apple_t8103 fdt
+arm64/apple/apple_pmgr.c			optional soc_apple_t8103 fdt
 arm64/apple/apple_wdog.c			optional soc_apple_t8103 fdt
 arm64/apple/exynos_uart.c			optional soc_apple_t8103 fdt
 
