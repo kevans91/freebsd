@@ -195,6 +195,13 @@ pan_enable(void)
 }
 
 bool
+has_e2h_enabled(void)
+{
+
+	return ((hcr_el2 & HCR_E2H) != 0);
+}
+
+bool
 has_hyp(void)
 {
 
@@ -202,7 +209,7 @@ has_hyp(void)
 	 * XXX The E2H check is wrong, but it's close enough for now.  Needs to
 	 * be re-evaluated once we're running regularly in EL2.
 	 */
-	return (boot_el == 2 && (hcr_el2 & HCR_E2H) == 0);
+	return (boot_el == 2 && !has_e2h_enabled());
 }
 
 static void

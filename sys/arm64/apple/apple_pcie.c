@@ -1312,7 +1312,7 @@ static device_method_t apple_pcie_methods[] = {
 	DEVMETHOD(device_probe,			apple_pcie_probe),
 	DEVMETHOD(device_attach,		apple_pcie_attach),
 
-	DEVMETHOD(bus_activate_resource,	apple_pcie_activate_resource),
+//	DEVMETHOD(bus_activate_resource,	apple_pcie_activate_resource),
 
 	/* PCIB interface. */
 	DEVMETHOD(pcib_read_config,		apple_pcie_read_config),

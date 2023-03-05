@@ -51,27 +51,27 @@ __FBSDID("$FreeBSD$");
 #include <machine/bus.h>
 #include <machine/machdep.h>
 
-#define	APLWD_WD0_TIMER		0x0000
-#define	APLWD_WD0_RESET		0x0004
-#define	APLWD_WD0_INTR		0x0008
-#define	APLWD_WD0_CNTL		0x000c
+#define	APPLE_WDOG_WD0_TIMER		0x0000
+#define	APPLE_WDOG_WD0_RESET		0x0004
+#define	APPLE_WDOG_WD0_INTR		0x0008
+#define	APPLE_WDOG_WD0_CNTL		0x000c
 
-#define	APLWD_WD1_TIMER		0x0010
-#define	APLWD_WD1_RESET		0x0014
-#define	APLWD_WD1_CNTL		0x001c
+#define	APPLE_WDOG_WD1_TIMER		0x0010
+#define	APPLE_WDOG_WD1_RESET		0x0014
+#define	APPLE_WDOG_WD1_CNTL		0x001c
 
-#define	APLWD_WD2_TIMER		0x0020
-#define	APLWD_WD2_RESET		0x0024
-#define	APLWD_WD2_CNTL		0x002c
+#define	APPLE_WDOG_WD2_TIMER		0x0020
+#define	APPLE_WDOG_WD2_RESET		0x0024
+#define	APPLE_WDOG_WD2_CNTL		0x002c
 
-#define	APLWD_CNTL_INTENABLE	0x0001
-#define	APLWD_CNTL_INTSTAT	0x0002
-#define	APLWD_CNTL_RSTENABLE	0x0004
+#define	APPLE_WDOG_CNTL_INTENABLE	0x0001
+#define	APPLE_WDOG_CNTL_INTSTAT		0x0002
+#define	APPLE_WDOG_CNTL_RSTENABLE	0x0004
 
 #define	READ(_sc, _r) bus_space_read_4((_sc)->bst, (_sc)->bsh, (_r))
 #define	WRITE(_sc, _r, _v) bus_space_write_4((_sc)->bst, (_sc)->bsh, (_r), (_v))
 
-struct aplwd_softc {
+struct apple_wdog_softc {
 	device_t		dev;
 	struct resource *	res;
 	bus_space_tag_t		bst;
@@ -81,18 +81,16 @@ struct aplwd_softc {
 	struct mtx		mtx;
 };
 
-static struct aplwd_softc *aplwd_lsc = NULL;
-
 static struct ofw_compat_data compat_data[] = {
 	{"apple,wdt",		1},
 	{NULL,			0}
 };
 
-static void aplwd_watchdog_fn(void *private, u_int cmd, int *error);
-static void aplwd_reboot_system(void *, int);
+static void apple_wdog_watchdog_fn(void *private, u_int cmd, int *error);
+static void apple_wdog_reboot_system(void *, int);
 
 static int
-aplwd_probe(device_t dev)
+apple_wdog_probe(device_t dev)
 {
 
 	if (!ofw_bus_status_okay(dev))
@@ -107,13 +105,10 @@ aplwd_probe(device_t dev)
 }
 
 static int
-aplwd_attach(device_t dev)
+apple_wdog_attach(device_t dev)
 {
-	struct aplwd_softc *sc;
+	struct apple_wdog_softc *sc;
 	int error, rid;
-
-	if (aplwd_lsc != NULL)
-		return (ENXIO);
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
@@ -144,14 +139,14 @@ aplwd_attach(device_t dev)
 		goto fail_clk;
 	}
 
-	aplwd_lsc = sc;
-	mtx_init(&sc->mtx, "Apple Watchdog", "aplwd", MTX_DEF);
-	EVENTHANDLER_REGISTER(watchdog_list, aplwd_watchdog_fn, sc, 0);
-	EVENTHANDLER_REGISTER(shutdown_final, aplwd_reboot_system, sc,
+	mtx_init(&sc->mtx, "Apple Watchdog", "apple_wdog", MTX_DEF);
+	EVENTHANDLER_REGISTER(watchdog_list, apple_wdog_watchdog_fn, sc, 0);
+	EVENTHANDLER_REGISTER(shutdown_final, apple_wdog_reboot_system, sc,
 	    SHUTDOWN_PRI_LAST);
 
-	WRITE(sc, APLWD_WD0_CNTL, 0);
-	WRITE(sc, APLWD_WD1_CNTL, 0);
+	/* Reset the watchdog timers. */
+	WRITE(sc, APPLE_WDOG_WD0_CNTL, 0);
+	WRITE(sc, APPLE_WDOG_WD1_CNTL, 0);
 
 	return (0);
 
@@ -163,9 +158,9 @@ fail:
 }
 
 static void
-aplwd_watchdog_fn(void *private, u_int cmd, int *error)
+apple_wdog_watchdog_fn(void *private, u_int cmd, int *error)
 {
-	struct aplwd_softc *sc;
+	struct apple_wdog_softc *sc;
 	uint64_t sec;
 	uint32_t ticks, sec_max;
 
@@ -185,53 +180,38 @@ aplwd_watchdog_fn(void *private, u_int cmd, int *error)
 			device_printf(sc->dev,
 			    "Can't arm, timeout must be between 1-%d seconds\n",
 			    sec_max);
-			WRITE(sc, APLWD_WD1_CNTL, 0);
+			WRITE(sc, APPLE_WDOG_WD1_CNTL, 0);
 			mtx_unlock(&sc->mtx);
 			*error = EINVAL;
 			return;
 		}
 
 		ticks = sec * sc->clk_freq;
-		WRITE(sc, APLWD_WD1_TIMER, 0);
-		WRITE(sc, APLWD_WD1_RESET, ticks);
-		WRITE(sc, APLWD_WD1_CNTL, APLWD_CNTL_RSTENABLE);
+		WRITE(sc, APPLE_WDOG_WD1_TIMER, 0);
+		WRITE(sc, APPLE_WDOG_WD1_RESET, ticks);
+		WRITE(sc, APPLE_WDOG_WD1_CNTL, APPLE_WDOG_CNTL_RSTENABLE);
 
 		*error = 0;
 	} else
-		WRITE(sc, APLWD_WD1_CNTL, 0);
+		WRITE(sc, APPLE_WDOG_WD1_CNTL, 0);
 
 	mtx_unlock(&sc->mtx);
 }
 
-#if 0	/* what is this for? */
-void
-aplwd_watchdog_reset(void)
-{
-
-	if (aplwd_lsc == NULL)
-		return;
-
-	WRITE(aplwd_lsc, APLWD_WD1_CNTL, 0);
-}
-#endif
-
 static void
-aplwd_reboot_system(void *private, int howto)
+apple_wdog_reboot_system(void *private, int howto)
 {
-	struct aplwd_softc *sc = private;
+	struct apple_wdog_softc *sc = private;
 
 	/* Only handle reset. */
-	if (howto & RB_HALT || howto & RB_POWEROFF)
+	if ((howto & (RB_HALT | RB_POWEROFF)) != 0)
 		return;
 
 	printf("Resetting system ... ");
 
-	WRITE(sc, APLWD_WD1_CNTL, APLWD_CNTL_RSTENABLE);
-	WRITE(sc, APLWD_WD1_RESET, 1);
-	WRITE(sc, APLWD_WD1_TIMER, 0);
-#if 0	/* Linux does this read */
-	(void) READ(sc, APLWD_WD1_TIMER);
-#endif
+	WRITE(sc, APPLE_WDOG_WD1_CNTL, APPLE_WDOG_CNTL_RSTENABLE);
+	WRITE(sc, APPLE_WDOG_WD1_RESET, 1);
+	WRITE(sc, APPLE_WDOG_WD1_TIMER, 0);
 
 	/* Wait for watchdog timeout; should take milliseconds. */
 	DELAY(2000000);
@@ -240,17 +220,17 @@ aplwd_reboot_system(void *private, int howto)
 	printf("failed to reset.\n");
 }
 
-static device_method_t aplwd_methods[] = {
-	DEVMETHOD(device_probe, aplwd_probe),
-	DEVMETHOD(device_attach, aplwd_attach),
+static device_method_t apple_wdog_methods[] = {
+	DEVMETHOD(device_probe, apple_wdog_probe),
+	DEVMETHOD(device_attach, apple_wdog_attach),
 
 	DEVMETHOD_END
 };
 
-static driver_t aplwd_driver = {
-	"aplwd",
-	aplwd_methods,
-	sizeof(struct aplwd_softc),
+static driver_t apple_wdog_driver = {
+	"apple_wdog",
+	apple_wdog_methods,
+	sizeof(struct apple_wdog_softc),
 };
 
-DRIVER_MODULE(aplwd, simplebus, aplwd_driver, 0, 0);
+DRIVER_MODULE(apple_wdog, simplebus, apple_wdog_driver, 0, 0);

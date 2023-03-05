@@ -40,6 +40,7 @@
 #include <sys/smp.h>
 
 #include <machine/bus.h>
+#include <machine/machdep.h>
 #ifdef SMP
 #include <machine/intr.h>
 #include <machine/smp.h>
@@ -50,6 +51,8 @@
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
+
+#include <dt-bindings/interrupt-controller/apple-aic.h>
 
 #include "pic_if.h"
 
@@ -305,6 +308,7 @@ apple_aic_map_intr_fdt(struct apple_aic_softc *sc,
 		return (EINVAL);
 	}
 
+	device_printf(sc->sc_dev, "cells[1] == %d\n", data->cells[1]);
 	*irq = data->cells[1];
 	if (*irq > sc->sc_nirqs)
 		return (EINVAL);
@@ -367,6 +371,7 @@ apple_aic_setup_intr(device_t dev, struct intr_irqsrc *isrc,
 	sc = device_get_softc(dev);
 	ai = (struct apple_aic_irqsrc *)isrc;
 
+	device_printf(dev, "setup_intr called\n");
 	if (data != NULL) {
 		KASSERT(data->type == INTR_MAP_DATA_FDT,
 		    ("%s: Only FDT data is supported (got %#x)", __func__,
@@ -376,6 +381,7 @@ apple_aic_setup_intr(device_t dev, struct intr_irqsrc *isrc,
 		    &die);
 		if (error != 0)
 			return (error);
+		device_printf(dev, "setup_intr irq %d\n", irq);
 	} else {
 		pol = INTR_POLARITY_CONFORM;
 		trig = INTR_TRIGGER_CONFORM;
@@ -596,43 +602,44 @@ static int
 apple_aic_fiq(void *arg)
 {
 	struct apple_aic_softc *sc;
+	struct apple_aic_irqsrc *isrcs;
 	struct trapframe *tf;
 
 	sc = arg;
 	tf = curthread->td_intr_frame;
 
+#ifdef SMP
+	/* Handle IPIs. */
 	if ((READ_SPECIALREG(AIC_IPI_SR_EL1) & AIC_IPI_SR_EL1_PENDING) != 0) {
 		WRITE_SPECIALREG(AIC_IPI_SR_EL1, AIC_IPI_SR_EL1_PENDING);
-		isb();
 		apple_aic_ipi_received(sc, tf);
 	}
-
-	/*
-	 * Lets hope the FIQ is due to a timer. There are other sources, but
-	 * we don't handle them yet.
-	 */
-#if 0
-	if ((READ_SPECIALREG(cntp_ctl_el0) & CNTV_CTL_ISTATUS) != 0)
-		intr_isrc_dispatch(&sc->sc_isrcs[0][1].ai_isrc, tf);
 #endif
 
+	isrcs = sc->sc_isrcs[0];
 	if ((READ_SPECIALREG(cntv_ctl_el0) & CNTV_CTL_BITS) ==
 	    (CNTV_CTL_ENABLE | CNTV_CTL_ISTATUS)) {
-		intr_isrc_dispatch(&sc->sc_isrcs[0][0 /* 2 */].ai_isrc, tf);
+		intr_isrc_dispatch(&isrcs[AIC_TMR_GUEST_VIRT].ai_isrc, tf);
 	}
 
-#if 0
-	reg = READ_SPECIALREG(AIC_FIQ_VM_TIMER);
-	if ((reg & AIC_FIQ_VM_TIMER_PEN) != 0) {
-		KASSERT(false, ("vm phys tmr\n"));
-		intr_isrc_dispatch(&sc->sc_isrcs[0][3].ai_isrc, tf);
+	if (has_hyp()) {
+		uint64_t reg;
+
+		if ((READ_SPECIALREG(cntp_ctl_el0) & CNTV_CTL_ISTATUS) != 0) {
+			intr_isrc_dispatch(&isrcs[AIC_TMR_GUEST_PHYS].ai_isrc,
+			    tf);
+		}
+
+		reg = READ_SPECIALREG(AIC_FIQ_VM_TIMER);
+		if ((reg & AIC_FIQ_VM_TIMER_PEN) != 0) {
+			intr_isrc_dispatch(&isrcs[AIC_TMR_HV_PHYS].ai_isrc, tf);
+		}
+
+		if ((reg & AIC_FIQ_VM_TIMER_VEN) != 0) {
+			intr_isrc_dispatch(&isrcs[AIC_TMR_HV_VIRT].ai_isrc, tf);
+		}
 	}
 
-	if ((reg & AIC_FIQ_VM_TIMER_VEN) != 0) {
-		KASSERT(false, ("vm virt tmr\n"));
-		intr_isrc_dispatch(&sc->sc_isrcs[0][4].ai_isrc, tf);
-	}
-#endif
 	return (FILTER_HANDLED);
 }
 

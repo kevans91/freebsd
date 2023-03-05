@@ -877,7 +877,7 @@ smmu_init_cd(struct smmu_softc *sc, struct smmu_domain *domain)
 
 	ptr[1] = paddr;
 	ptr[2] = 0;
-	ptr[3] = MAIR_ATTR(MAIR_DEVICE_nGnRnE, VM_MEMATTR_DEVICE)	|
+	ptr[3] = MAIR_ATTR(MAIR_DEVICE_nGnRnE, VM_MEMATTR_DEVICE_nGnRnE)	|
 		 MAIR_ATTR(MAIR_NORMAL_NC, VM_MEMATTR_UNCACHEABLE)	|
 		 MAIR_ATTR(MAIR_NORMAL_WB, VM_MEMATTR_WRITE_BACK)	|
 		 MAIR_ATTR(MAIR_NORMAL_WT, VM_MEMATTR_WRITE_THROUGH);
