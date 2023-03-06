@@ -36,6 +36,8 @@
 
 #include "nvme_private.h"
 
+#include "nvme_if.h"
+
 typedef enum error_print { ERROR_PRINT_NONE, ERROR_PRINT_NO_RETRY, ERROR_PRINT_ALL } error_print_t;
 #define DO_NOT_RETRY	1
 
@@ -1213,9 +1215,9 @@ nvme_qpair_submit_tracker(struct nvme_qpair *qpair, struct nvme_tracker *tr)
 		tr->deadline = SBT_MAX;
 
 	/* Copy the command from the tracker to the submission queue. */
-	indx = (ctrlr->ops->sq_enter)(ctrlr, qpair);
+	indx = NVME_SQ_ENTER(ctrlr->dev, ctrlr, qpair);
 	memcpy(&qpair->cmd[indx], &req->cmd, sizeof(req->cmd));
-	(ctrlr->ops->sq_leave)(ctrlr, qpair);
+	NVME_SQ_LEAVE(ctrlr->dev, ctrlr, qpair);
 	qpair->num_cmds++;
 }
 

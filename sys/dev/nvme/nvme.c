@@ -48,16 +48,6 @@ struct nvme_consumer nvme_consumer[NVME_MAX_CONSUMERS];
 
 int32_t		nvme_retry_count;
 
-/* Standard/default set of nvme_ops */
-struct nvme_ops nvme_ops = {
-	.enable = NULL,
-
-	.sq_enter = nvme_qpair_sq_enter,
-	.sq_leave = nvme_qpair_sq_leave,
-	/* more to come */
-
-};
-
 MALLOC_DEFINE(M_NVME, "nvme", "nvme(4) memory allocations");
 
 static void
@@ -103,8 +93,6 @@ nvme_attach(device_t dev)
 
 	ctrlr->config_hook.ich_func = nvme_ctrlr_start_config_hook;
 	ctrlr->config_hook.ich_arg = ctrlr;
-	if (ctrlr->ops == NULL)
-		ctrlr->ops = &nvme_ops;
 
 	if (config_intrhook_establish(&ctrlr->config_hook) != 0)
 		return (ENOMEM);

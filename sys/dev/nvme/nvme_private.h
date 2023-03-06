@@ -215,15 +215,6 @@ struct nvme_namespace {
 	struct mtx			lock;
 };
 
-struct nvme_ops {
-	void		(*enable)(struct nvme_controller *);
-	uint32_t	(*sq_enter)(struct nvme_controller *,
-				    struct nvme_qpair *);
-	void		(*sq_leave)(struct nvme_controller *,
-				    struct nvme_qpair *);
-};
-
-extern struct nvme_ops nvme_ops;
 uint32_t	nvme_qpair_sq_enter(struct nvme_controller *ctrlr,
 				    struct nvme_qpair *qpair);
 void		nvme_qpair_sq_leave(struct nvme_controller *ctrlr,
@@ -249,7 +240,6 @@ struct nvme_controller {
 	bus_space_handle_t	bus_handle;
 	int			resource_id;
 	struct resource		*resource;
-	struct nvme_ops		*ops;
 
 	/*
 	 * The NVMe spec allows for the MSI-X table to be placed in BAR 4/5,

@@ -44,6 +44,8 @@
 
 #include "nvme_private.h"
 
+#include "nvme_if.h"
+
 #define B4_CHK_RDY_DELAY_MS	2300		/* work around controller bug */
 
 static void nvme_ctrlr_construct_and_submit_aer(struct nvme_controller *ctrlr,
@@ -333,8 +335,7 @@ nvme_ctrlr_enable(struct nvme_controller *ctrlr)
 		return (nvme_ctrlr_wait_for_ready(ctrlr, 1));
 	}
 
-	if (ctrlr->ops->enable != NULL)
-		ctrlr->ops->enable(ctrlr);
+	NVME_ENABLE(ctrlr->dev, ctrlr);
 
 	/* EN == 0 already wait for RDY == 0 or timeout & fail */
 	err = nvme_ctrlr_wait_for_ready(ctrlr, 0);

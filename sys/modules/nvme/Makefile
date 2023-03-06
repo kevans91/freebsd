@@ -7,6 +7,7 @@ SRCS =	nvme.c			\
 	nvme_ahci.c		\
 	nvme_ctrlr.c		\
 	nvme_ctrlr_cmd.c	\
+	nvme_if.c		\
 	nvme_ns.c		\
 	nvme_ns_cmd.c		\
 	nvme_pci.c		\
@@ -18,6 +19,7 @@ SRCS =	nvme.c			\
 				\
 	bus_if.h		\
 	device_if.h		\
+	nvme_if.h		\
 	opt_cam.h		\
 	opt_nvme.h		\
 	pci_if.h
