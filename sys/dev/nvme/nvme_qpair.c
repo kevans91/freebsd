@@ -1159,6 +1159,24 @@ nvme_qpair_timeout(void *arg)
 	}
 }
 
+uint32_t
+nvme_qpair_sq_enter(struct nvme_controller *ctrlr, struct nvme_qpair *qpair)
+{
+	return (qpair->sq_tail);
+}
+
+void
+nvme_qpair_sq_leave(struct nvme_controller *ctrlr, struct nvme_qpair *qpair)
+{
+	if (++qpair->sq_tail == qpair->num_entries)
+		qpair->sq_tail = 0;
+
+	bus_dmamap_sync(qpair->dma_tag, qpair->queuemem_map,
+	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
+	bus_space_write_4(qpair->ctrlr->bus_tag, qpair->ctrlr->bus_handle,
+	    qpair->sq_tdbl_off, qpair->sq_tail);
+}
+
 /*
  * Submit the tracker to the hardware. Must already be in the
  * outstanding queue when called.
@@ -1168,6 +1186,7 @@ nvme_qpair_submit_tracker(struct nvme_qpair *qpair, struct nvme_tracker *tr)
 {
 	struct nvme_request	*req;
 	struct nvme_controller	*ctrlr;
+	uint32_t indx;
 	int timeout;
 
 	mtx_assert(&qpair->lock, MA_OWNED);
@@ -1194,15 +1213,9 @@ nvme_qpair_submit_tracker(struct nvme_qpair *qpair, struct nvme_tracker *tr)
 		tr->deadline = SBT_MAX;
 
 	/* Copy the command from the tracker to the submission queue. */
-	memcpy(&qpair->cmd[qpair->sq_tail], &req->cmd, sizeof(req->cmd));
-
-	if (++qpair->sq_tail == qpair->num_entries)
-		qpair->sq_tail = 0;
-
-	bus_dmamap_sync(qpair->dma_tag, qpair->queuemem_map,
-	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
-	bus_space_write_4(qpair->ctrlr->bus_tag, qpair->ctrlr->bus_handle,
-	    qpair->sq_tdbl_off, qpair->sq_tail);
+	indx = (ctrlr->ops->sq_enter)(ctrlr, qpair);
+	memcpy(&qpair->cmd[indx], &req->cmd, sizeof(req->cmd));
+	(ctrlr->ops->sq_leave)(ctrlr, qpair);
 	qpair->num_cmds++;
 }
 

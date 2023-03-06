@@ -333,6 +333,9 @@ nvme_ctrlr_enable(struct nvme_controller *ctrlr)
 		return (nvme_ctrlr_wait_for_ready(ctrlr, 1));
 	}
 
+	if (ctrlr->ops->enable != NULL)
+		ctrlr->ops->enable(ctrlr);
+
 	/* EN == 0 already wait for RDY == 0 or timeout & fail */
 	err = nvme_ctrlr_wait_for_ready(ctrlr, 0);
 	if (err != 0)
@@ -1357,6 +1360,7 @@ nvme_ctrlr_construct(struct nvme_controller *ctrlr, device_t dev)
 		ctrlr->domain = 0;
 
 	ctrlr->cap_lo = cap_lo = nvme_mmio_read_4(ctrlr, cap_lo);
+#define bootverbose 1
 	if (bootverbose) {
 		device_printf(dev, "CapLo: 0x%08x: MQES %u%s%s%s%s, TO %u\n",
 		    cap_lo, NVME_CAP_LO_MQES(cap_lo),
@@ -1400,6 +1404,7 @@ nvme_ctrlr_construct(struct nvme_controller *ctrlr, device_t dev)
 		    NVME_PMRCAP_PMRTO(pmrcap),
 		    NVME_PMRCAP_CMSS(pmrcap) ? ", CMSS" : "");
 	}
+#undef bootverbose
 
 	ctrlr->dstrd = NVME_CAP_HI_DSTRD(cap_hi) + 2;
 
