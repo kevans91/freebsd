@@ -38,6 +38,8 @@
 #include <machine/bus.h>
 #include <sys/rman.h>
 #include <sys/malloc.h>
+#include <sys/sysctl.h>
+#include <sys/time.h>
 
 #include <contrib/dev/acpica/include/acpi.h>
 
@@ -71,6 +73,12 @@ struct acpi_cmbat_softc {
 };
 
 ACPI_SERIAL_DECL(cmbat, "ACPI cmbat");
+
+static struct sysctl_ctx_list	acpi_cmbat_sysctl_ctx;
+static struct sysctl_oid	*acpi_cmbat_sysctl_tree;
+
+#define	CMBAT_MAX_NOTIFY_INTERVAL	3600 /* seconds */
+static struct timeval		notify_interval;
 
 static int		acpi_cmbat_probe(device_t dev);
 static int		acpi_cmbat_attach(device_t dev);
@@ -130,6 +138,7 @@ acpi_cmbat_attach(device_t dev)
     int		error;
     ACPI_HANDLE	handle;
     struct acpi_cmbat_softc *sc;
+    struct acpi_softc *acpi_sc;
 
     sc = device_get_softc(dev);
     handle = acpi_get_handle(dev);
@@ -151,6 +160,18 @@ acpi_cmbat_attach(device_t dev)
 	acpi_cmbat_notify_handler, dev);
 
     AcpiOsExecute(OSL_NOTIFY_HANDLER, acpi_cmbat_init_battery, dev);
+
+    acpi_sc = device_get_softc(device_get_parent(dev));
+    sysctl_ctx_init(&acpi_cmbat_sysctl_ctx);
+    acpi_cmbat_sysctl_tree = SYSCTL_ADD_NODE(&acpi_cmbat_sysctl_ctx,
+        SYSCTL_CHILDREN(acpi_sc->acpi_sysctl_tree), OID_AUTO, "cmbat",
+	CTLFLAG_RD | CTLFLAG_MPSAFE, 0, "cmbat parameters");
+    /* XXX proc for validation */
+    SYSCTL_ADD_ULONG(&acpi_cmbat_sysctl_ctx,
+        SYSCTL_CHILDREN(acpi_cmbat_sysctl_tree),
+	OID_AUTO, "interval", CTLFLAG_RW,
+	&notify_interval.tv_sec,
+	"minimum time in seconds allowed between notifications");
 
     return (0);
 }
@@ -187,6 +208,7 @@ acpi_cmbat_resume(device_t dev)
 static void
 acpi_cmbat_notify_handler(ACPI_HANDLE h, UINT32 notify, void *context)
 {
+    static struct timeval lasttime[2];
     struct acpi_cmbat_softc *sc;
     device_t dev;
 
@@ -201,6 +223,11 @@ acpi_cmbat_notify_handler(ACPI_HANDLE h, UINT32 notify, void *context)
 	 * battery status will get the new value for us.
 	 */
 	timespecclear(&sc->bst_lastupdated);
+
+	if (notify_interval.tv_sec != 0 &&
+	    notify_interval.tv_sec < CMBAT_MAX_NOTIFY_INTERVAL &&
+	    !ratecheck(&lasttime[0], &notify_interval))
+		return;
 	break;
     case ACPI_NOTIFY_BUS_CHECK:
     case ACPI_BATTERY_BIX_CHANGE:
@@ -209,6 +236,11 @@ acpi_cmbat_notify_handler(ACPI_HANDLE h, UINT32 notify, void *context)
 	 * context.  It's not safe to block in a notify handler.
 	 */
 	AcpiOsExecute(OSL_NOTIFY_HANDLER, acpi_cmbat_get_bix_task, dev);
+
+	if (notify_interval.tv_sec != 0 &&
+	    notify_interval.tv_sec < CMBAT_MAX_NOTIFY_INTERVAL &&
+	    !ratecheck(&lasttime[1], &notify_interval))
+		return;
 	break;
     }
 
