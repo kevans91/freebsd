@@ -135,8 +135,6 @@ static void			vmbus_dma_free(struct vmbus_softc *);
 static int			vmbus_intr_setup(struct vmbus_softc *);
 static void			vmbus_intr_teardown(struct vmbus_softc *);
 static int			vmbus_doattach(struct vmbus_softc *);
-static void			vmbus_event_proc_dummy(struct vmbus_softc *,
-				    int);
 static bus_dma_tag_t	vmbus_get_dma_tag(device_t parent, device_t child);
 static struct vmbus_softc	*vmbus_sc;
 
@@ -692,7 +690,8 @@ vmbus_handle_intr1(struct vmbus_softc *sc, struct trapframe *frame, int cpu)
 	 * As recommended by the Windows guest fellows, we check events before
 	 * checking messages.
 	 */
-	sc->vmbus_event_proc(sc, cpu);
+	if (sc->vmbus_event_proc != NULL)
+		sc->vmbus_event_proc(sc, cpu);
 
 	/*
 	 * Check messages.  Mainly management stuffs; ultra low rate.
@@ -1510,11 +1509,6 @@ cleanup:
 	return (ret);
 }
 
-static void
-vmbus_event_proc_dummy(struct vmbus_softc *sc __unused, int cpu __unused)
-{
-}
-
 #if defined(EARLY_AP_STARTUP)
 
 static void
@@ -1533,16 +1527,14 @@ vmbus_intrhook(void *xsc)
 static int
 vmbus_attach(device_t dev)
 {
-	vmbus_sc = device_get_softc(dev);
-	vmbus_sc->vmbus_dev = dev;
-	vmbus_sc->vmbus_idtvec = -1;
-
 	/*
 	 * Event processing logic will be configured:
 	 * - After the vmbus protocol version negotiation.
 	 * - Before we request channel offers.
 	 */
-	vmbus_sc->vmbus_event_proc = vmbus_event_proc_dummy;
+	vmbus_sc = device_get_softc(dev);
+	vmbus_sc->vmbus_dev = dev;
+	vmbus_sc->vmbus_idtvec = -1;
 
 #if defined(EARLY_AP_STARTUP)
 	/*
