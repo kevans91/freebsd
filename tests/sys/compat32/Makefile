@@ -1,6 +1,9 @@
+PACKAGE=	tests
 
 .if exists(${.CURDIR}/${MACHINE_ARCH})
-SUBDIR+=	${MACHINE_ARCH}
+.include "${MACHINE_ARCH}/Makefile.inc"
 .endif
 
-.include <bsd.subdir.mk>
+TESTSDIR=		${TESTSBASE}/sys/compat32
+
+.include <bsd.test.mk>

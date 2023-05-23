@@ -1,6 +1,5 @@
-# XXX: Doesn't work with GCC and requires an LLVM with the ARM backend
 .if 0
-PACKAGE=	tests
+# XXX: Doesn't work with GCC and requires an LLVM with the ARM backend
 FILESGROUPS+=	asmprogs
 
 ACFLAGS= -target armv7-unknown-freebsd${OS_REVISION} -nostdlib -Wl,-e -Wl,main -static
@@ -22,6 +21,4 @@ asmprogsDIR=	${TESTSDIR}
 ${aprog}: ${aprog}.S
 	${CC} ${ACFLAGS} -o ${.TARGET} ${.ALLSRC}
 .endfor
-
-.include <bsd.test.mk>
 .endif
