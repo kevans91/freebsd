@@ -896,7 +896,13 @@ vfs_mountroot_conf0(struct sbuf *sb)
 	char *s, *tok, *mnt, *opt;
 	int error;
 
-	sbuf_cat(sb, ".onfail panic\n");
+	s = kern_getenv("vfs.mountroot.onfail");
+	if (s != NULL) {
+		sbuf_printf(sb, ".onfail %s\n", s);
+		freeenv(s);
+	} else {
+		sbuf_cat(sb, ".onfail panic\n");
+	}
 	sbuf_printf(sb, ".timeout %d\n", root_mount_timeout);
 	if (boothowto & RB_ASKNAME)
 		sbuf_cat(sb, ".ask\n");
