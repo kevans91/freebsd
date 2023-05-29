@@ -933,8 +933,13 @@ vfs_mountroot_conf0(struct sbuf *sb)
 	if (!(boothowto & RB_DFLTROOT))
 		sbuf_printf(sb, "%s\n", ROOTDEVNAME);
 #endif
-	if (!(boothowto & RB_ASKNAME))
+	s = kern_getenv("vfs.mountroot.onfallback");
+	if (s != NULL) {
+		sbuf_printf(sb, ".%s\n", s);
+		freeenv(s);
+	} else if (!(boothowto & RB_ASKNAME)) {
 		sbuf_cat(sb, ".ask\n");
+	}
 }
 
 static int
