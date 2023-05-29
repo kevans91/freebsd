@@ -704,6 +704,8 @@ parse_directive(char **conf)
 		error = parse_dir_onfail(conf);
 	else if (strcmp(dir, ".timeout") == 0)
 		error = parse_dir_timeout(conf);
+	else if (strcmp(dir, ".reboot") == 0)
+		kern_reboot(RB_NOSYNC);
 	else {
 		printf("mountroot: invalid directive `%s'\n", dir);
 		/* Ignore the rest of the line. */
