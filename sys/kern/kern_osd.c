@@ -73,6 +73,10 @@ SYSCTL_INT(_debug, OID_AUTO, osd, CTLFLAG_RWTUN, &osd_debug, 0, "OSD debug level
 	}								\
 } while (0)
 
+/* Note that this uses the slot index rather than the slot number. */
+#define	OSD_METHOD(osdm, slotidx, method)	\
+    ((osdm).osd_methods[(slotidx) * (osdm).osd_nmethods + (method)])
+
 static void do_osd_del(u_int type, struct osd *osd, u_int slot,
     int list_locked);
 
@@ -139,8 +143,8 @@ osd_register(u_int type, osd_destructor_t destructor, osd_method_t *methods)
 	osdm[type].osd_destructors[i] = destructor;
 	if (osdm[type].osd_nmethods != 0) {
 		for (m = 0; m < osdm[type].osd_nmethods; m++)
-			osdm[type].osd_methods[i * osdm[type].osd_nmethods + m]
-			    = methods != NULL ? methods[m] : NULL;
+			OSD_METHOD(osdm[type], i, m) =
+			    methods != NULL ? methods[m] : NULL;
 	}
 	sx_xunlock(&osdm[type].osd_module_lock);
 	return (i + 1);
@@ -391,8 +395,7 @@ osd_call(u_int type, u_int method, void *obj, void *data)
 		/* Hole in the slot map; avoid dereferencing. */
 		if (osdm[type].osd_destructors[i] == NULL)
 			continue;
-		methodfun = osdm[type].osd_methods[i * osdm[type].osd_nmethods +
-		    method];
+		methodfun = OSD_METHOD(osdm[type], i, method);
 		if (methodfun != NULL && (error = methodfun(obj, data)) != 0)
 			break;
 	}
