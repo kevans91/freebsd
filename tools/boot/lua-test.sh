@@ -20,7 +20,7 @@ t=$obj/userboot/test/test
 u=$dir/boot/userboot.so
 [ -f "$u" ] || u=$obj/userboot/userboot_lua/userboot_lua.so
 [ -f "$dir/boot/lua/loader.lua" ] || die "No boot/lua/loader.lua found"
-[ -f "$dir/boot/kernel/kernel" ] || die "No kernel to load"
+find "$dir/boot" -type f -name 'kernel' || die "No kernel to load"
 [ -x "$t" ] || die "no userboot test jig found ($t)"
 [ -f "$u" ] || die "no userboot.so ($u) found"
 
