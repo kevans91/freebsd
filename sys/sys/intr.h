@@ -63,13 +63,19 @@ struct intr_map_data_msi {
 
 #ifdef notyet
 #define	INTR_SOLO	INTR_MD1
-typedef int intr_irq_filter_t(void *arg, struct trapframe *tf);
+typedef int intr_irq_filter_t(void *arg, uint32_t type, struct trapframe *tf);
 #else
-typedef int intr_irq_filter_t(void *arg);
+typedef int intr_irq_filter_t(void *arg, uint32_t type);
 #endif
 typedef int intr_child_irq_filter_t(void *arg, uintptr_t irq);
 
 #define INTR_ISRC_NAMELEN	(MAXCOMLEN + 1)
+
+/*
+ * For INTR types, the top bit is reserved for INTRNG usage.  Every bit below it
+ * may be used for a platform type (e.g., FIQs).
+ */
+#define	INTR_TYPE_IRQ			0x80000000U	/* IRQs */
 
 #define INTR_ISRCF_IPI		0x01	/* IPI interrupt */
 #define INTR_ISRCF_PPI		0x02	/* PPI interrupt */
@@ -110,10 +116,9 @@ u_int intr_irq_next_cpu(u_int current_cpu, cpuset_t *cpumask);
 
 struct intr_pic *intr_pic_register(device_t, intptr_t);
 int intr_pic_deregister(device_t, intptr_t);
+int intr_pic_claim_root_type(device_t, intptr_t, intr_irq_filter_t *, void *,
+    u_int, uint32_t);
 int intr_pic_claim_root(device_t, intptr_t, intr_irq_filter_t *, void *, u_int);
-#if defined(__aarch64__)
-int intr_pic_claim_fiq(device_t, intr_irq_filter_t *, void *);
-#endif
 int intr_pic_add_handler(device_t, struct intr_pic *,
     intr_child_irq_filter_t *, void *, uintptr_t, uintptr_t);
 bool intr_is_per_cpu(struct resource *);

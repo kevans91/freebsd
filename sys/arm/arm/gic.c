@@ -532,7 +532,15 @@ arm_gic_write_ivar(device_t dev, device_t child, int which, uintptr_t value)
 }
 
 int
-arm_gic_intr(void *arg)
+arm_gic_intr(void *arg, uint32_t type __diagused)
+{
+	MPASS(type == INTR_TYPE_IRQ);
+
+	return (arm_gic_intr_handler(arg));
+}
+
+int
+arm_gic_intr_handler(void *arg)
 {
 	struct arm_gic_softc *sc = arg;
 	struct gic_irqsrc *gi;

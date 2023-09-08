@@ -210,7 +210,7 @@ bcm2835_intc_active_intr(struct bcm_intc_softc *sc)
 }
 
 static int
-bcm2835_intc_intr(void *arg)
+bcm2835_intc_intr_handler(void *arg)
 {
 	int irq, num;
 	struct bcm_intc_softc *sc = arg;
@@ -231,6 +231,14 @@ bcm2835_intc_intr(void *arg)
 		device_printf(sc->sc_dev, "Spurious interrupt detected\n");
 
 	return (FILTER_HANDLED);
+}
+
+static int
+bcm2835_intc_intr(void *arg, uint32_t type __diagused)
+{
+	MPASS(type == INTR_TYPE_IRQ);
+
+	return (bcm2835_intc_intr_handler(arg));
 }
 
 static void
@@ -412,7 +420,7 @@ bcm_intc_attach(device_t dev)
 		}
 	} else {
 		if (bus_setup_intr(dev, sc->intc_irq_res, INTR_TYPE_CLK,
-		    bcm2835_intc_intr, NULL, sc, &sc->intc_irq_hdl)) {
+		    bcm2835_intc_intr_handler, NULL, sc, &sc->intc_irq_hdl)) {
 			/* XXX clean up */
 			device_printf(dev, "could not setup irq handler\n");
 			return (ENXIO);

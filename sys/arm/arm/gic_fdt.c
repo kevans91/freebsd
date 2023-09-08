@@ -167,7 +167,7 @@ gic_fdt_attach(device_t dev)
 			goto cleanup;
 		}
 		if (bus_setup_intr(dev, sc->base.gic_res[2], INTR_TYPE_CLK,
-		    arm_gic_intr, NULL, sc, &sc->base.gic_intrhand)) {
+		    arm_gic_intr_handler, NULL, sc, &sc->base.gic_intrhand)) {
 			device_printf(dev, "could not setup irq handler\n");
 			intr_pic_deregister(dev, xref);
 			goto cleanup;

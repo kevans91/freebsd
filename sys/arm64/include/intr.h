@@ -27,15 +27,17 @@
 #ifndef _MACHINE_INTR_H_
 #define	_MACHINE_INTR_H_
 
+/*
+ * We basically only want to expose some interrupt types that must be kept in
+ * sync between assembly and C here.
+ */
+#ifndef LOCORE
+
 #ifdef FDT
 #include <dev/ofw/openfirm.h>
 #endif
 
 #include <sys/intr.h>
-
-#ifndef NIRQ
-#define	NIRQ		16384	/* XXX - It should be an option. */
-#endif
 
 static inline void
 arm_irq_memory_barrier(uintptr_t irq)
@@ -46,10 +48,19 @@ arm_irq_memory_barrier(uintptr_t irq)
 void intr_ipi_dispatch(u_int);
 #endif
 
+#endif	/* LOCORE */
+
+#ifndef NIRQ
+#define	NIRQ		16384	/* XXX - It should be an option. */
+#endif
+
 #ifdef DEV_ACPI
 #define	ACPI_INTR_XREF	1
 #define	ACPI_MSI_XREF	2
 #define	ACPI_GPIO_XREF	3
 #endif
+
+/* Platform interrupt types */
+#define	INTR_TYPE_FIQ		0x0001
 
 #endif	/* _MACHINE_INTR_H */

@@ -27,6 +27,7 @@
 
 #include <machine/asm.h>
 #include <machine/armreg.h>
+#include <machine/intr.h>
 #include "assym.inc"
 
 	.text
@@ -213,7 +214,8 @@ END(handle_el1h_irq)
 ENTRY(handle_el1h_fiq)
 	save_registers 1
 	mov	x0, sp
-	bl	intr_fiq_handler
+	mov	x1, #INTR_TYPE_FIQ
+	bl	intr_irq_handler_type
 	restore_registers 1
 	ERET
 END(handle_el1h_irq)
@@ -241,7 +243,8 @@ END(handle_el0_irq)
 ENTRY(handle_el0_fiq)
 	save_registers 0
 	mov	x0, sp
-	bl	intr_fiq_handler
+	mov	x1, #INTR_TYPE_FIQ
+	bl	intr_irq_handler_type
 	do_ast
 	restore_registers 0
 	ERET

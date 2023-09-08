@@ -588,7 +588,7 @@ gic_v3_alloc_resource(device_t bus, device_t child, int type, int *rid,
 }
 
 int
-arm_gic_v3_intr(void *arg)
+arm_gic_v3_intr(void *arg, uint32_t type __diagused)
 {
 	struct gic_v3_softc *sc = arg;
 	struct gic_v3_irqsrc *gi;
@@ -596,6 +596,8 @@ arm_gic_v3_intr(void *arg)
 	uint64_t active_irq;
 	struct trapframe *tf;
 
+	/* No FIQs here yet */
+	MPASS(type == INTR_TYPE_IRQ);
 	pic = sc->gic_pic;
 
 	while (1) {

@@ -109,7 +109,7 @@ __BUS_ACCESSOR(gicv3, redist, GICV3, REDIST, void *);
 /* Device methods */
 int gic_v3_attach(device_t dev);
 int gic_v3_detach(device_t dev);
-int arm_gic_v3_intr(void *);
+int arm_gic_v3_intr(void *, uint32_t type);
 
 uint32_t gic_r_read_4(device_t, bus_size_t);
 uint64_t gic_r_read_8(device_t, bus_size_t);

@@ -180,10 +180,12 @@ a10_pending_irq(struct a10_aintc_softc *sc)
 }
 
 static int
-a10_intr(void *arg)
+a10_intr(void *arg, uint32_t type __diagused)
 {
 	struct a10_aintc_softc *sc = arg;
 	u_int irq;
+
+	MPASS(type == INTR_TYPE_IRQ);
 
 	irq = a10_pending_irq(sc);
 	if (irq == -1 || irq > A10_INTR_MAX_NIRQS) {

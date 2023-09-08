@@ -384,12 +384,14 @@ bcm_lintc_irq_dispatch(struct bcm_lintc_softc *sc, u_int irq,
 }
 
 static int
-bcm_lintc_intr(void *arg)
+bcm_lintc_intr(void *arg, uint32_t type __diagused)
 {
 	struct bcm_lintc_softc *sc;
 	u_int cpu;
 	uint32_t num, reg;
 	struct trapframe *tf;
+
+	MPASS(type == INTR_TYPE_IRQ);
 
 	sc = arg;
 	cpu = PCPU_GET(cpuid);

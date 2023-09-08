@@ -78,6 +78,7 @@ DECLARE_CLASS(arm_gicv2m_driver);
 int arm_gic_attach(device_t);
 int arm_gic_detach(device_t);
 int arm_gicv2m_attach(device_t);
-int arm_gic_intr(void *);
+int arm_gic_intr_handler(void *);
+int arm_gic_intr(void *, uint32_t type);
 
 #endif /* _ARM_GIC_H_ */

@@ -94,20 +94,15 @@ MALLOC_DECLARE(M_INTRNG);
 MALLOC_DEFINE(M_INTRNG, "intr", "intr interrupt handling");
 
 /* Main interrupt handler called from assembler -> 'hidden' for C code. */
+void intr_irq_handler_type(struct trapframe *tf, uint32_t type);
 void intr_irq_handler(struct trapframe *tf);
-#if defined(__aarch64__)
-void intr_fiq_handler(struct trapframe *tf);
-#endif
 
 /* Root interrupt controller stuff. */
 device_t intr_irq_root_dev;
 static intr_irq_filter_t *irq_root_filter;
 static void *irq_root_arg;
-#if defined(__aarch64__)
-static intr_irq_filter_t *fiq_root_filter;
-static void *fiq_root_arg;
-#endif
 static u_int irq_root_ipicount;
+static uint32_t irq_root_typemask;
 
 struct intr_pic_child {
 	SLIST_ENTRY(intr_pic_child)	 pc_next;
@@ -344,12 +339,23 @@ intr_ipi_setup_counters(const char *name)
  *  from the assembler, where CPU interrupt is served.
  */
 void
-intr_irq_handler(struct trapframe *tf)
+intr_irq_handler_type(struct trapframe *tf, uint32_t type)
 {
 	struct trapframe * oldframe;
 	struct thread * td;
 
 	KASSERT(irq_root_filter != NULL, ("%s: no filter", __func__));
+	KASSERT((irq_root_typemask & type) != 0,
+	    ("%s: unknown irq type (%x)", __func__, type));
+
+	/*
+	 * We could allow this possibility, but it doesn't make sense at the
+	 * moment so we should defend against it early on.  Root filter
+	 * implementations should be more carefully considered if we start to
+	 * allow multiple types firing at once for some reason.
+	 */
+	KASSERT((type & ~(1 << (ffs(type) - 1))) == 0,
+	    ("%s: multiple irq types specified (%x)", __func__, type));
 
 	kasan_mark(tf, sizeof(*tf), sizeof(*tf), 0);
 
@@ -358,7 +364,7 @@ intr_irq_handler(struct trapframe *tf)
 	td = curthread;
 	oldframe = td->td_intr_frame;
 	td->td_intr_frame = tf;
-	irq_root_filter(irq_root_arg);
+	irq_root_filter(irq_root_arg, type);
 	td->td_intr_frame = oldframe;
 	critical_exit();
 #ifdef HWPMC_HOOKS
@@ -368,30 +374,12 @@ intr_irq_handler(struct trapframe *tf)
 #endif
 }
 
-#if defined(__aarch64__)
 void
-intr_fiq_handler(struct trapframe *tf)
+intr_irq_handler(struct trapframe *tf)
 {
-	struct trapframe * oldframe;
-	struct thread * td;
 
-	KASSERT(irq_root_filter != NULL, ("%s: no filter", __func__));
-
-	VM_CNT_INC(v_intr);
-	critical_enter();
-	td = curthread;
-	oldframe = td->td_intr_frame;
-	td->td_intr_frame = tf;
-	fiq_root_filter(fiq_root_arg);
-	td->td_intr_frame = oldframe;
-	critical_exit();
-#ifdef HWPMC_HOOKS
-	if (pmc_hook && TRAPF_USERMODE(tf) &&
-	    (PCPU_GET(curthread)->td_pflags & TDP_CALLCHAIN))
-		pmc_hook(PCPU_GET(curthread), PMC_FN_USER_CALLCHAIN, tf);
-#endif
+	intr_irq_handler_type(tf, INTR_TYPE_IRQ);
 }
-#endif
 
 int
 intr_child_irq_handler(struct intr_pic *parent, uintptr_t irq)
@@ -915,8 +903,8 @@ intr_pic_deregister(device_t dev, intptr_t xref)
  *     an interrupts property and thus no explicit interrupt parent."
  */
 int
-intr_pic_claim_root(device_t dev, intptr_t xref, intr_irq_filter_t *filter,
-    void *arg, u_int ipicount)
+intr_pic_claim_root_type(device_t dev, intptr_t xref, intr_irq_filter_t *filter,
+    void *arg, u_int ipicount, uint32_t typemask)
 {
 	struct intr_pic *pic;
 
@@ -935,6 +923,11 @@ intr_pic_claim_root(device_t dev, intptr_t xref, intr_irq_filter_t *filter,
 		return (EINVAL);
 	}
 
+	if (typemask == 0) {
+		device_printf(dev, "typemask must be specified\n");
+		return (EINVAL);
+	}
+
 	/*
 	 * Only one interrupt controllers could be on the root for now.
 	 * Note that we further suppose that there is not threaded interrupt
@@ -949,38 +942,20 @@ intr_pic_claim_root(device_t dev, intptr_t xref, intr_irq_filter_t *filter,
 	irq_root_filter = filter;
 	irq_root_arg = arg;
 	irq_root_ipicount = ipicount;
+	irq_root_typemask = typemask;
 
 	debugf("irq root set to %s\n", device_get_nameunit(dev));
 	return (0);
 }
 
-#if defined(__aarch64__)
 int
-intr_pic_claim_fiq(device_t dev, intr_irq_filter_t *filter, void *arg)
+intr_pic_claim_root(device_t dev, intptr_t xref, intr_irq_filter_t *filter,
+    void *arg, u_int ipicount)
 {
-	KASSERT(dev != NULL, ("%s: NULL device", __func__));
 
-	if (dev != intr_irq_root_dev) {
-		device_printf(dev, "FIQ device not root IRQ device\n");
-		return (EINVAL);
-	}
-
-	if (filter == NULL) {
-		device_printf(dev, "FIQ filter missing\n");
-		return (EINVAL);
-	}
-
-	if (fiq_root_filter != NULL) {
-		device_printf(dev, "another FIQ handler already set\n");
-		return (EBUSY);
-	}
-
-	fiq_root_filter = filter;
-	fiq_root_arg = arg;
-
-	return (0);
+	return (intr_pic_claim_root_type(dev, xref, filter, arg, ipicount,
+	    INTR_TYPE_IRQ));
 }
-#endif
 
 /*
  * Add a handler to manage a sub range of a parents interrupts.

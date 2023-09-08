@@ -156,12 +156,14 @@ plic_irq_dispatch(struct plic_softc *sc, u_int irq,
 }
 
 static int
-plic_intr(void *arg)
+plic_intr(void *arg, uint32_t type __diagused)
 {
 	struct plic_softc *sc;
 	struct trapframe *tf;
 	uint32_t pending;
 	uint32_t cpu;
+
+	MPASS(type == INTR_TYPE_IRQ);
 
 	sc = arg;
 	cpu = PCPU_GET(cpuid);

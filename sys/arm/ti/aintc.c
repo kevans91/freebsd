@@ -117,10 +117,12 @@ ti_aintc_irq_unmask(struct ti_aintc_softc *sc, u_int irq)
 }
 
 static int
-ti_aintc_intr(void *arg)
+ti_aintc_intr(void *arg, uint32_t type __diagused)
 {
 	uint32_t irq;
 	struct ti_aintc_softc *sc = arg;
+
+	MPASS(type == INTR_TYPE_IRQ);
 
 	/* Get active interrupt */
 	irq = aintc_read_4(sc, INTC_SIR_IRQ);
