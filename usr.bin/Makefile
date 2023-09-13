@@ -152,6 +152,7 @@ SUBDIR=	alias \
 	tee \
 	time \
 	tip \
+	tmux \
 	top \
 	touch \
 	tr \

@@ -8,7 +8,8 @@ LIB= ntpevent
 INTERNALLIB=
 
 SRCS=	buffer.c bufferevent.c bufferevent_filter.c \
-	bufferevent_pair.c epoll.c evdns.c event.c event_tagging.c \
+	bufferevent_pair.c bufferevent_ratelim.c bufferevent_sock.c epoll.c \
+	evdns.c event.c event_tagging.c \
 	evmap.c evport.c evrpc.c evthread.c evthread_pthread.c evutil.c \
 	evutil_rand.c evutil_time.c http.c kqueue.c listener.c log.c poll.c \
 	select.c signal.c strlcpy.c
