@@ -78,7 +78,9 @@ static char **av, **bxp, **ep, **endxp, **xp;
 static char *argp, *bbp, *ebp, *inpline, *p, *replstr;
 static const char *eofstr;
 static long eoflen;
-static int count, insingle, indouble, oflag, pflag, tflag, Rflag, rval, zflag;
+static int count, insingle, indouble, oflag, pflag, tflag, Rflag, rval;
+static int sepflag;	/* -0 */
+static char argsep;
 static int cnt, Iflag, jfound, Lflag, Sflag, wasquoted, xflag;
 static int curprocs, maxprocs;
 static pid_t *childpids;
@@ -212,7 +214,8 @@ main(int argc, char *argv[])
 			xflag = 1;
 			break;
 		case '0':
-			zflag = 1;
+			argsep = '\0';
+			sepflag = 1;
 			break;
 		case '?':
 		default:
@@ -302,7 +305,17 @@ parse_input(int argc, char *argv[])
 
 	foundeof = 0;
 
-	switch (ch = getchar()) {
+	ch = getchar();
+	if (sepflag && ch == argsep) {
+		/*
+		 * Increment 'count', so that nulls will be treated
+		 * as end-of-line, as well as end-of-argument.  This
+		 * is needed so -0 works properly with -I and -L.
+		 */
+		count++;
+		goto arg2;
+	}
+	switch (ch) {
 	case EOF:
 		/* No arguments since last exec. */
 		if (p == bbp) {
@@ -313,22 +326,13 @@ parse_input(int argc, char *argv[])
 	case ' ':
 	case '\t':
 		/* Quotes escape tabs and spaces. */
-		if (insingle || indouble || zflag)
+		if (insingle || indouble || sepflag)
 			goto addch;
 		goto arg2;
 	case '\0':
-		if (zflag) {
-			/*
-			 * Increment 'count', so that nulls will be treated
-			 * as end-of-line, as well as end-of-argument.  This
-			 * is needed so -0 works properly with -I and -L.
-			 */
-			count++;
-			goto arg2;
-		}
 		goto addch;
 	case '\n':
-		if (zflag)
+		if (sepflag)
 			goto addch;
 		count++;	    /* Indicate end-of-line (used by -L) */
 
@@ -410,19 +414,19 @@ arg2:
 		wasquoted = 0;
 		break;
 	case '\'':
-		if (indouble || zflag)
+		if (indouble || sepflag)
 			goto addch;
 		insingle = !insingle;
 		wasquoted = 1;
 		break;
 	case '"':
-		if (insingle || zflag)
+		if (insingle || sepflag)
 			goto addch;
 		indouble = !indouble;
 		wasquoted = 1;
 		break;
 	case '\\':
-		if (zflag)
+		if (sepflag)
 			goto addch;
 		/* Backslash escapes anything, is escaped by quotes. */
 		if (!insingle && !indouble && (ch = getchar()) == EOF) {
