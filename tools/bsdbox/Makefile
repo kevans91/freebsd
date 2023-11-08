@@ -3,6 +3,7 @@ MAN=
 
 .include <bsd.own.mk>
 MK_SSP=	no
+MK_PIE=	no
 
 PROG=	bsdbox
 BINDIR?=/sbin
@@ -70,7 +71,7 @@ CRUNCH_SRCDIRS+= sbin
 
 CRUNCH_LIBS+= -l80211 -lalias -lcam -lcursesw -ldevstat -lipsec
 # Don't forget this - ifconfig, etc -adrian
-CRUNCH_LIBS+= ${LDADD_ifconfig}
+CRUNCH_LIBS+= ${OBJTOP}/lib/libifconfig/libifconfig.a
 CRUNCH_LIBS+= -lgeom -lbsdxml -ljail -lkiconv -lmd -lsbuf -lufs
 CRUNCH_BUILDOPTS+= CRUNCH_CFLAGS+=-I${OBJTOP}/lib/libifconfig
 
@@ -94,7 +95,7 @@ CRUNCH_LIBS+= -lm
 
 .include "Makefile.base"
 .include "Makefile.net"
-.include "Makefile.hostapd"
+#.include "Makefile.hostapd"
 #.include "Makefile.textproc"
 .include "Makefile.login"
 .include "Makefile.kld"
