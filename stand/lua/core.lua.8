@@ -144,6 +144,13 @@ due to a boot environment change or a potential change in either
 .Ic kernel
 or
 .Ic kernels .
+.It Fn core.hasFeature featureName
+Checks whether the named
+.Fa featureName
+is enabled in the current loader.
+This is specifically used for detecting capabilities of the loaded loader
+binary, so that one can reasonably implement backwards compatibility shims if
+needed.
 .It Fn core.kernelList
 Returns a table of kernels to display on the boot menu.
 This will combine
