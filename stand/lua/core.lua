@@ -133,17 +133,20 @@ function core.setSingleUser(single_user)
 end
 
 function core.hasACPI()
-	return loader.getenv("acpi.rsdp") ~= nil
-end
+	-- We can't trust acpi.rsdp to be set if the loader binary doesn't do
+	-- ACPI detection early enough.  UEFI loader historically didn't, so
+	-- we'll fallback to assuming ACPI is enabled if this binary does not
+	-- declare that it probes for ACPI early enough
+	if loader.getenv("acpi.rsdp") ~= nil then
+		return true
+	end
 
-function core.isX86()
-	return loader.machine_arch == "i386" or loader.machine_arch == "amd64"
+	return not core.hasFeature("EARLY_ACPI")
 end
 
 function core.getACPI()
 	if not core.hasACPI() then
-		-- x86 requires ACPI pretty much
-		return false or core.isX86()
+		return false
 	end
 
 	-- Otherwise, respect disabled if it's set
