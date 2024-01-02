@@ -203,12 +203,12 @@ exynos4210_init_common(struct exynos_uart_cfg *cfg, struct uart_bas *bas,
 		uart_setreg(bas, SSCOM_UTRSTAT, 0);
 	} else {
 		uart_setreg(bas, SSCOM_UCON, 0);
+		uart_setreg(bas, SSCOM_UFCON,
+		    UFCON_TXTRIGGER_8 | UFCON_RXTRIGGER_8 |
+		    UFCON_TXFIFO_RESET | UFCON_RXFIFO_RESET |
+		    UFCON_FIFO_ENABLE);
 	}
 
-	uart_setreg(bas, SSCOM_UFCON,
-	    UFCON_TXTRIGGER_8 | UFCON_RXTRIGGER_8 |
-	    UFCON_TXFIFO_RESET | UFCON_RXFIFO_RESET |
-	    UFCON_FIFO_ENABLE);
 	exynos4210_uart_param(bas, baudrate, databits, stopbits, parity);
 
 	/* Enable UART. */
@@ -259,6 +259,7 @@ exynos4210_putc(struct uart_bas *bas, int c)
 		continue;
 
 	uart_setreg(bas, SSCOM_UTXH, c);
+	uart_barrier(bas);
 }
 
 static int
@@ -368,24 +369,16 @@ exynos4210_bus_transmit(struct uart_softc *sc)
 	cfg = sc->sc_bas.driver1;
 	uart_lock(sc->sc_hwmtx);
 
+	/* tx fifo has room, fire away. */
 	for (i = 0; i < sc->sc_txdatasz; i++) {
-		exynos4210_putc(&sc->sc_bas, sc->sc_txbuf[i]);
+		uart_setreg(&sc->sc_bas, SSCOM_UTXH, sc->sc_txbuf[i]);
 		uart_barrier(&sc->sc_bas);
 	}
 
-	/* unmask TX interrupt */
 	if (cfg->cfg_type == EXUART_S5L) {
-		reg = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh,
-		    SSCOM_UCON);
-		if ((reg & UCON_S5L_TXTHRESH) == 0) {
-			reg |= UCON_S5L_TXTHRESH;
-			bus_space_write_4(sc->sc_bas.bst, sc->sc_bas.bsh,
-			    SSCOM_UCON, reg);
-
-			uart_barrier(&sc->sc_bas);
-			sc->sc_txbusy = 1;
-		}
+		sc->sc_txbusy = 1;
 	} else {
+		/* unmask TX interrupt */
 		reg = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh,
 		    SSCOM_UINTM);
 		reg &= ~(1 << 2);
