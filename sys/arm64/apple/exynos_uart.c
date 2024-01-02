@@ -263,23 +263,31 @@ exynos4210_putc(struct uart_bas *bas, int c)
 }
 
 static int
-exynos4210_rxready(struct uart_bas *bas)
+exynos4210_rxready_impl(struct uart_bas *bas, bool intr)
 {
 	struct exynos_uart_cfg *cfg;
 	int ufstat, utrstat;
 
 	cfg = bas->driver1;
-	utrstat = bus_space_read_4(bas->bst, bas->bsh, SSCOM_UTRSTAT);
+	if (!intr || cfg->cfg_type != EXUART_S5L) {
+		utrstat = bus_space_read_4(bas->bst, bas->bsh, SSCOM_UTRSTAT);
 
-	if (cfg->cfg_type == EXUART_S5L) {
-		ufstat = bus_space_read_4(bas->bst, bas->bsh, SSCOM_UFSTAT);
-
-		return ((utrstat & UTRSTAT_RXREADY) != 0 ||
-		    (ufstat & (UFSTAT_RXCOUNT | UFSTAT_RXFULL)) != 0);
-	} else {
-		return ((uart_getreg(bas, SSCOM_UTRSTAT) & UTRSTAT_RXREADY) ==
-		    UTRSTAT_RXREADY);
+		if ((utrstat & UTRSTAT_RXREADY) != 0)
+			return (1);
+		if (cfg->cfg_type != EXUART_S5L)
+			return (0);
 	}
+
+	ufstat = bus_space_read_4(bas->bst, bas->bsh, SSCOM_UFSTAT);
+
+	return ((ufstat & (UFSTAT_RXCOUNT | UFSTAT_RXFULL)) != 0);
+}
+
+static int
+exynos4210_rxready(struct uart_bas *bas)
+{
+
+	return (exynos4210_rxready_impl(bas, false));
 }
 
 static int
@@ -404,9 +412,18 @@ exynos4210_bus_receive(struct uart_softc *sc)
 	struct uart_bas *bas;
 
 	bas = &sc->sc_bas;
-	while (bus_space_read_4(bas->bst, bas->bsh,
-		SSCOM_UFSTAT) & UFSTAT_RXCOUNT)
+	uart_lock(sc->sc_hwmtx);
+
+	while (exynos4210_rxready_impl(bas, true)) {
+		if (uart_rx_full(sc)) {
+			sc->sc_rxbuf[sc->sc_rxput] = UART_STAT_OVERRUN;
+			break;
+		}
+
 		uart_rx_put(sc, uart_getreg(&sc->sc_bas, SSCOM_URXH));
+	}
+
+	uart_unlock(sc->sc_hwmtx);
 
 	return (0);
 }
