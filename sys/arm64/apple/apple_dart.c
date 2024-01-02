@@ -346,6 +346,9 @@ apple_dart_attach(device_t dev)
 		/* XXX */
 		return (0);
 
+	} else {
+		/* IOMMU bits don't work yet. */
+		return (ENXIO);
 	}
 #endif
 

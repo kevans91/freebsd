@@ -5,7 +5,7 @@
 options 	SOC_APPLE_T6000
 options 	SOC_APPLE_T8103
 
-#options 	IOMMU
+options 	IOMMU
 options 	FDT
 
 device	vt_simplefb
