@@ -623,7 +623,7 @@ cb_swap_interpreter(void *arg __unused, const char *interp_req)
 		cb_exit(NULL, 1);
 	}
 
-	if (asprintf(&loader, "/boot/userboot_%s.so", interp_req) == -1)
+	if (asprintf(&loader, "userboot_%s.so", interp_req) == -1)
 		err(EX_OSERR, "malloc");
 	need_reinit = 1;
 	longjmp(jb, 1);
@@ -741,13 +741,44 @@ hostbase_open(const char *base)
 	return (fd);
 }
 
+static void
+loader_open(int bootfd)
+{
+	int fd;
+
+	if (loader_hdl != NULL) {
+		/* -l preloads the loader before we enter capability mode. */
+		assert(explicit_loader);
+		return;
+	}
+
+	/*
+	 * If we didn't have a supplied -l loader, then we should have opened
+	 * /boot before entering capability mode so that we can still grab the
+	 * correct userboot.
+	 */
+	assert(bootfd != -1);
+	if (loader == NULL) {
+		loader = strdup("userboot.so");
+		if (loader == NULL)
+			err(EX_OSERR, "malloc");
+	}
+
+	fd = openat(bootfd, loader, O_RDONLY | O_RESOLVE_BENEATH);
+	if (fd == -1)
+		err(EX_OSERR, "openat");
+
+	loader_hdl = fdlopen(fd, RTLD_LOCAL);
+}
+
 int
 main(int argc, char** argv)
 {
 	void (*func)(struct loader_callbacks *, void *, int, int);
 	uint64_t mem_size;
-	int opt, error, memflags;
+	int bootfd, opt, error, memflags;
 
+	bootfd = -1;
 	progname = basename(argv[0]);
 
 	memflags = 0;
@@ -787,6 +818,10 @@ main(int argc, char** argv)
 			if (loader == NULL)
 				err(EX_OSERR, "malloc");
 			explicit_loader = 1;
+
+			loader_hdl = dlopen(loader, RTLD_LOCAL);
+			if (loader_hdl == NULL)
+				err(EX_OSERR, "dlopen");
 			break;
 
 		case 'm':
@@ -829,6 +864,18 @@ main(int argc, char** argv)
 		exit(1);
 	}
 
+	/*
+	 * If we weren't given an explicit loader to use, we need to support the
+	 * guest requesting a different one.
+	 */
+	if (!explicit_loader) {
+		bootfd = open("/boot", O_DIRECTORY | O_PATH);
+		if (bootfd == -1) {
+			perror("open");
+			exit(1);
+		}
+	}
+
 	vcpu = vm_vcpu_open(ctx, BSP);
 
 	/*
@@ -836,7 +883,10 @@ main(int argc, char** argv)
 	 * cb_swap_interpreter will swap out loader as appropriate and set
 	 * need_reinit so that we end up in a clean state once again.
 	 */
-	setjmp(jb);
+	if (setjmp(jb) != 0) {
+		dlclose(loader_hdl);
+		loader_hdl = NULL;
+	}
 
 	if (need_reinit) {
 		error = vm_reinit(ctx);
@@ -853,14 +903,7 @@ main(int argc, char** argv)
 		exit(1);
 	}
 
-	if (loader == NULL) {
-		loader = strdup("/boot/userboot.so");
-		if (loader == NULL)
-			err(EX_OSERR, "malloc");
-	}
-	if (loader_hdl != NULL)
-		dlclose(loader_hdl);
-	loader_hdl = dlopen(loader, RTLD_LOCAL);
+	loader_open(bootfd);
 	if (!loader_hdl) {
 		printf("%s\n", dlerror());
 		free(loader);
