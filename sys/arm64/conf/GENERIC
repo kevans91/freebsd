@@ -21,8 +21,10 @@ cpu		ARM64
 ident		GENERIC
 
 # For now
-envvar		"hint.xhci.0.disabled=1"
-envvar		"hint.xhci.1.disabled=1"
+# When switching to disk?
+#envvar		"hint.xhci.0.disabled=1"
+#envvar		"hint.xhci.1.disabled=1"
+
 #envvar		"hw.usb.debug=20"
 #envvar		"hw.usb.xhci.debug=20"
 #envvar		"hw.usb.ctrl.debug=20"
@@ -49,7 +51,7 @@ include		"std.azure"
 include		"std.broadcom"
 include		"std.cavium"
 include		"std.ec2"
-include		"std.hyperv"
+#include		"std.hyperv"
 include		"std.hisilicon"
 include		"std.imx"
 include		"std.marvell"

@@ -373,10 +373,6 @@ exynos4210_bus_transmit(struct uart_softc *sc)
 		uart_barrier(&sc->sc_bas);
 	}
 
-	if ((bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh, SSCOM_UFSTAT) &
-	    cfg->cfg_uart_full_mask) != 0)
-		sc->sc_txbusy = 1;
-
 	/* unmask TX interrupt */
 	if (cfg->cfg_type == EXUART_S5L) {
 		reg = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh,
@@ -385,6 +381,9 @@ exynos4210_bus_transmit(struct uart_softc *sc)
 			reg |= UCON_S5L_TXTHRESH;
 			bus_space_write_4(sc->sc_bas.bst, sc->sc_bas.bsh,
 			    SSCOM_UCON, reg);
+
+			uart_barrier(&sc->sc_bas);
+			sc->sc_txbusy = 1;
 		}
 	} else {
 		reg = bus_space_read_4(sc->sc_bas.bst, sc->sc_bas.bsh,

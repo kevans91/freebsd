@@ -247,18 +247,13 @@ iommu_lookup(device_t dev)
 }
 
 #ifdef FDT
-struct iommu_ctx *
-iommu_get_ctx_ofw(device_t dev, int channel)
+device_t
+iommu_find_ofw(device_t dev, int channel, int *ncells, pcell_t **cells)
 {
-	struct iommu_domain *iodom;
-	struct iommu_unit *iommu;
-	struct iommu_ctx *ioctx;
 	phandle_t node, parent;
 	device_t iommu_dev;
-	pcell_t *cells;
-	int niommus;
-	int ncells;
 	int error;
+	int niommus;
 
 	node = ofw_bus_get_node(dev);
 	if (node <= 0) {
@@ -280,7 +275,7 @@ iommu_get_ctx_ofw(device_t dev, int channel)
 	}
 
 	error = ofw_bus_parse_xref_list_alloc(node, "iommus", "#iommu-cells",
-	    channel, &parent, &ncells, &cells);
+	    channel, &parent, ncells, cells);
 	if (error != 0) {
 		device_printf(dev, "%s can't get iommu device xref.\n",
 		    __func__);
@@ -292,6 +287,24 @@ iommu_get_ctx_ofw(device_t dev, int channel)
 		device_printf(dev, "%s can't get iommu device.\n", __func__);
 		return (NULL);
 	}
+
+	return (iommu_dev);
+}
+
+struct iommu_ctx *
+iommu_get_ctx_ofw(device_t dev, int channel)
+{
+	struct iommu_domain *iodom;
+	struct iommu_unit *iommu;
+	struct iommu_ctx *ioctx;
+	pcell_t *cells;
+	device_t iommu_dev;
+	int error;
+	int ncells;
+
+	iommu_dev = iommu_find_ofw(dev, channel, &ncells, &cells);
+	if (iommu_dev == NULL)
+		return (NULL);
 
 	iommu = iommu_lookup(iommu_dev);
 	if (iommu == NULL) {
@@ -366,7 +379,9 @@ iommu_get_ctx(struct iommu_unit *iommu, device_t requester,
 
 	error = iommu_ctx_init(requester, ioctx);
 	if (error) {
+		IOMMU_LOCK(iommu);
 		IOMMU_CTX_FREE(iommu->dev, ioctx);
+		IOMMU_UNLOCK(iommu);
 		iommu_domain_free(iodom);
 		return (NULL);
 	}
@@ -560,7 +575,6 @@ iommu_find(device_t dev, bool verbose)
 		return (iommu);
 #endif
 #endif
-
 	IOMMU_LIST_LOCK();
 	LIST_FOREACH(entry, &iommu_list, next) {
 		iommu = entry->iommu;

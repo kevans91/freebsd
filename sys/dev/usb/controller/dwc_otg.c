@@ -4151,6 +4151,7 @@ static void
 dwc_otg_device_non_isoc_start(struct usb_xfer *xfer)
 {
 	/* setup TDs */
+	DPRINTF("start");
 	dwc_otg_setup_standard_chain(xfer);
 	dwc_otg_start_standard_chain(xfer);
 }
@@ -4189,6 +4190,7 @@ dwc_otg_device_isoc_start(struct usb_xfer *xfer)
 	uint32_t temp;
 	uint32_t framenum;
 
+	DPRINTF("start");
 	DPRINTFN(6, "xfer=%p next=%d nframes=%d\n",
 	    xfer, xfer->endpoint->isoc_next, xfer->nframes);
 

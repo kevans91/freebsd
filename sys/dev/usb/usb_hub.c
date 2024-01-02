@@ -53,6 +53,7 @@
 #include <sys/callout.h>
 #include <sys/malloc.h>
 #include <sys/priv.h>
+#include <sys/stack.h>
 
 #include <dev/usb/usb.h>
 #include <dev/usb/usbdi.h>
@@ -2266,9 +2267,13 @@ usb_bus_port_set_device(struct usb_bus *bus, struct usb_port *up,
 void
 usb_needs_explore(struct usb_bus *bus, uint8_t do_probe)
 {
+	struct stack st;
 	uint8_t do_unlock;
 
 	DPRINTF("\n");
+
+	stack_save(&st);
+	//stack_print(&st);
 
 	if (cold != 0) {
 		DPRINTF("Cold\n");

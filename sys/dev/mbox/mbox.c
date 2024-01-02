@@ -105,7 +105,7 @@ mbox_default_ofw_map(device_t provider_dev, phandle_t xref, int ncells,
     pcell_t *cells, intptr_t *id)
 {
 	if (ncells == 0)
-		*id = 1;
+		*id = -1;
 	else if (ncells == 1)
 		*id = cells[0];
 	else

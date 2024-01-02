@@ -68,14 +68,12 @@ __FBSDID("$FreeBSD$");
 #define	APPLE_WDOG_CNTL_INTSTAT		0x0002
 #define	APPLE_WDOG_CNTL_RSTENABLE	0x0004
 
-#define	READ(_sc, _r) bus_space_read_4((_sc)->bst, (_sc)->bsh, (_r))
-#define	WRITE(_sc, _r, _v) bus_space_write_4((_sc)->bst, (_sc)->bsh, (_r), (_v))
+#define	READ(_sc, _r) bus_read_4((_sc)->res, (_r))
+#define	WRITE(_sc, _r, _v) bus_write_4((_sc)->res, (_r), (_v))
 
 struct apple_wdog_softc {
 	device_t		dev;
 	struct resource *	res;
-	bus_space_tag_t		bst;
-	bus_space_handle_t	bsh;
 	clk_t			clk;
 	uint64_t		clk_freq;
 	struct mtx		mtx;
@@ -119,9 +117,6 @@ apple_wdog_attach(device_t dev)
 		device_printf(dev, "could not allocate memory resource\n");
 		return (ENXIO);
 	}
-
-	sc->bst = rman_get_bustag(sc->res);
-	sc->bsh = rman_get_bushandle(sc->res);
 
 	error = clk_get_by_ofw_index(dev, 0, 0, &sc->clk);
 	if (error != 0) {

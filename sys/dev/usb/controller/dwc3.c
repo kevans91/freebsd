@@ -66,6 +66,7 @@
 
 #include <dev/extres/clk/clk.h>
 #include <dev/extres/phy/phy_usb.h>
+#include <dev/extres/powerdom/powerdom.h>
 #endif
 
 #ifdef DEV_ACPI
@@ -98,7 +99,13 @@ struct snps_dwc3_softc {
 #define	DWC3_READ(_sc, _off)		\
     bus_space_read_4(_sc->bst, _sc->bsh, _off)
 
+#if __SIZEOF_LONG__ == 8
+#define	IS_DMA_32B	0
+#elif __SIZEOF_LONG__ == 4
 #define	IS_DMA_32B	1
+#else
+#error unsupported long size
+#endif
 
 static void
 xhci_interrupt_poll(void *_sc)
@@ -149,6 +156,16 @@ snps_dwc3_attach_xhci(device_t dev)
 			sc->sc_intr_hdl = NULL;
 			return (err);
 		}
+
+#if 0
+		/
+		err = bus_bind_intr(dev, sc->sc_irq_res, 0);
+		if (err != 0) {
+			device_printf(dev, "Failed to bind IRQ, %d\n", err);
+			sc->sc_intr_hdl = NULL;
+			return (err);
+		}
+#endif
 	}
 
 	err = xhci_init(sc, dev, IS_DMA_32B);
@@ -367,18 +384,33 @@ static int
 snps_dwc3_probe_common(device_t dev)
 {
 	char dr_mode[16] = { 0 };
+	phandle_t node;
+#if 0
 	ssize_t s;
+#endif
 
-	s = device_get_property(dev, "dr_mode", dr_mode, sizeof(dr_mode),
-	    DEVICE_PROP_BUFFER);
+	/* XXX */
+	node = ofw_bus_get_node(dev);
+	if (OF_hasprop(node, "usb-role-switch"))
+		OF_getprop(node, "role-switch-default-mode", dr_mode,
+		    sizeof(dr_mode));
+	else
+		OF_getprop(node, "dr_mode", dr_mode, sizeof(dr_mode));
+#if 0
 	if (s == -1) {
 		device_printf(dev, "Cannot determine dr_mode\n");
 		return (ENXIO);
 	}
+#endif
 	if (strcmp(dr_mode, "host") != 0) {
 		device_printf(dev,
+#if 0
 		    "Found dr_mode '%s' but only 'host' supported. s=%zd\n",
 		    dr_mode, s);
+#else
+		    "Found dr_mode '%s' but only 'host' supported.\n",
+		    dr_mode);
+#endif
 		return (ENXIO);
 	}
 
@@ -393,6 +425,7 @@ snps_dwc3_common_attach(device_t dev, bool is_fdt)
 #ifdef FDT
 	phandle_t node;
 	phy_t usb2_phy, usb3_phy;
+	powerdom_t powerdom;
 	uint32_t reg;
 #endif
 	int error, rid;
@@ -468,6 +501,14 @@ snps_dwc3_common_attach(device_t dev, bool is_fdt)
 	if (sc->clk_bus != NULL) {
 		if (clk_enable(sc->clk_bus) != 0)
 			device_printf(dev, "Cannot enable bus_clk\n");
+	}
+
+	/* Grab the powerdomain */
+	powerdom = NULL;
+	error = powerdom_get_by_ofw_idx(dev, node, 0, &powerdom);
+	if (error == 0 && powerdom != NULL) {
+		device_printf(dev, "enabling power domain\n");
+		powerdom_enable(powerdom);
 	}
 
 	/* Get the phys */

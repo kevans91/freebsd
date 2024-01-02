@@ -93,7 +93,11 @@
 #define	PAGE_SHIFT_64K	16
 #define	PAGE_SIZE_64K	(1 << PAGE_SHIFT_64K)
 
+#ifdef NOTYET
+#define	PAGE_SHIFT	PAGE_SHIFT_16K
+#else
 #define	PAGE_SHIFT	PAGE_SHIFT_4K
+#endif
 #define	PAGE_SIZE	(1 << PAGE_SHIFT)
 #define	PAGE_MASK	(PAGE_SIZE - 1)
 

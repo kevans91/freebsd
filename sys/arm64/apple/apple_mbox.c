@@ -149,6 +149,7 @@ apple_mbox_intr(void *arg)
 		return 0;
 
 	if (sc->sc_rx_callback) {
+		device_printf(sc->sc_dev, "callback from intr\n");
 		(*sc->sc_rx_callback)(sc->sc_rx_arg, -1);
 	} else {
 		device_printf(sc->sc_dev, "0x%016jx 0x%016jx\n",
@@ -211,8 +212,9 @@ apple_mbox_read(device_t dev, int channel, void *data, size_t datasz)
 		return (EINVAL);
 
 	ctrl = HREAD4(sc, MBOX_I2A_CTRL);
-	if (ctrl & MBOX_I2A_CTRL_EMPTY)
+	if (ctrl & MBOX_I2A_CTRL_EMPTY) {
 		return (EAGAIN);
+	}
 
 	msg->data0 = HREAD8(sc, MBOX_I2A_RECV0);
 	msg->data1 = HREAD8(sc, MBOX_I2A_RECV1);

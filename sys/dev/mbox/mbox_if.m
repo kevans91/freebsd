@@ -40,7 +40,7 @@
 INTERFACE mbox;
 
 HEADER {
-	typedef void (*mbox_rx_fn)(void *data, int channel);
+	typedef void (mbox_rx_fn)(void *data, int channel);
 };
 
 CODE {

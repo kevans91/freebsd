@@ -168,7 +168,7 @@ static pic_ipi_send_t apple_aic_ipi_send;
 static pic_ipi_setup_t apple_aic_ipi_setup;
 #endif
 
-static int apple_aic_irq(void *);
+static int apple_aic_irq(void *, uint32_t type);
 static int apple_aic_fiq(void *);
 
 static int
@@ -260,15 +260,10 @@ apple_aic_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	if (intr_pic_claim_root(dev, xref, apple_aic_irq, sc,
-	    sc->sc_nirqs) != 0) {
+	if (intr_pic_claim_root_type(dev, xref, apple_aic_irq, sc,
+	    AIC_NIPIS, INTR_TYPE_IRQ | INTR_TYPE_FIQ) != 0) {
 		device_printf(dev,
 		    "Unable to set at root interrupt controller\n");
-		intr_pic_deregister(dev, xref);
-		return (ENXIO);
-	}
-	if (intr_pic_claim_fiq(dev, apple_aic_fiq, sc) != 0) {
-		device_printf(dev, "Unable to set FIQ handler\n");
 		intr_pic_deregister(dev, xref);
 		return (ENXIO);
 	}
@@ -308,7 +303,6 @@ apple_aic_map_intr_fdt(struct apple_aic_softc *sc,
 		return (EINVAL);
 	}
 
-	device_printf(sc->sc_dev, "cells[1] == %d\n", data->cells[1]);
 	*irq = data->cells[1];
 	if (*irq > sc->sc_nirqs)
 		return (EINVAL);
@@ -371,7 +365,6 @@ apple_aic_setup_intr(device_t dev, struct intr_irqsrc *isrc,
 	sc = device_get_softc(dev);
 	ai = (struct apple_aic_irqsrc *)isrc;
 
-	device_printf(dev, "setup_intr called\n");
 	if (data != NULL) {
 		KASSERT(data->type == INTR_MAP_DATA_FDT,
 		    ("%s: Only FDT data is supported (got %#x)", __func__,
@@ -381,7 +374,6 @@ apple_aic_setup_intr(device_t dev, struct intr_irqsrc *isrc,
 		    &die);
 		if (error != 0)
 			return (error);
-		device_printf(dev, "setup_intr irq %d\n", irq);
 	} else {
 		pol = INTR_POLARITY_CONFORM;
 		trig = INTR_TRIGGER_CONFORM;
@@ -551,18 +543,22 @@ apple_aic_ipi_received(struct apple_aic_softc *sc, struct trapframe *tf)
 		ipi = ffs(mask) - 1;
 		mask &= ~(1 << ipi);
 
-		intr_ipi_dispatch(ipi, tf);
+		intr_ipi_dispatch(ipi);
 	}
 #endif
 }
 
 static int
-apple_aic_irq(void *arg)
+apple_aic_irq(void *arg, uint32_t irqtype)
 {
 	struct apple_aic_softc *sc;
 	uint32_t die, event, irq, type;
 	struct apple_aic_irqsrc	*aisrc;
 	struct trapframe *tf;
+
+	MPASS((irqtype & (INTR_TYPE_IRQ | INTR_TYPE_FIQ)) != 0);
+	if (irqtype == INTR_TYPE_FIQ)
+		return (apple_aic_fiq(arg));
 
 	sc = arg;
 	tf = curthread->td_intr_frame;

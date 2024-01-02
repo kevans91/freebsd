@@ -68,6 +68,7 @@
 
 #ifdef HAVE_KERNEL_OPTION_HEADERS
 #include "opt_device_polling.h"
+#include "opt_platform.h"
 #endif
 
 #include <sys/param.h>
@@ -114,6 +115,11 @@
 #include <dev/pci/pcivar.h>
 
 #include <dev/bge/if_bgereg.h>
+
+#ifdef FDT
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_bus.h>
+#endif
 
 #define	BGE_CSUM_FEATURES	(CSUM_IP | CSUM_TCP)
 #define	ETHER_MIN_NOPAD		(ETHER_MIN_LEN - ETHER_CRC_LEN) /* i.e., 60 */
@@ -6693,6 +6699,13 @@ static int
 bge_get_eaddr_mem(struct bge_softc *sc, uint8_t ether_addr[])
 {
 	uint32_t mac_addr;
+#ifdef FDT
+	phandle_t node;
+
+	node = ofw_bus_get_node(sc->bge_dev);
+	if (node != -1)
+		panic("Ope\n");
+#endif
 
 	mac_addr = bge_readmem_ind(sc, BGE_SRAM_MAC_ADDR_HIGH_MB);
 	if ((mac_addr >> 16) == 0x484b) {

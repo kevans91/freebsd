@@ -434,8 +434,6 @@ apple_pcie_read_config(device_t dev, u_int bus, u_int slot, u_int func,
     u_int reg, int bytes)
 {
 	struct apple_pcie_softc *sc;
-	bus_space_handle_t h;
-	bus_space_tag_t	t;
 	bus_addr_t offset;
 	uint32_t data;
 
@@ -444,18 +442,15 @@ apple_pcie_read_config(device_t dev, u_int bus, u_int slot, u_int func,
 	if (offset == PCI_BAD_ADDR)
 		return (~0U);
 
-	t = sc->base.base.bst;
-	h = sc->base.base.bsh;
-
 	switch (bytes) {
 	case 1:
-		data = bus_space_read_1(t, h, offset);
+		data = bus_read_1(sc->base.base.res, offset);
 		break;
 	case 2:
-		data = le16toh(bus_space_read_2(t, h, offset));
+		data = le16toh(bus_read_2(sc->base.base.res, offset));
 		break;
 	case 4:
-		data = le32toh(bus_space_read_4(t, h, offset));
+		data = le32toh(bus_read_4(sc->base.base.res, offset));
 		break;
 	default:
 		data = ~0U;
@@ -469,8 +464,6 @@ apple_pcie_write_config(device_t dev, u_int bus, u_int slot,
     u_int func, u_int reg, uint32_t val, int bytes)
 {
 	struct apple_pcie_softc *sc;
-	bus_space_handle_t h;
-	bus_space_tag_t	t;
 	bus_addr_t offset;
 
 	sc = device_get_softc(dev);
@@ -478,18 +471,15 @@ apple_pcie_write_config(device_t dev, u_int bus, u_int slot,
 	if (offset == PCI_BAD_ADDR)
 		return;
 
-	t = sc->base.base.bst;
-	h = sc->base.base.bsh;
-
 	switch (bytes) {
 	case 1:
-		bus_space_write_1(t, h, offset, val);
+		bus_write_1(sc->base.base.res, offset, val);
 		break;
 	case 2:
-		bus_space_write_2(t, h, offset, htole16(val));
+		bus_write_2(sc->base.base.res, offset, htole16(val));
 		break;
 	case 4:
-		bus_space_write_4(t, h, offset, htole32(val));
+		bus_write_4(sc->base.base.res, offset, htole32(val));
 		break;
 	default:
 		break;
@@ -1139,7 +1129,6 @@ apple_pcie_attach(device_t dev)
 	if (error)
 		return (error);
 
-device_printf(dev, "bst %p bsh %lx\n", sc->base.base.bst, sc->base.base.bsh);
 	error = apple_pcie_check_ranges(dev);
 	if (error)
 		return (error);
@@ -1260,50 +1249,6 @@ device_printf(dev, "bst %p bsh %lx\n", sc->base.base.bst, sc->base.base.bsh);
 	return (bus_generic_attach(dev));
 }
 
-static int
-apple_pcie_activate_resource(device_t dev, device_t child, int type, int rid,
-    struct resource *r)
-{
-	rman_res_t start, end;
-	int res;
-
-	if ((res = rman_activate_resource(r)) != 0)
-		return (res);
-
-	start = rman_get_start(r);
-	end = rman_get_end(r);
-	res = pci_host_generic_translate_resource(dev, type, start, end,
-	    &start, &end);
-	if (res != 0) {
-		rman_deactivate_resource(r);
-		return (res);
-	}
-
-	rman_set_start(r, start);
-	rman_set_end(r, end);
-
-	/* Hijack memory requests and map them nGnRE */
-	if (type == SYS_RES_MEMORY && (rman_get_flags(r) & RF_UNMAPPED) == 0) {
-		struct resource_map_request req;
-		struct resource_map map;
-
-		resource_init_map_request(&req);
-		req.memattr = VM_MEMATTR_DEVICE_nGnRE;
-		res = bus_map_resource(child, type, r, &req, &map);
-		if (res != 0) {
-			rman_deactivate_resource(r);
-			return (res);
-		}
-
-		rman_set_mapping(r, &map);
-
-		return (0);
-	}
-
-	return (BUS_ACTIVATE_RESOURCE(device_get_parent(dev), child, type,
-	    rid, r));
-}
-
 /*
  * Device method table.
  */
@@ -1311,8 +1256,6 @@ static device_method_t apple_pcie_methods[] = {
 	/* Device interface. */
 	DEVMETHOD(device_probe,			apple_pcie_probe),
 	DEVMETHOD(device_attach,		apple_pcie_attach),
-
-//	DEVMETHOD(bus_activate_resource,	apple_pcie_activate_resource),
 
 	/* PCIB interface. */
 	DEVMETHOD(pcib_read_config,		apple_pcie_read_config),

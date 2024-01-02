@@ -58,6 +58,7 @@
 #include <sys/condvar.h>
 #include <sys/sysctl.h>
 #include <sys/sx.h>
+#include <sys/stack.h>
 #include <sys/unistd.h>
 #include <sys/callout.h>
 #include <sys/malloc.h>
@@ -108,7 +109,7 @@ SYSCTL_INT(_hw_usb_xhci, OID_AUTO, dcepquirk, CTLFLAG_RWTUN,
     &xhcidcepquirk, 0, "Set to disable endpoint deconfigure command");
 
 #ifdef USB_DEBUG
-static int xhcidebug;
+int xhcidebug;
 static int xhciroute;
 static int xhcipolling;
 static int xhcidma32;
@@ -510,6 +511,9 @@ usb_error_t
 xhci_init(struct xhci_softc *sc, device_t self, uint8_t dma32)
 {
 	uint32_t temp;
+#if 0
+	static int i;
+#endif
 
 	DPRINTF("\n");
 
@@ -562,6 +566,13 @@ xhci_init(struct xhci_softc *sc, device_t self, uint8_t dma32)
 	/* get DMA bits */
 	sc->sc_bus.dma_bits = (XHCI_HCS0_AC64(temp) &&
 	    xhcidma32 == 0 && dma32 == 0) ? 64 : 32;
+#if 0
+	if (i++ < 2) {
+		device_printf(self, "forced 64-bit dma, was %d\n",
+		    sc->sc_bus.dma_bits);
+		sc->sc_bus.dma_bits = 64;
+	}
+#endif
 
 	device_printf(self, "%d bytes context size, %d-bit DMA\n",
 	    sc->sc_ctx_is_64_byte ? 64 : 32, (int)sc->sc_bus.dma_bits);
@@ -3094,6 +3105,8 @@ xhci_device_generic_start(struct usb_xfer *xfer)
 	/* add transfer last on interrupt queue */
 	usbd_transfer_enqueue(&xfer->xroot->bus->intr_q, xfer);
 
+	//printf("%s, xfer->timeout == %d\n", __func__, xfer->timeout);
+
 	/* start timeout, if any */
 	if (xfer->timeout != 0)
 		usbd_transfer_timeout_ms(xfer, &xhci_timeout, xfer->timeout);
@@ -4261,6 +4274,11 @@ static void
 xhci_set_hw_power(struct usb_bus *bus)
 {
 	DPRINTF("\n");
+	struct stack st;
+
+	stack_save(&st);
+	//stack_print(&st);
+
 }
 
 static void

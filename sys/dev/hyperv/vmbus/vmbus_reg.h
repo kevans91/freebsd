@@ -102,7 +102,7 @@ struct vmbus_mnf {
 			mnf_param[VMBUS_MONTRIGS_MAX][VMBUS_MONTRIG_LEN];
 	uint8_t		mnf_rsvd4[1984];
 } __packed;
-CTASSERT(sizeof(struct vmbus_mnf) == PAGE_SIZE);
+CTASSERT(sizeof(struct vmbus_mnf) == PAGE_SIZE_4K);
 
 /*
  * Buffer ring
@@ -180,7 +180,7 @@ struct vmbus_bufring {
 
 	uint8_t			br_data[];
 } __packed;
-CTASSERT(sizeof(struct vmbus_bufring) == PAGE_SIZE);
+CTASSERT(sizeof(struct vmbus_bufring) == PAGE_SIZE_4K);
 
 /*
  * Channel

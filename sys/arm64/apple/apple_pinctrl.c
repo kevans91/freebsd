@@ -437,8 +437,6 @@ apple_pinctrl_pin_configure(struct apple_pinctrl_softc *sc, uint32_t pin,
 	else if ((flags & GPIO_PIN_OUTPUT) != 0)
 		reg |= GPIO_PIN_MODE_OUTPUT;
 
-	device_printf(sc->sc_dev, "set pin %d to %x\n",
-	    pin, reg);
 	HWRITE4(sc, GPIO_PIN(pin), reg);
 }
 

@@ -33,11 +33,20 @@
 #ifndef	_ARM64_IOMMU_IOMMU_H_
 #define	_ARM64_IOMMU_IOMMU_H_
 
+#if 1
+/* XXX allow per-iommu config */
+#define	IOMMU_PAGE_SIZE		16384
+#else
 #define	IOMMU_PAGE_SIZE		4096
+#endif
 #define	IOMMU_PAGE_MASK		(IOMMU_PAGE_SIZE - 1)
 
 int iommu_unregister(struct iommu_unit *unit);
 int iommu_register(struct iommu_unit *unit);
+#ifdef FDT
+device_t iommu_find_ofw(device_t dev, int channel, int *ncells,
+    pcell_t **cells);
+#endif
 struct iommu_ctx * iommu_get_ctx_ofw(device_t dev, int channel);
 
 #endif /* _ARM64_IOMMU_IOMMU_H_ */

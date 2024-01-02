@@ -253,18 +253,15 @@ apple_dart_intr(void *priv)
 }
 
 static volatile uint64_t *
-apple_dart_lookup_tte(struct apple_dart_softc *sc, bus_addr_t dva)
+apple_dart_lookup_tte(struct apple_dart_domain *dom, bus_addr_t dva)
 {
-#if 0
 	int idx = dva / DART_PAGE_SIZE;
 	int l2_idx = idx / (DART_PAGE_SIZE / sizeof(uint64_t));
 	int tte_idx = idx % (DART_PAGE_SIZE / sizeof(uint64_t));
 	volatile uint64_t *l2;
 
-	l2 = vtophys(sc->sc_l2[l2_idx]);
-	return &l2[tte_idx];
-#endif
-	return (NULL);
+	l2 = dom->dom_l2[l2_idx];
+	return (&l2[tte_idx]);
 }
 
 static int
@@ -304,7 +301,9 @@ apple_dart_attach(device_t dev)
 	const struct dart_cfg *dcfg;
 	u_int config, idx, params2, sid;
 	int error;
+#if 1
 	bool bypass;
+#endif
 
 	error = 0;
 	if (bus_alloc_resources(dev, dart_spec, sc->sc_res) != 0) {
@@ -332,6 +331,7 @@ apple_dart_attach(device_t dev)
 	}
 
 	params2 = DART_READ(sc, DART_PARAMS2);
+#if 1
 	bypass = ((params2 & DART_PARAMS2_BYPASS_SUPPORT) != 0);
 	if (bypass) {
 		for (sid = 0; sid < sc->sc_nsid; sid++) {
@@ -347,6 +347,7 @@ apple_dart_attach(device_t dev)
 		return (0);
 
 	}
+#endif
 
 	mtx_init(&sc->sc_mtx, device_get_nameunit(dev), "apple_dart", MTX_DEF);
 	mtx_init(&sc->sc_sid_mtx, "asid alloc", NULL, MTX_SPIN);
@@ -361,17 +362,16 @@ apple_dart_attach(device_t dev)
 	    sizeof(sc->sc_sid_mask)) <= 0)
 		sc->sc_sid_mask = DART_STREAM_MASK;
 
-	device_printf(dev, "%u SIDs (mask 0x%x)\n", sc->sc_nsid,
-	    sc->sc_sid_mask);
+	if (bootverbose)
+		device_printf(dev, "%u SIDs (mask 0x%x)\n", sc->sc_nsid,
+		    sc->sc_sid_mask);
 
 	MPASS(sc->sc_nsid == DART_STREAM_MAX);
 	MPASS(sc->sc_sid_mask == DART_STREAM_MASK);	/* For now */
 
 	/* Disable translations */
-	if (!bypass) {
-		for (sid = 0; sid < sc->sc_nsid; sid++) {
-			DART_WRITE(sc, DART_TCR(sid), 0);
-		}
+	for (sid = 0; sid < sc->sc_nsid; sid++) {
+		DART_WRITE(sc, DART_TCR(sid), 0);
 	}
 
 	/* Remove page tables */
@@ -409,8 +409,33 @@ out:
 static int
 apple_dart_find(device_t dev, device_t child)
 {
+	phandle_t iommu_node, ctrl_node;
+	device_t ctrl;
+	devclass_t pci_class;
+	int error;
 
-	return (ENXIO);
+	/*
+	 * XXX This whole thing is super ugly, and it really belongs as part of
+	 * iommu_find(); ideally we'd figure out if we have an iommu-map to
+	 * consult so that we can land precisely on the iommu device we need
+	 * rather than having to search all IOMMUs.
+	 */
+	pci_class = devclass_find("pci");
+	if (device_get_devclass(device_get_parent(child)) != pci_class)
+		return (ENXIO);
+
+	ctrl = pci_find_pcie_root_port(child);
+	ctrl = device_get_parent(device_get_parent(ctrl));
+	ctrl_node = ofw_bus_get_node(ctrl);
+	if (ctrl_node <= 0)
+		return (ENXIO);
+
+	error = ofw_bus_iommu_map(ctrl_node, pci_get_rid(child), &iommu_node,
+	    NULL);
+	if (error != 0 || OF_device_from_xref(iommu_node) != dev)
+		return (ENXIO);
+
+	return (0);
 }
 
 static int
@@ -486,6 +511,7 @@ apple_dart_map(device_t dev, struct iommu_domain *iodom,
 {
 	struct apple_dart_domain *domain;
 	struct apple_dart_softc *sc;
+	volatile uint64_t *tte;
 	vm_paddr_t pa;
 	int i;
 
@@ -498,20 +524,25 @@ apple_dart_map(device_t dev, struct iommu_domain *iodom,
 	    domain->asid);
 #endif
 
+	size = DART_ROUND_PAGE(size);
 	/*
-	 * XXX Round up to the nearest DART_PAGE_SIZE?
+	 * XXX PAGE_SIZE != DART_PAGE_SIZE?
 	 */
-	for (i = 0; size > 0; size -= PAGE_SIZE) {
-		pa = VM_PAGE_TO_PHYS(ma[i++]);
-		device_printf(dev, "mapping 0x%lx; 16k? %s",
-		    pa, (pa & DART_PAGE_MASK) == 0 ? "Yes" : "No");
+	for (i = 0; size > 0; size -= DART_PAGE_SIZE) {
+		device_printf(dev, "size == %jx\n", (uintmax_t)size);
+		pa = DART_TRUNC_PAGE(VM_PAGE_TO_PHYS(ma[i++]));
+
+		tte = apple_dart_lookup_tte(domain, va);
+		device_printf(dev, "tte == %jx\n", (uintmax_t)(uintptr_t)tte);
+		*tte = (pa >> sc->sc_shift) | DART_L2_PAGE;
+
 #if 0
 		error = pmap_smmu_enter(&domain->p, va, pa, prot, 0);
 		if (error)
 			return (error);
 #endif
 		apple_dart_flush_tlb_sid(sc, domain->sid);
-		va += PAGE_SIZE;
+		va += DART_PAGE_SIZE;
 	}
 
 	return (0);
@@ -561,7 +592,7 @@ apple_dart_domain_alloc(device_t dev, struct iommu_unit *iommu)
 	struct apple_dart_softc *sc;
 	vm_paddr_t pa;
 
-	device_printf(dev, "allocating new domain");
+	device_printf(dev, "allocating new domain\n");
 	sc = device_get_softc(dev);
 
 	unit = (struct apple_dart_unit *)iommu;
@@ -570,11 +601,12 @@ apple_dart_domain_alloc(device_t dev, struct iommu_unit *iommu)
 	domain->ntte = howmany(DART_DVA_END, DART_PAGE_SIZE);
 	domain->nl2 = howmany(domain->ntte,
 	    DART_PAGE_SIZE / sizeof(**domain->dom_l2));
-	domain->nl1 = howmany(domain->nl1,
+	domain->nl1 = howmany(domain->nl2,
 	    DART_PAGE_SIZE / sizeof(*domain->dom_l1));
 
-	MPASS(domain->nl1 <= DART_L1_IDX_MAX);
+	MPASS(domain->nl1 > 0 && domain->nl1 <= DART_L1_IDX_MAX);
 
+	domain->iodom.end = DART_DVA_END;
 	domain->sc = sc;
 	domain->dom_l1 = (uint64_t *)contigmalloc(domain->nl1 * DART_PAGE_SIZE,
 	    M_APLDART, M_WAITOK, 0, DART_MAXADDR, DART_PAGE_SIZE, 0);
@@ -615,13 +647,15 @@ apple_dart_domain_free(device_t dev, struct iommu_domain *iodom)
 	LIST_REMOVE(domain, next);
 
 	for (int idx = 0; idx < domain->nl2; ++idx) {
-		free(domain->dom_l2[idx], M_APLDART);
+		contigfree(domain->dom_l2[idx], DART_PAGE_SIZE, M_APLDART);
 	}
 
 	free(domain->dom_l2, M_APLDART);
-	free(domain->dom_l1, M_APLDART);
+	contigfree(domain->dom_l1, domain->nl1 * DART_PAGE_SIZE, M_APLDART);
 	free(domain, M_APLDART);
 }
+
+#include <sys/stack.h>
 
 static struct iommu_ctx *
 apple_dart_ctx_alloc(device_t dev, struct iommu_domain *iodom, device_t child,
@@ -638,6 +672,7 @@ apple_dart_ctx_alloc(device_t dev, struct iommu_domain *iodom, device_t child,
 	u_int sid;
 #if 0
 	int err;
+	struct stack st;
 #endif
 
 	sc = device_get_softc(dev);
@@ -646,16 +681,36 @@ apple_dart_ctx_alloc(device_t dev, struct iommu_domain *iodom, device_t child,
 
 	rid = pci_get_rid(child);
 
-	/* XXX */
-	sid = 3;
+#if 0
+	device_printf(dev, "allocate ctx\n");
+	stack_save(&st);
+	stack_print(&st);
+	device_printf(dev, "\n");
+#endif
+
+	for (sid = 0; sid < sc->sc_nsid; sid++) {
+		u_int mask = (1 << sid);
+
+		if ((sc->sc_sid_mask & mask) == 0)
+			continue;
+		if ((sc->sc_sid_allocated & mask) == 0)
+			break;
+	}
+
+	if (sid == sc->sc_nsid) {
+		device_printf(dev, "exhausted sid space\n");
+		return (NULL);
+	}
+
 #if 0
 	err = ofw_bus_iommu_map(node, rid, &iommudev, &sid);
 	if (err != 0)
 		return (NULL);
 #endif
 
-	if (!apple_dart_sid_acquire(domain, sid, disabled))
+	if (!apple_dart_sid_acquire(domain, sid, disabled)) {
 		return (NULL);
+	}
 
 	ctx = malloc(sizeof(struct apple_dart_ctx), M_APLDART,
 	    M_WAITOK | M_ZERO);
@@ -672,6 +727,14 @@ apple_dart_ctx_alloc(device_t dev, struct iommu_domain *iodom, device_t child,
 	IOMMU_DOMAIN_UNLOCK(iodom);
 
 	return (&ctx->ioctx);
+}
+
+static int
+apple_dart_ctx_init(device_t dev, struct iommu_ctx *ioctx)
+{
+
+	/* part of ctx_alloc should probably move into here */
+	return (0);
 }
 
 static void
@@ -738,7 +801,6 @@ apple_dart_ctx_lookup(device_t dev, device_t child)
 	return (NULL);
 }
 
-
 static device_method_t apple_dart_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe,		apple_dart_probe),
@@ -751,6 +813,7 @@ static device_method_t apple_dart_methods[] = {
 	DEVMETHOD(iommu_domain_alloc,	apple_dart_domain_alloc),
 	DEVMETHOD(iommu_domain_free,	apple_dart_domain_free),
 	DEVMETHOD(iommu_ctx_alloc,	apple_dart_ctx_alloc),
+	DEVMETHOD(iommu_ctx_init,	apple_dart_ctx_init),
 	DEVMETHOD(iommu_ctx_free,	apple_dart_ctx_free),
 	DEVMETHOD(iommu_ctx_lookup,	apple_dart_ctx_lookup),
 
