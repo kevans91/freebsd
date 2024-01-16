@@ -705,7 +705,7 @@ ure_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 				/* set the necessary flags for rx checksum */
 				ure_rxcsum(caps, &pkt, m);
 
-				uether_rxmbuf(ue, m, len - ETHER_CRC_LEN);
+				uether_rxmbuf(ue, m, 0);
 			}
 
 			off += roundup(len, URE_RXPKT_ALIGN);
