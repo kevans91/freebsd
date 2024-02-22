@@ -37,7 +37,20 @@
 /*
  * Non-POSIX type definitions:
  */
+#define	PTHREAD_FOREACH_NP_DATA_VERSION_0	0
+#define	PTHREAD_FOREACH_NP_DATA_VERSION	PTHREAD_FOREACH_NP_DATA_VERSION_0
+
+typedef struct pthread_foreach_np_data {
+	int		version;
+
+	/* Version 0 fields */
+	pthread_t	thread;
+	lwpid_t		lwpid;
+} pthread_foreach_np_data_t;
+
 typedef void	(*pthread_switch_routine_t)(pthread_t, pthread_t);
+typedef int	(*pthread_foreach_np_routine_t)(void *,
+		    const pthread_foreach_np_data_t *);
 
 /*
  * Non-POSIX thread function prototype definitions:
@@ -52,6 +65,7 @@ int pthread_getaffinity_np(pthread_t, size_t, cpuset_t *);
 int pthread_getthreadid_np(void);
 int pthread_main_np(void);
 int pthread_multi_np(void);
+int pthread_foreach_np(pthread_foreach_np_routine_t, void *);
 int pthread_mutexattr_getkind_np(pthread_mutexattr_t);
 int pthread_mutexattr_setkind_np(pthread_mutexattr_t *, int);
 int pthread_mutex_getspinloops_np(pthread_mutex_t *mutex, int *count);
