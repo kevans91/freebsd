@@ -18,6 +18,7 @@ SRCS+= \
 	thr_equal.c \
 	thr_event.c \
 	thr_exit.c \
+	thr_foreach_np.c \
 	thr_fork.c \
 	thr_getprio.c \
 	thr_getcpuclockid.c \

@@ -124,6 +124,10 @@ FBSD_1.0 {
 	pthread_yield;
 };
 
+FBSD_1.8 {
+	pthread_foreach_np;
+};
+
 /*
  * List the private interfaces reserved for use in FreeBSD libraries.
  * These are not part of our application ABI.
