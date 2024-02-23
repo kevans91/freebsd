@@ -1,37 +1,18 @@
 
 .include <bsd.init.mk>
 
-SHLIB_NAME=	libclang_rt.asan-${CRTARCH}.so
-.undef NO_PIC # sorry...
+LIB=		clang_rt.lsan-${CRTARCH}
 
-CFLAGS+=	-DASAN_DYNAMIC=1
-
-SRCS+=		asan/asan_activation.cpp
-SRCS+=		asan/asan_allocator.cpp
-SRCS+=		asan/asan_debugging.cpp
-SRCS+=		asan/asan_descriptions.cpp
-SRCS+=		asan/asan_errors.cpp
-SRCS+=		asan/asan_fake_stack.cpp
-SRCS+=		asan/asan_flags.cpp
-SRCS+=		asan/asan_globals.cpp
-SRCS+=		asan/asan_interceptors.cpp
-SRCS+=		asan/asan_interceptors_memintrinsics.cpp
-SRCS+=		asan/asan_linux.cpp
-SRCS+=		asan/asan_malloc_linux.cpp
-SRCS+=		asan/asan_memory_profile.cpp
-SRCS+=		asan/asan_poisoning.cpp
-SRCS+=		asan/asan_posix.cpp
-SRCS+=		asan/asan_preinit.cpp
-SRCS+=		asan/asan_report.cpp
-SRCS+=		asan/asan_rtl.cpp
-SRCS+=		asan/asan_shadow_setup.cpp
-SRCS+=		asan/asan_stack.cpp
-SRCS+=		asan/asan_stats.cpp
-SRCS+=		asan/asan_suppressions.cpp
-SRCS+=		asan/asan_thread.cpp
 SRCS+=		interception/interception_linux.cpp
+SRCS+=		lsan/lsan.cpp
+SRCS+=		lsan/lsan_allocator.cpp
 SRCS+=		lsan/lsan_common.cpp
 SRCS+=		lsan/lsan_common_linux.cpp
+SRCS+=		lsan/lsan_interceptors.cpp
+SRCS+=		lsan/lsan_linux.cpp
+SRCS+=		lsan/lsan_posix.cpp
+SRCS+=		lsan/lsan_preinit.cpp
+SRCS+=		lsan/lsan_thread.cpp
 SRCS+=		sanitizer_common/sancov_flags.cpp
 SRCS+=		sanitizer_common/sanitizer_allocator.cpp
 SRCS+=		sanitizer_common/sanitizer_allocator_checks.cpp
@@ -41,7 +22,7 @@ SRCS+=		sanitizer_common/sanitizer_common.cpp
 SRCS+=		sanitizer_common/sanitizer_common_libcdep.cpp
 SRCS+=		sanitizer_common/sanitizer_coverage_libcdep_new.cpp
 SRCS+=		sanitizer_common/sanitizer_deadlock_detector1.cpp
-SRCS+=		sanitizer_common/sanitizer_dl.cpp
+SRCS+=		sanitizer_common/sanitizer_deadlock_detector2.cpp
 SRCS+=		sanitizer_common/sanitizer_errno.cpp
 SRCS+=		sanitizer_common/sanitizer_file.cpp
 SRCS+=		sanitizer_common/sanitizer_flag_parser.cpp
@@ -68,7 +49,6 @@ SRCS+=		sanitizer_common/sanitizer_suppressions.cpp
 SRCS+=		sanitizer_common/sanitizer_symbolizer.cpp
 SRCS+=		sanitizer_common/sanitizer_symbolizer_libbacktrace.cpp
 SRCS+=		sanitizer_common/sanitizer_symbolizer_libcdep.cpp
-SRCS+=		sanitizer_common/sanitizer_symbolizer_markup.cpp
 SRCS+=		sanitizer_common/sanitizer_symbolizer_posix_libcdep.cpp
 SRCS+=		sanitizer_common/sanitizer_symbolizer_report.cpp
 SRCS+=		sanitizer_common/sanitizer_termination.cpp
@@ -77,17 +57,5 @@ SRCS+=		sanitizer_common/sanitizer_thread_registry.cpp
 SRCS+=		sanitizer_common/sanitizer_tls_get_addr.cpp
 SRCS+=		sanitizer_common/sanitizer_type_traits.cpp
 SRCS+=		sanitizer_common/sanitizer_unwind_linux_libcdep.cpp
-SRCS+=		ubsan/ubsan_diag.cpp
-SRCS+=		ubsan/ubsan_flags.cpp
-SRCS+=		ubsan/ubsan_handlers.cpp
-SRCS+=		ubsan/ubsan_init.cpp
-SRCS+=		ubsan/ubsan_monitor.cpp
-SRCS+=		ubsan/ubsan_value.cpp
-
-# Kludge around a bsd.lib.mk shortcoming: when SHLIB_NAME is defined, but LIB
-# and LIB_CXX are undefined (which forces building only a shared library),
-# there is no way to tell it to use ${CXX} for linking.  Since the files for
-# this library are all C++ anyway, simply set CC to CXX.
-CC=		${CXX}
 
 .include <bsd.lib.mk>
