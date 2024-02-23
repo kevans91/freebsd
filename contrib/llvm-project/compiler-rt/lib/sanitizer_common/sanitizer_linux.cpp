@@ -770,10 +770,17 @@ struct linux_dirent {
 
 #if !SANITIZER_SOLARIS && !SANITIZER_NETBSD
 // Syscall wrappers.
+#if SANITIZER_FREEBSD
+uptr internal_ptrace(int request, int pid, void *addr, int data) {
+  return internal_syscall(SYSCALL(ptrace), request, pid, (uptr)addr,
+                          data);
+}
+#else
 uptr internal_ptrace(int request, int pid, void *addr, void *data) {
   return internal_syscall(SYSCALL(ptrace), request, pid, (uptr)addr,
                           (uptr)data);
 }
+#endif
 
 uptr internal_waitpid(int pid, int *status, int options) {
   return internal_syscall(SYSCALL(wait4), pid, (uptr)status, options,

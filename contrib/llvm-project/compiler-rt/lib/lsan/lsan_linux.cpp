@@ -12,7 +12,7 @@
 
 #include "sanitizer_common/sanitizer_platform.h"
 
-#if SANITIZER_LINUX || SANITIZER_NETBSD || SANITIZER_FUCHSIA
+#if SANITIZER_LINUX || SANITIZER_NETBSD || SANITIZER_FUCHSIA || SANITIZER_FREEBSD
 
 #  include "lsan_allocator.h"
 #  include "lsan_thread.h"

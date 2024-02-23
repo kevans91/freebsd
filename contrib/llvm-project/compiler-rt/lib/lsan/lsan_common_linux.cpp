@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // This file is a part of LeakSanitizer.
-// Implementation of common leak checking functionality. Linux/NetBSD-specific
+// Implementation of common leak checking functionality. Linux/NetBSD/FreeBSD-specific
 // code.
 //
 //===----------------------------------------------------------------------===//
@@ -15,7 +15,7 @@
 #include "sanitizer_common/sanitizer_platform.h"
 #include "lsan_common.h"
 
-#if CAN_SANITIZE_LEAKS && (SANITIZER_LINUX || SANITIZER_NETBSD)
+#if CAN_SANITIZE_LEAKS && (SANITIZER_LINUX || SANITIZER_NETBSD || SANITIZER_FREEBSD)
 #include <link.h>
 
 #include "sanitizer_common/sanitizer_common.h"
@@ -139,7 +139,16 @@ static int LockStuffAndStopTheWorldCallback(struct dl_phdr_info *info,
 void LockStuffAndStopTheWorld(StopTheWorldCallback callback,
                               CheckForLeaksParam *argument) {
   DoStopTheWorldParam param = {callback, argument};
+#if SANITIZER_FREEBSD
+  // The above deadlock is plausible on FreeBSD as well, but it needs to be
+  // solved differently there.  The lock is reentrant if libthr is not used, but
+  // libthr intentionally breaks recursion detection because of some signal
+  // safety concerns.  Future work might be able to fix the deadlock probability
+  // in StopTheWorld with a pthread-based solution.
+  LockStuffAndStopTheWorldCallback(0, 0, &param);
+#else
   dl_iterate_phdr(LockStuffAndStopTheWorldCallback, &param);
+#endif
 }
 
 } // namespace __lsan
