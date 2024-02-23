@@ -56,7 +56,7 @@ uptr internal_unlink(const char *path);
 uptr internal_rename(const char *oldpath, const char *newpath);
 uptr internal_lseek(fd_t fd, OFF_T offset, int whence);
 
-#if SANITIZER_NETBSD
+#if SANITIZER_NETBSD || SANITIZER_FREEBSD
 uptr internal_ptrace(int request, int pid, void *addr, int data);
 #else
 uptr internal_ptrace(int request, int pid, void *addr, void *data);
