@@ -1,34 +1,18 @@
 
 .include <bsd.init.mk>
 
-LIB=		clang_rt.asan-${CRTARCH}
+LIB=		clang_rt.lsan-${CRTARCH}
 
-SRCS+=		asan/asan_activation.cpp
-SRCS+=		asan/asan_allocator.cpp
-SRCS+=		asan/asan_debugging.cpp
-SRCS+=		asan/asan_descriptions.cpp
-SRCS+=		asan/asan_errors.cpp
-SRCS+=		asan/asan_fake_stack.cpp
-SRCS+=		asan/asan_flags.cpp
-SRCS+=		asan/asan_globals.cpp
-SRCS+=		asan/asan_interceptors.cpp
-SRCS+=		asan/asan_interceptors_memintrinsics.cpp
-SRCS+=		asan/asan_linux.cpp
-SRCS+=		asan/asan_malloc_linux.cpp
-SRCS+=		asan/asan_memory_profile.cpp
-SRCS+=		asan/asan_poisoning.cpp
-SRCS+=		asan/asan_posix.cpp
-SRCS+=		asan/asan_preinit.cpp
-SRCS+=		asan/asan_report.cpp
-SRCS+=		asan/asan_rtl.cpp
-SRCS+=		asan/asan_shadow_setup.cpp
-SRCS+=		asan/asan_stack.cpp
-SRCS+=		asan/asan_stats.cpp
-SRCS+=		asan/asan_suppressions.cpp
-SRCS+=		asan/asan_thread.cpp
 SRCS+=		interception/interception_linux.cpp
+SRCS+=		lsan/lsan.cpp
+SRCS+=		lsan/lsan_allocator.cpp
 SRCS+=		lsan/lsan_common.cpp
 SRCS+=		lsan/lsan_common_linux.cpp
+SRCS+=		lsan/lsan_interceptors.cpp
+SRCS+=		lsan/lsan_linux.cpp
+SRCS+=		lsan/lsan_posix.cpp
+SRCS+=		lsan/lsan_preinit.cpp
+SRCS+=		lsan/lsan_thread.cpp
 SRCS+=		sanitizer_common/sancov_flags.cpp
 SRCS+=		sanitizer_common/sanitizer_allocator.cpp
 SRCS+=		sanitizer_common/sanitizer_allocator_checks.cpp
@@ -73,14 +57,5 @@ SRCS+=		sanitizer_common/sanitizer_thread_registry.cpp
 SRCS+=		sanitizer_common/sanitizer_tls_get_addr.cpp
 SRCS+=		sanitizer_common/sanitizer_type_traits.cpp
 SRCS+=		sanitizer_common/sanitizer_unwind_linux_libcdep.cpp
-SRCS+=		ubsan/ubsan_diag.cpp
-SRCS+=		ubsan/ubsan_flags.cpp
-SRCS+=		ubsan/ubsan_handlers.cpp
-SRCS+=		ubsan/ubsan_init.cpp
-SRCS+=		ubsan/ubsan_monitor.cpp
-SRCS+=		ubsan/ubsan_value.cpp
-
-FILESDIR=	${SANITIZER_SHAREDIR}
-FILES+=		asan/asan_ignorelist.txt
 
 .include <bsd.lib.mk>

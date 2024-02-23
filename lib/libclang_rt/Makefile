@@ -16,6 +16,8 @@ SD_FUZZER+=	fuzzer_no_main
 
 SD_INCLUDE+=	include
 
+SD_LSAN+=	lsan
+
 SD_MSAN+=	msan
 SD_MSAN+=	msan_cxx
 
@@ -42,6 +44,7 @@ SD_XRAY+=	xray-profiling
 SUBDIR+=	${SD_ASAN}
 SUBDIR+=	${SD_CFI}
 SUBDIR+=	${SD_FUZZER}
+SUBDIR+=	${SD_LSAN}
 SUBDIR+=	${SD_MSAN}
 SUBDIR+=	${SD_SAFESTACK}
 SUBDIR+=	${SD_STATS}
@@ -53,6 +56,7 @@ SUBDIR+=	${SD_ASAN}
 SUBDIR+=	${SD_CFI}
 SUBDIR+=	${SD_DD}
 SUBDIR+=	${SD_FUZZER}
+SUBDIR+=	${SD_LSAN}
 SUBDIR+=	${SD_MSAN}
 SUBDIR+=	${SD_SAFESTACK}
 SUBDIR+=	${SD_STATS}
@@ -64,6 +68,7 @@ SUBDIR+=	${SD_XRAY}
 .elif ${MACHINE_CPUARCH} == "i386"
 SUBDIR+=	${SD_ASAN}
 SUBDIR+=	${SD_CFI}
+SUBDIR+=	${SD_LSAN}
 SUBDIR+=	${SD_SAFESTACK}
 SUBDIR+=	${SD_STATS}
 SUBDIR+=	${SD_UBSAN}
@@ -71,12 +76,14 @@ SUBDIR+=	${SD_UBSAN}
 # nothing for 32-bit powerpc
 .elif ${MACHINE_ARCH} == "powerpc64"
 SUBDIR+=	${SD_ASAN}
+SUBDIR+=	${SD_LSAN}
 SUBDIR+=	${SD_MSAN}
 SUBDIR+=	${SD_STATS}
 SUBDIR+=	${SD_TSAN}
 SUBDIR+=	${SD_UBSAN}
 .elif ${MACHINE_ARCH} == "powerpc64le"
 SUBDIR+=	${SD_ASAN}
+SUBDIR+=	${SD_LSAN}
 SUBDIR+=	${SD_MSAN}
 SUBDIR+=	${SD_STATS}
 SUBDIR+=	${SD_TSAN}
@@ -84,6 +91,7 @@ SUBDIR+=	${SD_UBSAN}
 SUBDIR+=	${SD_XRAY}
 .elif ${MACHINE_CPUARCH} == "riscv"
 SUBDIR+=	${SD_ASAN}
+SUBDIR+=	${SD_LSAN}
 SUBDIR+=	${SD_STATS}
 SUBDIR+=	${SD_UBSAN}
 .endif
