@@ -131,6 +131,7 @@ struct tuntap_softc {
 #define	TUN_DYING	0x0200
 #define	TUN_L2		0x0400
 #define	TUN_VMNET	0x0800
+#define	TUN_TRANSIENT	0x1000
 
 #define	TUN_DRIVER_IDENT_MASK	(TUN_L2 | TUN_VMNET)
 #define	TUN_READY		(TUN_OPEN | TUN_INITED)
@@ -1180,6 +1181,18 @@ out:
 	tun_vnethdr_set(ifp, 0);
 
 	tun_unbusy_locked(tp);
+	if ((tp->tun_flags & TUN_TRANSIENT) != 0) {
+		int error __diagused;
+
+		/* Mark it busy so that nothing can re-open it. */
+		tp->tun_flags |= TUN_DYING;
+		TUN_UNLOCK(tp);
+
+		error = if_clone_destroyif(NULL, ifp);
+		MPASS(error == 0);
+		return;
+	}
+
 	TUN_UNLOCK(tp);
 }
 
@@ -1623,6 +1636,19 @@ tunioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag,
 		break;
 	case TUNGDEBUG:
 		*(int *)data = tundebug;
+		break;
+	case TUNSTRANSIENT:
+		TUN_LOCK(tp);
+		if (*(int *)data)
+			tp->tun_flags |= TUN_TRANSIENT;
+		else
+			tp->tun_flags &= ~TUN_TRANSIENT;
+		TUN_UNLOCK(tp);
+		break;
+	case TUNGTRANSIENT:
+		TUN_LOCK(tp);
+		*(int *)data = (tp->tun_flags & TUN_TRANSIENT) != 0;
+		TUN_UNLOCK(tp);
 		break;
 	case FIONBIO:
 		break;
