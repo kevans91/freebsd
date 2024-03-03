@@ -455,6 +455,9 @@ if_clone_destroyif_flags(struct if_clone *ifc, struct ifnet *ifp, uint32_t flags
 	 */
 	CURVNET_SET_QUIET(ifp->if_vnet);
 
+	if (ifc == NULL)
+		ifc = ifc_find_cloner_in_vnet(ifp->if_dname, ifp->if_home_vnet);
+
 	if (!ifc_unlink_ifp(ifc, ifp)) {
 		CURVNET_RESTORE();
 		return (ENXIO);		/* ifp is not on the list. */
