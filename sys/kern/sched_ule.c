@@ -301,11 +301,24 @@ static int balance_ticks;
 DPCPU_DEFINE_STATIC(struct tdq, tdq);
 DPCPU_DEFINE_STATIC(uint32_t, randomval);
 
+/*
+ * Statistics concerning how often N cpus were simultaneously active.
+ * Updated atomically before and after CPUs enter cpu_idle.
+ */
+static sbintime_t n_cpus_active[MAXCPU + 1];
+static sbintime_t n_cpus_active_lastupdate;
+static int n_cpus_idle;
+static int n_cpus_active_enabled;
+
 #define	TDQ_SELF()	((struct tdq *)PCPU_GET(sched))
 #define	TDQ_CPU(x)	(DPCPU_ID_PTR((x), tdq))
 #define	TDQ_ID(x)	((x)->tdq_id)
 #else	/* !SMP */
 static struct tdq	tdq_cpu;
+
+static sbintime_t n_cpus_active[2];
+static sbintime_t n_cpus_active_lastupdate;
+static int n_cpus_active_enabled;
 
 #define	TDQ_ID(x)	(0)
 #define	TDQ_SELF()	(&tdq_cpu)
@@ -944,6 +957,59 @@ tdq_unlock_pair(struct tdq *one, struct tdq *two)
 {
 	TDQ_UNLOCK(one);
 	TDQ_UNLOCK(two);
+}
+
+/* Compare two pointers to struct tdq. */
+static int
+tdqcmp(const void *one, const void *two)
+{
+	const struct tdq * tdq_one = *(const struct tdq * const *)one;
+	const struct tdq * tdq_two = *(const struct tdq * const *)two;
+
+	if (tdq_one < tdq_two)
+		return (-1);
+	else if (tdq_one > tdq_two)
+		return (1);
+	else
+		return (0);
+}
+
+/*
+ * Lock all the thread queues using their addresses to maintain lock order.
+ * Note that this should be avoided whenever possible since it effectively
+ * locks up the entire scheduler.
+ */
+static void
+tdq_lock_all(void)
+{
+	struct tdq ** tdq_list;
+	int i, j;
+
+	/*
+	 * To avoid deadlock, we must pick up the tdq_lock mutexes in
+	 * increasing order of address.  Collect them all of the thread
+	 * queue structures, sort them by address, and lock in order.
+	 */
+	tdq_list = malloc(sizeof(struct tdq *) * mp_ncpus, M_TEMP, M_WAITOK);
+	j = 0;
+	CPU_FOREACH(i)
+		tdq_list[j++] = TDQ_CPU(i);
+	qsort(tdq_list, mp_ncpus, sizeof(struct tdq *), tdqcmp);
+	for (i = 0; i < mp_ncpus; i++)
+		TDQ_LOCK(tdq_list[i]);
+	free(tdq_list, M_TEMP);
+}
+
+/*
+ * Unlock all the thread queues.  Order is not important here.
+ */
+static void
+tdq_unlock_all(void)
+{
+	int i;
+
+	CPU_FOREACH(i)
+		TDQ_UNLOCK(TDQ_CPU(i));
 }
 
 /*
@@ -2989,6 +3055,42 @@ sched_sizeof_thread(void)
 #define	TDQ_IDLESPIN(tdq)	1
 #endif
 
+static void
+n_cpus_active_update(int delta)
+{
+	sbintime_t t;
+	int nactive;
+
+	if (!n_cpus_active_enabled)
+		return;
+
+	/* What time is it now? */
+	t = sbinuptime();
+
+#ifdef SMP
+	/* Number of active CPUs is mp_ncpus - number of idle CPUs. */
+	nactive = mp_ncpus - atomic_load_int(&n_cpus_idle);
+	KASSERT((0 <= nactive) && (nactive <= mp_ncpus),
+	    "Invalid value for n_cpus_idle");
+
+	/* Atomically adjust number of idle CPUs. */
+	atomic_subtract_int(&n_cpus_idle, delta);
+#else
+	/* If the number of active CPUs is increasing, we were idle. */
+	if (delta > 0)
+		nactive = 0;
+	else
+		nactive = 1;
+#endif
+
+	/*
+	 * Record that nactive CPUs were active for the time period between
+	 * n_cpus_active_lastupdate and now.
+	 */
+	atomic_add_64(&n_cpus_active[nactive],
+	    t - atomic_swap_64(&n_cpus_active_lastupdate, t));
+}
+
 /*
  * The actual idle process.
  */
@@ -3058,7 +3160,9 @@ sched_idletd(void *dummy)
 			atomic_store_int(&tdq->tdq_cpu_idle, 0);
 			continue;
 		}
+		n_cpus_active_update(-1);
 		cpu_idle(switchcnt * 4 > sched_idlespinthresh);
+		n_cpus_active_update(1);
 		atomic_store_int(&tdq->tdq_cpu_idle, 0);
 
 		/*
@@ -3283,6 +3387,59 @@ sysctl_kern_sched_topology_spec(SYSCTL_HANDLER_ARGS)
 
 #endif
 
+/*
+ * Sysctl handler for retrieving statistics on how long we have spent with
+ * different numbers of CPUs active.  Used for power management.
+ */
+static int
+sysctl_kern_sched_nactive(SYSCTL_HANDLER_ARGS)
+{
+
+	n_cpus_active_update(0);
+
+	return (SYSCTL_OUT(req, n_cpus_active,
+	    sizeof(sbintime_t) * (mp_ncpus + 1)));
+}
+
+static int
+sysctl_kern_sched_nactive_enabled(SYSCTL_HANDLER_ARGS)
+{
+	int error, new_val, i;
+
+	new_val = n_cpus_active_enabled;
+	error = sysctl_handle_int(oidp, &new_val, 0, req);
+	if (error != 0 || req->newptr == NULL)
+		return (error);
+
+	/*
+	 * If enabling statistics, we need to initialize n_cpus_idle and
+	 * n_cpus_active_lastupdate.  We must prevent any CPUs entering
+	 * n_cpus_active_update while we do this, so we pick up *all* of the
+	 * per-cpu run queue locks -- this is horrible and does not scale at
+	 * all, but this is expected to be a set-once-and-never-touch-again
+	 * sysctl so it's ok if it's slow.
+	 */
+	if (new_val == 1) {
+		tdq_lock_all();
+		n_cpus_idle = 0;
+		CPU_FOREACH(i) {
+			if (TDQ_CPU(i)->tdq_cpu_idle)
+				n_cpus_idle++;
+		}
+	} else {
+		n_cpus_active_enabled = new_val;
+	}
+	n_cpus_active_lastupdate = sbinuptime();
+	for (i = 0; i <= mp_ncpus; i++)
+		n_cpus_active[i] = 0;
+	if (new_val == 1) {
+		n_cpus_active_enabled = new_val;
+		tdq_unlock_all();
+	}
+
+	return (0);
+}
+
 static int
 sysctl_kern_quantum(SYSCTL_HANDLER_ARGS)
 {
@@ -3306,6 +3463,13 @@ SYSCTL_NODE(_kern, OID_AUTO, sched, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "Scheduler");
 SYSCTL_STRING(_kern_sched, OID_AUTO, name, CTLFLAG_RD, "ULE", 0,
     "Scheduler name");
+SYSCTL_PROC(_kern_sched, OID_AUTO, nactive, CTLTYPE_U64 |
+    CTLFLAG_MPSAFE | CTLFLAG_RD, NULL, 0, sysctl_kern_sched_nactive, "Q",
+    "How much time has been spent with N cpus active");
+SYSCTL_PROC(_kern_sched, OID_AUTO, nactive_enabled, CTLTYPE_INT |
+    CTLFLAG_RW | CTLFLAG_MPSAFE, NULL, 0,
+    sysctl_kern_sched_nactive_enabled, "I",
+    "Collect kern.sched.nactive statistics");
 SYSCTL_PROC(_kern_sched, OID_AUTO, quantum,
     CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE, NULL, 0,
     sysctl_kern_quantum, "I",

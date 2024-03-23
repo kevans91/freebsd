@@ -84,6 +84,7 @@ static const char *modes[] = {
 #define DEVCTL_MAXBUF	1024
 
 static int	read_usage_times(int *load, int nonice);
+static int	read_active_times(int *load);
 static int	read_freqs(int *numfreqs, int **freqs, int **power,
 		    int minfreq, int maxfreq);
 static int	set_freq(int freq);
@@ -97,6 +98,7 @@ static void	usage(void);
 
 /* Sysctl data structures. */
 static int	cp_times_mib[2];
+static int	nactive_mib[3];
 static int	freq_mib[4];
 static int	levels_mib[4];
 static int	acline_mib[4];
@@ -184,6 +186,59 @@ read_usage_times(int *load, int nonice)
 	}
 
 	memcpy(cp_times_old, cp_times, cp_times_len);
+
+	return (0);
+}
+
+/*
+ * This function returns the fraction of time during which one or more CPUs
+ * is active.  This makes it possible to reduce performance in scenarios
+ * where multiple independent processes are each using a fraction of a CPU,
+ * while keeping high performance for the scenario where multiple processes
+ * are running in a pipeline (each using the same fraction of a CPU, but one
+ * at once).
+ */
+static int
+read_active_times(int *load)
+{
+	static uint64_t *nactive = NULL, *nactive_old = NULL;
+	static int ncpus = 0;
+	size_t nactive_len;
+	uint64_t total;
+	int error, i;
+
+	if (nactive == NULL) {
+		nactive_len = 0;
+		error = sysctl(nactive_mib, 3, NULL, &nactive_len, NULL, 0);
+		if (error)
+			return (error);
+		if ((nactive = malloc(nactive_len)) == NULL)
+			return (errno);
+		if ((nactive_old = malloc(nactive_len)) == NULL) {
+			free(nactive);
+			nactive = NULL;
+			return (errno);
+		}
+		ncpus = nactive_len / sizeof(uint64_t) - 1;
+	}
+
+	nactive_len = sizeof(uint64_t) * (ncpus + 1);
+	error = sysctl(nactive_mib, 3, nactive, &nactive_len, NULL, 0);
+	if (error)
+		return (error);
+
+	if (load) {
+		total = 0;
+		for (i = 0; i <= ncpus; i++)
+			total += nactive[i] - nactive_old[i];
+		if (total)
+			*load = 100 -
+			    100 * (nactive[0] - nactive_old[0]) / total;
+		else
+			*load = 100;
+	}
+
+	memcpy(nactive_old, nactive, nactive_len);
 
 	return (0);
 }
@@ -491,9 +546,11 @@ main(int argc, char * argv[])
 	int freq, curfreq, initfreq, *freqs, i, j, *mwatts, numfreqs, load;
 	int minfreq = -1, maxfreq = -1;
 	int ch, mode, mode_ac, mode_battery, mode_none, idle, to;
+	int use_nactive;
 	uint64_t mjoules_used;
 	size_t len;
 	int nonice;
+	int load_usage, load_active;
 
 	/* Default mode for all AC states is adaptive. */
 	mode_ac = mode_none = MODE_HIADAPTIVE;
@@ -504,12 +561,13 @@ main(int argc, char * argv[])
 	mjoules_used = 0;
 	vflag = 0;
 	nonice = 0;
+	use_nactive = 0;
 
 	/* User must be root to control frequencies. */
 	if (geteuid() != 0)
 		errx(1, "must be root to run");
 
-	while ((ch = getopt(argc, argv, "a:b:i:m:M:Nn:p:P:r:s:v")) != -1)
+	while ((ch = getopt(argc, argv, "a:b:i:m:M:Nn:p:P:r:Ss:v")) != -1)
 		switch (ch) {
 		case 'a':
 			parse_mode(optarg, &mode_ac, ch);
@@ -568,6 +626,9 @@ main(int argc, char * argv[])
 				usage();
 			}
 			break;
+		case 'S':
+			use_nactive = 1;
+			break;
 		case 'v':
 			vflag = 1;
 			break;
@@ -580,10 +641,21 @@ main(int argc, char * argv[])
 	/* Poll interval is in units of ms. */
 	poll_ival *= 1000;
 
+	/* Enable kern.sched.nactive if we're going to use it. */
+	if (use_nactive) {
+		if (sysctlbyname("kern.sched.nactive_enabled", NULL, 0,
+		    &use_nactive, sizeof(int)))
+			err(1, "setting kern.sched.nactive_enabled");
+	}
+
 	/* Look up various sysctl MIBs. */
 	len = 2;
 	if (sysctlnametomib("kern.cp_times", cp_times_mib, &len))
 		err(1, "lookup kern.cp_times");
+	len = 3;
+	if (use_nactive &&
+	    sysctlnametomib("kern.sched.nactive", nactive_mib, &len))
+		err(1, "lookup kern.sched.nactive");
 	len = 4;
 	if (sysctlnametomib("dev.cpu.0.freq", freq_mib, &len))
 		err(EX_UNAVAILABLE, "no cpufreq(4) support -- aborting");
@@ -594,6 +666,8 @@ main(int argc, char * argv[])
 	/* Check if we can read the load and supported freqs. */
 	if (read_usage_times(NULL, nonice))
 		err(1, "read_usage_times");
+	if (use_nactive && read_active_times(NULL))
+		err(1, "read_active_times");
 	if (read_freqs(&numfreqs, &freqs, &mwatts, minfreq, maxfreq))
 		err(1, "error reading supported CPU frequencies");
 	if (numfreqs == 0)
@@ -774,11 +848,27 @@ main(int argc, char * argv[])
 		}
 
 		/* Adaptive mode; get the current CPU usage times. */
-		if (read_usage_times(&load, nonice)) {
+		if (read_usage_times(&load_usage, nonice)) {
 			if (vflag)
 				warn("read_usage_times() failed");
 			continue;
 		}
+
+		/* Adaptive mode; get the current CPU activity. */
+		if (use_nactive && read_active_times(&load_active)) {
+			if (vflag)
+				warn("read_active_times() failed");
+			continue;
+		}
+
+		/*
+		 * If use_nactive, use whichever load value is lower; while
+		 * load_active is usually lower, it doesn't support the -N
+		 * flag (ignore nice CPU usage).
+		 */
+		load = load_usage;
+		if (use_nactive && load_active < load)
+			load = load_active;
 
 		if (mode == MODE_ADAPTIVE) {
 			if (load > cpu_running_mark) {
