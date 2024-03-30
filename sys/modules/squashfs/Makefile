@@ -1,4 +1,6 @@
 KMOD=	squashfs
+
+.PATH:	${SRCTOP}/sys/fs/squashfs
 SRCS=	\
 	squashfs_vfsops.c \
 	squashfs_vnops.c \
@@ -19,6 +21,7 @@ SRCS+=	vnode_if.h
 SRCS+=	opt_gzio.h
 SRCS+=	opt_zstdio.h
 
+CFLAGS+=	-I${SRCTOP}/sys/fs/squashfs
 CFLAGS+=	-I${SRCTOP}/sys/contrib/zstd/lib/freebsd
 CFLAGS+=	-I${SRCTOP}/sys/contrib/zlib/lib/freebsd
 
