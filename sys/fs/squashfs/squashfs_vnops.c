@@ -28,6 +28,7 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/conf.h>
+#include <sys/extattr.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
@@ -281,9 +282,11 @@ squashfs_readdir(struct vop_readdir_args *ap)
 	struct vnode *vp;
 	struct uio *uio;
 	int *eofflag;
+#if 0
 	uint64_t **cookies;
 	int *ncookies;
 	off_t off;
+#endif
 	u_int ndirents;
 	int error;
 	sqsh_err err = SQFS_OK;
@@ -291,15 +294,19 @@ squashfs_readdir(struct vop_readdir_args *ap)
 	vp = ap->a_vp;
 	uio = ap->a_uio;
 	eofflag = ap->a_eofflag;
+#if 0
 	cookies = ap->a_cookies;
 	ncookies = ap->a_ncookies;
+#endif
 
 	if (vp->v_type != VDIR)
 		return (ENOTDIR);
 
 	inode = vp->v_data;
 	ump = inode->ump;
+#if 0
 	off = uio->uio_offset;
+#endif
 	ndirents = 0;
 
 	if (uio->uio_offset == SQUASHFS_COOKIE_EOF)
@@ -379,7 +386,7 @@ squashfs_readdir(struct vop_readdir_args *ap)
 		 */
 		if (cde.d_fileno == 0)
 			cde.d_fileno = SQUASHFS_DUMMY_INODE_NO;
-		enum vtype type;
+		__enum_uint8(vtype) type;
 		type = sqsh_inode_type_from_id(ump, inode->xtra.dir.entry.inode_id);
 		switch (type) {
 		case VBLK:
@@ -652,7 +659,7 @@ squashfs_listextattr(struct vop_listextattr_args *ap)
 	struct sqsh_inode *inode;
 	struct sqsh_mount *ump;
 	struct uio *uio;
-	sqsh_xattr attr;
+	struct sqsh_xattr attr;
 	sqsh_err err;
 	int error;
 
@@ -673,14 +680,14 @@ squashfs_listextattr(struct vop_listextattr_args *ap)
 	err = sqsh_xattr_open(ump, inode, &attr);
 	if (err != SQFS_OK)
 		return (ENOATTR);
-	
+
 	while ((err = sqsh_xattr_read(&attr)) == SQFS_OK) {
 		size_t name_len = sqsh_xattr_name_size(&attr);
 		char name[name_len+1];
 		name[0] = name_len;
 
-		if (*size != NULL)
-			*size += name_len + 1;
+		if (ap->a_size != NULL)
+			*ap->a_size += name_len + 1;
 
 		err = sqsh_xattr_name(&attr, name + 1, false);
 		if (err != SQFS_OK)

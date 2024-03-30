@@ -150,7 +150,7 @@ sqsh_metadata_run_inode(struct sqsh_block_run *cur, uint64_t id, off_t base)
 	cur->offset = id & 0xffff;
 }
 
-enum vtype
+__enum_uint8(vtype)
 sqsh_inode_type(int inode_type)
 {
 	switch (inode_type) {
@@ -179,7 +179,7 @@ sqsh_inode_type(int inode_type)
 	return (VBAD);
 }
 
-enum vtype
+__enum_uint8(vtype)
 sqsh_inode_type_from_id(struct sqsh_mount *ump, uint64_t inode_id)
 {
 	struct sqsh_block_run cur;

@@ -252,7 +252,7 @@ squashfs_mount(struct mount* mp)
 		as = from;
 
 	/* find and initialise squashfs disk file vnode vp */
-	NDINIT(&nd, LOOKUP, ISOPEN | FOLLOW | LOCKLEAF, UIO_SYSSPACE, from, td);
+	NDINIT(&nd, LOOKUP, ISOPEN | FOLLOW | LOCKLEAF, UIO_SYSSPACE, from);
 	error = namei(&nd);
 	if (error != 0)
 		return (error);
