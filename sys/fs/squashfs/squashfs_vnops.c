@@ -146,15 +146,22 @@ squashfs_getattr(struct vop_getattr_args *ap)
 	vap->va_gid = inode->base.guid;
 	vap->va_uid = inode->base.uid;
 	vap->va_fsid = vp->v_mount->mnt_stat.f_fsid.val[0];
+	vap->va_fileid = inode->ino_id;
 	vap->va_size = inode->size;
 	vap->va_blocksize = vp->v_mount->mnt_stat.f_iosize;
 	vap->va_atime.tv_sec = inode->base.mtime;
+	vap->va_atime.tv_nsec = 0;
 	vap->va_ctime.tv_sec = inode->base.mtime;
+	vap->va_ctime.tv_nsec = 0;
 	vap->va_mtime.tv_sec = inode->base.mtime;
+	vap->va_mtime.tv_nsec = 0;
 	vap->va_birthtime.tv_sec = inode->base.mtime;
+	vap->va_birthtime.tv_nsec = 0;
 	vap->va_rdev = (vp->v_type == VBLK || vp->v_type == VCHR) ?
-	    				inode->xtra.dev.major : NODEV;
+	    inode->xtra.dev.major : NODEV;
+	vap->va_bytes = inode->size;
 	vap->va_filerev = 0;
+	vap->va_flags = 0;
 
 	return (0);
 }
@@ -277,7 +284,7 @@ squashfs_readdir(struct vop_readdir_args *ap)
 	TRACE("%s:",__func__);
 
 	struct sqsh_mount *ump;
-	struct dirent cde = { };
+	struct dirent cde = { 0 };
 	struct sqsh_inode *inode;
 	struct vnode *vp;
 	struct uio *uio;
@@ -309,6 +316,7 @@ squashfs_readdir(struct vop_readdir_args *ap)
 #endif
 	ndirents = 0;
 
+	error = 0;
 	if (uio->uio_offset == SQUASHFS_COOKIE_EOF)
 		return (0);
 
@@ -377,6 +385,8 @@ squashfs_readdir(struct vop_readdir_args *ap)
 	}
 
 	for (;;) {
+		__enum_uint8(vtype) type;
+
 		cde.d_fileno = inode->xtra.dir.entry.inode_id;
 		/*
 		 * For some reason Dirent doesn't list an entry
@@ -386,7 +396,7 @@ squashfs_readdir(struct vop_readdir_args *ap)
 		 */
 		if (cde.d_fileno == 0)
 			cde.d_fileno = SQUASHFS_DUMMY_INODE_NO;
-		__enum_uint8(vtype) type;
+
 		type = sqsh_inode_type_from_id(ump, inode->xtra.dir.entry.inode_id);
 		switch (type) {
 		case VBLK:
@@ -447,7 +457,8 @@ done:
 
 	if (eofflag != NULL) {
 		TRACE("%s: Setting EOF flag\n", __func__);
-		*eofflag = (error == 0);
+		*eofflag = (error == 0 &&
+		    uio->uio_offset == SQUASHFS_COOKIE_EOF);
 	}
 
 	return (error);
