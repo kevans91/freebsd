@@ -145,6 +145,14 @@ squashfs_getattr(struct vop_getattr_args *ap)
 	vap->va_nlink = inode->nlink;
 	vap->va_gid = inode->base.guid;
 	vap->va_uid = inode->base.uid;
+	if (sqsh_get_inode_id(inode->ump, inode->base.guid,
+	    &vap->va_gid) != SQFS_OK)
+		return (EINVAL);
+
+	if (sqsh_get_inode_id(inode->ump, inode->base.uid,
+	    &vap->va_uid) != SQFS_OK)
+		return (EINVAL);
+
 	vap->va_fsid = vp->v_mount->mnt_stat.f_fsid.val[0];
 	vap->va_fileid = inode->ino_id;
 	vap->va_size = inode->size;
