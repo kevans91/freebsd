@@ -31,9 +31,6 @@
 #ifndef	SQUASHFS_DECOMPRESSOR_H
 #define	SQUASHFS_DECOMPRESSOR_H
 
-#include "opt_gzio.h"
-#include "opt_zstdio.h"
-
 struct sqsh_decompressor {
 	sqsh_err (*decompressor)(void* input, size_t input_size,
 		void* output, size_t* output_size);
@@ -41,26 +38,6 @@ struct sqsh_decompressor {
 	int		id;
 	char*	name;
 };
-
-#ifdef	GZIO
-extern const struct sqsh_decompressor sqsh_zlib_decompressor;
-#endif	/* GZIO */
-
-#ifdef	LZMA
-extern const struct sqsh_decompressor sqsh_lzma_decompressor;
-#endif	/* LZMA */
-
-#ifdef	LZO
-extern const struct sqsh_decompressor sqsh_lzo_decompressor;
-#endif	/* LZO */
-
-#ifdef	LZ4
-extern const struct sqsh_decompressor sqsh_lz4_decompressor;
-#endif	/* LZ4 */
-
-#ifdef	ZSTDIO
-extern const struct sqsh_decompressor sqsh_zstd_decompressor;
-#endif	/* ZSTDIO */
 
 const struct sqsh_decompressor	*sqsh_lookup_decompressor(int id);
 

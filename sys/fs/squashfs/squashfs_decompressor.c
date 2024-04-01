@@ -28,6 +28,9 @@
  *
  */
 
+#include "opt_gzio.h"
+#include "opt_zstdio.h"
+
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/buf.h>
@@ -52,20 +55,16 @@
 #include <squashfs_mount.h>
 #include <squashfs_decompressor.h>
 
+#ifdef GZIO
+#include <contrib/zlib/zlib.h>
+#endif
+#ifdef ZSTDIO
+#define ZSTD_STATIC_LINKING_ONLY
+#include <contrib/zstd/lib/zstd.h>
+#endif
 
 /* Support for zlib compressor */
-#ifndef	GZIO
-
-static const struct sqsh_decompressor sqsh_zlib_decompressor = {
-	.decompressor = NULL,
-	.id = ZLIB_COMPRESSION,
-	.name = "zlib",
-};
-
-#else	/* GZIO */
-
-#include <contrib/zlib/zlib.h>
-
+#ifdef GZIO
 static sqsh_err
 zlib_decompressor(void *input, size_t input_size, void *output, size_t *output_size)
 {
@@ -79,62 +78,9 @@ zlib_decompressor(void *input, size_t input_size, void *output, size_t *output_s
 	*output_size = zout;
 	return (SQFS_OK);
 }
+#endif	/* GZIO */
 
-const struct sqsh_decompressor sqsh_zlib_decompressor = {
-	.decompressor = zlib_decompressor,
-	.id = ZLIB_COMPRESSION,
-	.name = "zlib",
-};
-
-#endif	/* ZLIB */
-
-/* lzma decompression support */
-#ifndef	LZMA
-
-static const struct sqsh_decompressor sqsh_lzma_decompressor = {
-	.decompressor = NULL,
-	.id = LZMA_COMPRESSION,
-	.name = "lzma",
-};
-
-#endif /* LZMA */
-
-/* lzo decompressor support */
-#ifndef	LZO
-
-static const struct sqsh_decompressor sqsh_lzo_decompressor = {
-	.decompressor = NULL,
-	.id = LZO_COMPRESSION,
-	.name = "lzo",
-};
-
-#endif /* LZO */
-
-/* lz4 decompressor supprt */
-#ifndef	LZ4
-
-static const struct sqsh_decompressor sqsh_lz4_decompressor = {
-	.decompressor = NULL,
-	.id = LZ4_COMPRESSION,
-	.name = "lz4",
-};
-
-#endif /* LZ4 */
-
-/* zstd decompressor support */
-#ifndef	ZSTDIO
-
-static const struct sqsh_decompressor sqsh_zstd_decompressor = {
-	.decompressor = NULL,
-	.id = ZSTD_COMPRESSION,
-	.name = "zstd",
-};
-
-#else	/* ZSTDIO */
-
-#define ZSTD_STATIC_LINKING_ONLY
-#include <contrib/zstd/lib/zstd.h>
-
+#ifdef ZSTDIO
 static sqsh_err
 zstd_decompressor(void *input, size_t input_size, void *output, size_t *output_size)
 {
@@ -146,40 +92,51 @@ zstd_decompressor(void *input, size_t input_size, void *output, size_t *output_s
 	*output_size = zstdout;
 	return (SQFS_OK);
 }
-
-const struct sqsh_decompressor sqsh_zstd_decompressor = {
-	.decompressor = zstd_decompressor,
-	.id = ZSTD_COMPRESSION,
-	.name = "zstd",
-};
-
 #endif	/* ZSTDIO */
 
-/* Unknown compression type */
-static const struct sqsh_decompressor sqsh_unknown_decompressor = {
-	.decompressor = NULL,
-	.id = 0,
-	.name = "unknown",
-};
-
-
-static const struct sqsh_decompressor *decompressor[] = {
-	&sqsh_zlib_decompressor,
-	&sqsh_lzma_decompressor,
-	&sqsh_lzo_decompressor,
-	&sqsh_lz4_decompressor,
-	&sqsh_zstd_decompressor,
-	&sqsh_unknown_decompressor
+static const struct sqsh_decompressor decompressors[] = {
+	{
+#ifdef GZIO
+		.decompressor = zlib_decompressor,
+#endif
+		.id = ZLIB_COMPRESSION,
+		.name = "zlib",
+	},
+	{
+		.decompressor = NULL,
+		.id = LZMA_COMPRESSION,
+		.name = "lzma",
+	},
+	{
+		.decompressor = NULL,
+		.id = LZO_COMPRESSION,
+		.name = "lzo",
+	},
+	{
+		.decompressor = NULL,
+		.id = LZ4_COMPRESSION,
+		.name = "lz4",
+	},
+	{
+#ifdef ZSTDIO
+		.decompressor = zstd_decompressor,
+#endif
+		.id = ZSTD_COMPRESSION,
+		.name = "zstd",
+	},
 };
 
 const struct sqsh_decompressor *
 sqsh_lookup_decompressor(int id)
 {
-	int i;
+	const struct sqsh_decompressor *decom;
 
-	for (i = 0; decompressor[i]->id; i++)
-		if (id == decompressor[i]->id)
-			break;
+	for (size_t i = 0; i < nitems(decompressors); i++) {
+		decom = &decompressors[i];
 
-	return decompressor[i];
+		if (id == decom->id)
+			return (decom);
+	}
+
+	return (NULL);
 }
