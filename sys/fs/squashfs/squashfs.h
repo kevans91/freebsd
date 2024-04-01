@@ -56,9 +56,6 @@
 #define	SQUASHFS_INVALID_XATTR		(0xffffffffU)
 #define	SQUASHFS_INVALID_BLK		((int64_t)-1)
 
-#define	SQUASHFS_IO_SIZE			65536
-
-
 #define	SQUASHFS_COOKIE_DOT			0
 #define	SQUASHFS_COOKIE_DOTDOT		1
 #define	SQUASHFS_COOKIE_EOF			~((off_t)1 << (sizeof(off_t) * 8 - 1))
