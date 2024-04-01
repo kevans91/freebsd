@@ -57,10 +57,10 @@
 #ifndef	GZIO
 
 static const struct sqsh_decompressor sqsh_zlib_decompressor = {
-	.decompressor	=	NULL,
-	.id				=	ZLIB_COMPRESSION,
-	.name			=	"zlib",
-	.supported		=	0
+	.decompressor = NULL,
+	.id = ZLIB_COMPRESSION,
+	.name = "zlib",
+	.supported = 0,
 };
 
 #else	/* GZIO */
@@ -82,10 +82,10 @@ zlib_decompressor(void *input, size_t input_size, void *output, size_t *output_s
 }
 
 const struct sqsh_decompressor sqsh_zlib_decompressor = {
-	.decompressor	=	zlib_decompressor,
-	.id				=	ZLIB_COMPRESSION,
-	.name			=	"zlib",
-	.supported		=	1
+	.decompressor = zlib_decompressor,
+	.id = ZLIB_COMPRESSION,
+	.name = "zlib",
+	.supported = 1,
 };
 
 #endif	/* ZLIB */
@@ -94,10 +94,10 @@ const struct sqsh_decompressor sqsh_zlib_decompressor = {
 #ifndef	LZMA
 
 static const struct sqsh_decompressor sqsh_lzma_decompressor = {
-	.decompressor	=	NULL,
-	.id				=	LZMA_COMPRESSION,
-	.name			=	"lzma",
-	.supported		=	0
+	.decompressor = NULL,
+	.id = LZMA_COMPRESSION,
+	.name = "lzma",
+	.supported = 0,
 };
 
 #endif /* LZMA */
@@ -106,10 +106,10 @@ static const struct sqsh_decompressor sqsh_lzma_decompressor = {
 #ifndef	LZO
 
 static const struct sqsh_decompressor sqsh_lzo_decompressor = {
-	.decompressor	=	NULL,
-	.id				=	LZO_COMPRESSION,
-	.name			=	"lzo",
-	.supported		=	0
+	.decompressor = NULL,
+	.id = LZO_COMPRESSION,
+	.name = "lzo",
+	.supported = 0,
 };
 
 #endif /* LZO */
@@ -118,10 +118,10 @@ static const struct sqsh_decompressor sqsh_lzo_decompressor = {
 #ifndef	LZ4
 
 static const struct sqsh_decompressor sqsh_lz4_decompressor = {
-	.decompressor	=	NULL,
-	.id				=	LZ4_COMPRESSION,
-	.name			=	"lz4",
-	.supported		=	0
+	.decompressor = NULL,
+	.id = LZ4_COMPRESSION,
+	.name = "lz4",
+	.supported = 0,
 };
 
 #endif /* LZ4 */
@@ -130,14 +130,15 @@ static const struct sqsh_decompressor sqsh_lz4_decompressor = {
 #ifndef	ZSTDIO
 
 static const struct sqsh_decompressor sqsh_zstd_decompressor = {
-	.decompressor	=	NULL,
-	.id				=	ZSTD_COMPRESSION,
-	.name			=	"zstd",
-	.supported		=	0
+	.decompressor = NULL,
+	.id = ZSTD_COMPRESSION,
+	.name = "zstd",
+	.supported = 0,
 };
 
 #else	/* ZSTDIO */
 
+#define ZSTD_STATIC_LINKING_ONLY
 #include <contrib/zstd/lib/zstd.h>
 
 static sqsh_err
@@ -153,20 +154,20 @@ zstd_decompressor(void *input, size_t input_size, void *output, size_t *output_s
 }
 
 const struct sqsh_decompressor sqsh_zstd_decompressor = {
-	.decompressor	=	zstd_decompressor,
-	.id				=	ZSTD_COMPRESSION,
-	.name			=	"zstd",
-	.supported		=	1
+	.decompressor = zstd_decompressor,
+	.id = ZSTD_COMPRESSION,
+	.name = "zstd",
+	.supported = 1,
 };
 
 #endif	/* ZSTDIO */
 
 /* Unknown compression type */
 static const struct sqsh_decompressor sqsh_unknown_decompressor = {
-	.decompressor	=	NULL,
-	.id				=	0,
-	.name			=	"unknown",
-	.supported		=	0
+	.decompressor = NULL,
+	.id = 0,
+	.name = "unknown",
+	.supported = 0,
 };
 
 
