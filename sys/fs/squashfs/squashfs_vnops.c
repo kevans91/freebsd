@@ -201,6 +201,7 @@ squashfs_read(struct vop_read_args *ap)
 
 	inode = vp->v_data;
 	ump = inode->ump;
+	err = SQFS_OK;
 
 	while ((resid = uiop->uio_resid) > 0) {
 		if (inode->size <= uiop->uio_offset)

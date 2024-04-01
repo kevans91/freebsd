@@ -90,8 +90,6 @@ sqsh_blocklist_next(struct sqsh_blocklist *bl)
 	sqsh_err err;
 	bool compressed;
 
-	err = SQFS_OK;
-
 	if (bl->remain == 0)
 		return SQFS_ERR;
 	--(bl->remain);
