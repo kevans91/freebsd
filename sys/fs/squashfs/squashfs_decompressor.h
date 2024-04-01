@@ -40,7 +40,6 @@ struct sqsh_decompressor {
 
 	int		id;
 	char*	name;
-	int		supported;
 };
 
 #ifdef	GZIO

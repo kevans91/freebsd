@@ -163,8 +163,8 @@ squashfs_init(struct sqsh_mount* ump)
 
 	/* Init decompressor for squashfs and check if it is unknown or supported? */
 	ump->decompressor = sqsh_lookup_decompressor(ump->sb.compression);
-	if (!ump->decompressor->supported) {
-		ERROR("Filesystem uses \"%s\" compression. This is not supported",
+	if (ump->decompressor->decompressor == NULL) {
+		ERROR("Filesystem uses \"%s\" compression, which is not included in this kernel.",
 		       ump->decompressor->name);
 		return (SQFS_BADCOMP);
 	}
