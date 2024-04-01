@@ -215,7 +215,12 @@ sqsh_dir_lookup(struct sqsh_mount *ump, struct sqsh_inode *inode, const char *na
 
 	/* Iterate to find the right entry */
 	while (sqsh_dir_getnext(ump, &dir, entry) == SQFS_OK) {
-		int order = strncmp(entry->name, name, namelen);
+		int order;
+
+		if (entry->name_size != namelen)
+			continue;
+
+		order = strncmp(entry->name, name, namelen);
 		if (order == 0 && entry->name_size == namelen) {
 			*found = true;
 			break;
