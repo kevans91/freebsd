@@ -318,6 +318,7 @@ squashfs_mount(struct mount* mp)
 		goto failed_mount;
 
 	mp->mnt_data = ump;
+	mp->mnt_iosize_max = vp->v_mount->mnt_iosize_max;
 
 	/* Unconditionally mount squashfs as read only */
 	MNT_ILOCK(mp);

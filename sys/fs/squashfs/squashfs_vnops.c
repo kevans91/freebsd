@@ -30,6 +30,7 @@
 #include <sys/conf.h>
 #include <sys/extattr.h>
 #include <sys/kernel.h>
+#include <sys/limits.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
 #include <sys/mount.h>
@@ -124,6 +125,58 @@ squashfs_access(struct vop_access_args *ap)
 	    inode->base.guid, accmode, cred);
 
 	return (error);
+}
+
+static int
+squashfs_bmap(struct vop_bmap_args *ap)
+{
+	struct vnode *vp;
+	struct sqsh_inode *inode;
+	uint64_t ahead, behind, iosize;
+	int rmax;
+
+	vp = ap->a_vp;
+	inode = vp->v_data;
+	if (ap->a_bop != NULL)
+		*ap->a_bop = &ap->a_vp->v_bufobj;
+	if (ap->a_bnp == NULL)
+		return (0);
+
+	iosize = vp->v_mount->mnt_stat.f_iosize;
+
+	*ap->a_bnp = ap->a_bn * btodb(iosize);
+	if (ap->a_runb == NULL)
+		return (0);
+
+	ahead = behind = 0;
+
+	/*
+	 * Punt on sparse files for now; we need to poll the block index to
+	 * determine how large the hole that we're in is, but that's still on
+	 * disk because we don't cache it at all.
+	 */
+	if (inode->xtra.reg.sparse == 0) {
+		off_t nextblk, off;
+		uint64_t blksz;
+
+		blksz = inode->ump->sb.block_size;
+
+		off = ap->a_bn * iosize;
+		nextblk = MIN(inode->size, roundup2(off, blksz));
+
+		behind = howmany(off - rounddown2(off, blksz), iosize);
+		if (nextblk - iosize < off)
+			ahead = 0;
+		else
+			ahead = howmany(nextblk - (off + iosize), iosize);
+	}
+
+	rmax = vp->v_mount->mnt_iosize_max / iosize - 1;
+
+	*ap->a_runb = imin(rmax, behind);
+	*ap->a_runp = imin(rmax, ahead);
+
+	return (0);
 }
 
 static int
@@ -703,6 +756,7 @@ struct vop_vector squashfs_vnodeops = {
 	.vop_default		=	&default_vnodeops,
 
 	.vop_access			=	squashfs_access,
+	.vop_bmap			=	squashfs_bmap,
 	.vop_cachedlookup	=	squashfs_lookup,
 	.vop_close			=	squashfs_close,
 	.vop_getattr		=	squashfs_getattr,
