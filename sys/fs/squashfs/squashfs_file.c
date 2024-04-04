@@ -57,7 +57,13 @@
 
 static	MALLOC_DEFINE(M_SQSHBLKIDX, "Sqsh Blk idx", "Squashfs block index");
 
-void	swapendian_fragment_entry(struct sqsh_fragment_entry *temp);
+static void
+swapendian_fragment_entry(struct sqsh_fragment_entry *temp)
+{
+	temp->start_block	=	le64toh(temp->start_block);
+	temp->size			=	le32toh(temp->size);
+	temp->unused		=	le32toh(temp->unused);
+}
 
 size_t
 sqsh_blocklist_count(struct sqsh_mount *ump, struct sqsh_inode *inode)
@@ -71,7 +77,7 @@ sqsh_blocklist_count(struct sqsh_mount *ump, struct sqsh_inode *inode)
 	}
 }
 
-void
+static void
 sqsh_blocklist_init(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	struct sqsh_blocklist *bl)
 {
@@ -84,7 +90,7 @@ sqsh_blocklist_init(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	bl->input_size	=	0;
 }
 
-sqsh_err
+static sqsh_err
 sqsh_blocklist_next(struct sqsh_blocklist *bl)
 {
 	sqsh_err err;
@@ -116,7 +122,7 @@ sqsh_blockidx_indexable(struct sqsh_mount *ump, struct sqsh_inode *inode)
 	return md_size >= SQUASHFS_METADATA_SIZE;
 }
 
-sqsh_err
+static sqsh_err
 sqsh_blockidx_add(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	struct sqsh_blockidx_entry **out)
 {
@@ -164,7 +170,7 @@ sqsh_blockidx_add(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	return SQFS_OK;
 }
 
-sqsh_err
+static sqsh_err
 sqsh_blockidx_blocklist(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	struct sqsh_blocklist *bl, off_t start)
 {
@@ -209,7 +215,7 @@ sqsh_blockidx_blocklist(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	return SQFS_OK;
 }
 
-sqsh_err
+static sqsh_err
 sqsh_frag_entry(struct sqsh_mount *ump, struct sqsh_fragment_entry *frag,
 	uint32_t idx)
 {
@@ -223,7 +229,7 @@ sqsh_frag_entry(struct sqsh_mount *ump, struct sqsh_fragment_entry *frag,
 	return err;
 }
 
-sqsh_err
+static sqsh_err
 sqsh_frag_block(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	size_t *offset, size_t *size, struct sqsh_block **block)
 {
@@ -334,12 +340,4 @@ sqsh_read_file(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	}
 
 	return data_read ? SQFS_OK : SQFS_ERR;
-}
-
-void
-swapendian_fragment_entry(struct sqsh_fragment_entry *temp)
-{
-	temp->start_block	=	le64toh(temp->start_block);
-	temp->size			=	le32toh(temp->size);
-	temp->unused		=	le32toh(temp->unused);
 }
