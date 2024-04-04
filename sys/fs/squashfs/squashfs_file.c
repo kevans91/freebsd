@@ -169,7 +169,7 @@ sqsh_blockidx_blocklist(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	struct sqsh_blocklist *bl, off_t start)
 {
 	size_t block, metablock, skipped;
-	struct sqsh_blockidx_entry *blockidx;
+	struct sqsh_blockidx_entry *blockidx, *blockpos;
 	sqsh_err err;
 
 	sqsh_blocklist_init(ump, inode, bl);
@@ -196,12 +196,12 @@ sqsh_blockidx_blocklist(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	skipped = (metablock * SQUASHFS_METADATA_SIZE / sizeof(uint32_t))
 		- (bl->cur.offset / sizeof(uint32_t));
 
-	blockidx += metablock - 1;
-	bl->cur.block = blockidx->md_block + ump->sb.inode_table_start;
+	blockpos = blockidx + (metablock - 1);
+	bl->cur.block = blockpos->md_block + ump->sb.inode_table_start;
 	bl->cur.offset %= sizeof(uint32_t);
 	bl->remain -= skipped;
 	bl->pos = (uint64_t)skipped * ump->sb.block_size;
-	bl->block = blockidx->data_block;
+	bl->block = blockpos->data_block;
 
 	/* free blockidx */
 	free(blockidx, M_SQSHBLKIDX);
