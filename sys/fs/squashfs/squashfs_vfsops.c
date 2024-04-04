@@ -403,7 +403,7 @@ squashfs_statfs(struct mount *mp, struct statfs *sbp)
 	ump = MP_TO_SQSH_MOUNT(mp);
 
 	sbp->f_bsize	=	ump->sb.block_size;
-	sbp->f_iosize	=	ump->sb.block_size;
+	sbp->f_iosize	=	MIN(PAGE_SIZE, ump->sb.block_size);
 	sbp->f_blocks	=	ump->sb.bytes_used / ump->sb.block_size;
 	sbp->f_bfree	=	0;
 	sbp->f_bavail	=	0;
