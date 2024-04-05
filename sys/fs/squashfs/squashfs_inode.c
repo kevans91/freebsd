@@ -378,6 +378,7 @@ sqsh_init_reg_inode(struct sqsh_mount *ump, struct sqsh_inode *inode)
 	inode->size					=	temp.file_size;
 	inode->xtra.reg.frag_idx	=	temp.fragment;
 	inode->xtra.reg.frag_off	=	temp.offset;
+	inode->xtra.reg.sparse		=	0;
 
 	return (SQFS_OK);
 }
@@ -399,6 +400,7 @@ sqsh_init_lreg_inode(struct sqsh_mount *ump, struct sqsh_inode *inode)
 	inode->xtra.reg.frag_idx	=	temp.fragment;
 	inode->xtra.reg.frag_off	=	temp.offset;
 	inode->xattr				=	temp.xattr;
+	inode->xtra.reg.sparse		=	temp.sparse;
 
 	return (SQFS_OK);
 }
