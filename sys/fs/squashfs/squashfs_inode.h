@@ -52,6 +52,7 @@ struct sqsh_inode {
 		} dev;
 		struct {
 			uint64_t		start_block;
+			uint64_t		sparse;
 			uint32_t		frag_idx;
 			uint32_t		frag_off;
 		} reg;
