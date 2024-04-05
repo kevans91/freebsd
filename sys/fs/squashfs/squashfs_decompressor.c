@@ -58,6 +58,7 @@
 #ifdef GZIO
 #include <contrib/zlib/zlib.h>
 #endif
+#include <contrib/xz-embedded/linux/include/linux/xz.h>
 #ifdef ZSTDIO
 #define ZSTD_STATIC_LINKING_ONLY
 #include <contrib/zstd/lib/zstd.h>
@@ -79,6 +80,37 @@ zlib_decompressor(void *input, size_t input_size, void *output, size_t *output_s
 	return (SQFS_OK);
 }
 #endif	/* GZIO */
+
+static sqsh_err
+xz_decompressor(void *input, size_t input_size, void *output,
+    size_t *output_size)
+{
+	static struct xz_dec *sqsh_xz_dec;
+	struct xz_buf xzb;
+	enum xz_ret ret;
+
+	/* XXX FIXME: Need per-mount */
+	if (sqsh_xz_dec == NULL) {
+		sqsh_xz_dec = xz_dec_init(XZ_SINGLE, 0);
+		if (sqsh_xz_dec == NULL)
+			return (SQFS_ERR);
+	}
+
+	xzb.in = input;
+	xzb.in_pos = 0;
+	xzb.in_size = input_size;
+
+	xzb.out = output;
+	xzb.out_pos = 0;
+	xzb.out_size = *output_size;
+
+	ret = xz_dec_run(sqsh_xz_dec, &xzb);
+	if (ret != XZ_STREAM_END)
+		return (SQFS_ERR);
+
+	*output_size = xzb.out_size;
+	return (SQFS_OK);
+}
 
 #ifdef ZSTDIO
 static sqsh_err
@@ -111,6 +143,11 @@ static const struct sqsh_decompressor decompressors[] = {
 		.decompressor = NULL,
 		.id = LZO_COMPRESSION,
 		.name = "lzo",
+	},
+	{
+		.decompressor = xz_decompressor,
+		.id = XZ_COMPRESSION,
+		.name = "xz",
 	},
 	{
 		.decompressor = NULL,
