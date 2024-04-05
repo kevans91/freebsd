@@ -501,3 +501,5 @@ static struct vfsops squashfs_vfsops = {
 };
 
 VFS_SET(squashfs_vfsops, squashfs, VFCF_READONLY);
+MODULE_VERSION(squashfs, 1);
+MODULE_DEPEND(squashfs, xz, 1, 1, 1);
