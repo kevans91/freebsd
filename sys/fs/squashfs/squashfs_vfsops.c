@@ -230,16 +230,13 @@ squashfs_mount(struct mount* mp)
 	struct vnode *vp;
 	struct thread *td = curthread;
 	char *from, *as;
-	int error, len, aslen, flags;
+	struct g_consumer *cp;
+	int error, isverified, len, aslen;
+	accmode_t accmode;
 	sqsh_err err;
 
-
+	cp = NULL;
 	TRACE("squashfs_mount(mp = %p)\n", mp);
-
-	if (mp->mnt_flag & MNT_ROOTFS) {
-		vfs_mount_error(mp, "Cannot mount root filesystem");
-		return (EOPNOTSUPP);
-	}
 
 	if (mp->mnt_flag & MNT_UPDATE) {
 		vfs_mount_error(mp, "squashfs does not support mount update");
@@ -263,32 +260,45 @@ squashfs_mount(struct mount* mp)
 	vp = nd.ni_vp;
 	/* vp is now held and locked */
 
-	/* open the file */
-	flags = FREAD;
-	error = vn_open_vnode(vp, flags, td->td_ucred, td, NULL);
-	if (error != 0) {
-		ERROR("Failed to open squashfs disk file");
+	/* check if vnode is of file type (squashfs disk is always of regular file type) */
+	if (vp->v_type != VREG && !vn_isdisk(vp)) {
+		ERROR("Squashfs disk is not a regular file or disk");
+		error = EOPNOTSUPP;
 		vput(vp);
 		return (error);
 	}
 
-	/* check if vnode is of file type (squashfs disk is always of regular file type) */
-	if (vp->v_type != VREG) {
-		ERROR("Squashfs disk is not regular file");
-		error = EOPNOTSUPP;
-		VOP_UNLOCK(vp);
-		return (error);
-	}
-
 	/* check if file is not private */
-	error = priv_check(td, PRIV_VFS_MOUNT_PERM);
+	accmode = VREAD;
+	error = VOP_ACCESS(vp, accmode, td->td_ucred, td);
+	if (error != 0)
+		error = priv_check(td, PRIV_VFS_MOUNT_PERM);
 	if (error != 0) {
-		ERROR("Squashfs disk is private file");
+		ERROR("insufficient permissions to mount disk");
 		error = EOPNOTSUPP;
-		VOP_UNLOCK(vp);
+		vput(vp);
 		return (error);
 	}
 
+	isverified = 0;
+	if (vp->v_type != VREG) {
+		struct cdev *dev;
+
+		dev = vp->v_rdev;
+
+		dev_ref(dev);
+		g_topology_lock();
+		error = g_vfs_open(vp, &cp, "squashfs", 0);
+		if (error == 0)
+			g_getattr("MNT::verified", cp, &isverified);
+		g_topology_unlock();
+
+		if (error != 0) {
+			ERROR("failed to open disk");
+			vput(vp);
+			return (error);
+		}
+	}
 	VOP_UNLOCK(vp);
 
 	/* Create squashfs mount */
@@ -296,6 +306,7 @@ squashfs_mount(struct mount* mp)
 	    M_WAITOK | M_ZERO);
 	ump->um_mountp = mp;
 	ump->um_vp = vp;
+	ump->cp = cp;
 
 	err = squashfs_init(ump);
 
@@ -323,6 +334,8 @@ squashfs_mount(struct mount* mp)
 	/* Unconditionally mount squashfs as read only */
 	MNT_ILOCK(mp);
 	mp->mnt_flag |= (MNT_LOCAL | MNT_RDONLY);
+	if (isverified)
+		mp->mnt_flag |= MNT_VERIFIED;
 	MNT_IUNLOCK(mp);
 
 	vfs_getnewfsid(mp);
@@ -332,7 +345,14 @@ squashfs_mount(struct mount* mp)
 
 failed_mount:
 	TRACE("Squashfs mount failed");
-	(void)vn_close(vp, flags, td->td_ucred, td);
+	if (cp != NULL) {
+		g_topology_lock();
+		g_vfs_close(cp);
+		g_topology_unlock();
+	}
+	if (vp->v_type != VREG)
+		dev_rel(vp->v_rdev);
+	vrele(vp);
 	free(ump, M_SQUASHFSMNT);
 	return (EINVAL);
 }
@@ -341,7 +361,6 @@ static int
 squashfs_unmount(struct mount *mp, int mntflags)
 {
 	TRACE("%s:",__func__);
-	struct thread *td = curthread;
 	struct sqsh_mount *ump;
 	struct vnode *vp;
 	int flags;
@@ -360,8 +379,16 @@ squashfs_unmount(struct mount *mp, int mntflags)
 	ump = MP_TO_SQSH_MOUNT(mp);
 	vp = ump->um_vp;
 
-	/* close disk file vnode */
-	vn_close(vp, FREAD, td->td_ucred, td);
+	if (ump->cp != NULL) {
+		g_topology_lock();
+		g_vfs_close(ump->cp);
+		g_topology_unlock();
+		ump->cp = NULL;
+
+		dev_rel(vp->v_rdev);
+	}
+
+	vrele(vp);
 
 	/* destroy fs internals */
 	sqsh_free_table(&ump->id_table);
@@ -399,12 +426,14 @@ squashfs_root(struct mount *mp, int flags, struct vnode **vpp)
 static int
 squashfs_statfs(struct mount *mp, struct statfs *sbp)
 {
-	TRACE("%s:",__func__);
 	struct sqsh_mount *ump;
+
+	TRACE("%s:",__func__);
+
 	ump = MP_TO_SQSH_MOUNT(mp);
 
 	sbp->f_bsize	=	ump->sb.block_size;
-	sbp->f_iosize	=	MIN(PAGE_SIZE, ump->sb.block_size);
+	sbp->f_iosize	=	PAGE_SIZE;
 	sbp->f_blocks	=	ump->sb.bytes_used / ump->sb.block_size;
 	sbp->f_bfree	=	0;
 	sbp->f_bavail	=	0;
