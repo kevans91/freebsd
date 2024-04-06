@@ -47,6 +47,7 @@ struct sqsh_mount {
 	struct sqsh_table				export_table;
 	struct sqsh_table				xattr_table;
 	struct sqsh_xattr_id_table		xattr_info;
+	struct g_consumer				*cp;
 	const struct sqsh_decompressor	*decompressor;
 };
 

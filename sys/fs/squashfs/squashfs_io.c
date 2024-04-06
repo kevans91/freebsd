@@ -47,6 +47,8 @@
 #include <sys/uio.h>
 #include <sys/vnode.h>
 
+#include <geom/geom.h>
+
 #include <squashfs.h>
 #include <squashfs_mount.h>
 #include <squashfs_io.h>
@@ -62,22 +64,54 @@ sqsh_err    sqsh_io_read(struct sqsh_mount *ump, struct uio *uiop);
 sqsh_err
 sqsh_io_read(struct sqsh_mount *ump, struct uio *uiop)
 {
-	void *rl;
+	struct vnode *vp;
 	off_t off;
 	size_t len;
 	int error;
 
-	off	= uiop->uio_offset;
-	len	= uiop->uio_resid;
+	vp	= ump->um_vp;
 
-	rl = vn_rangelock_rlock(ump->um_vp, off, off + len);
-	error = vn_lock(ump->um_vp, LK_SHARED);
-	if (error == 0) {
-		error = VOP_READ(ump->um_vp, uiop, IO_NODELOCKED,
-		    uiop->uio_td->td_ucred);
-		VOP_UNLOCK(ump->um_vp);
+	if (vp->v_type == VREG) {
+		void *rl;
+
+		off = uiop->uio_offset;
+		len = uiop->uio_resid;
+
+		rl = vn_rangelock_rlock(vp, off, off + len);
+		error = vn_lock(vp, LK_SHARED);
+		if (error == 0) {
+			error = VOP_READ(vp, uiop, IO_NODELOCKED,
+			    uiop->uio_td->td_ucred);
+		}
+		VOP_UNLOCK(vp);
+		vn_rangelock_unlock(vp, rl);
+	} else {
+		struct buf *bp;
+		size_t sectorsz;
+		daddr_t lbn;
+		off_t trim;
+
+		sectorsz = ump->cp->provider->sectorsize;
+
+		off = uiop->uio_offset & ~PAGE_MASK;
+		trim = uiop->uio_offset - off;
+
+		do {
+			lbn = btodb(off);
+
+			len = MIN(MAXBSIZE,
+			    roundup2(uiop->uio_resid + trim, sectorsz));
+			error = bread(vp, lbn, len, NOCRED, &bp);
+			if (error != 0)
+				break;
+
+			error = uiomove(bp->b_data + trim, len - trim, uiop);
+			brelse(bp);
+
+			off = uiop->uio_offset;
+			trim = 0;
+		} while (error == 0 && uiop->uio_resid > 0);
 	}
-	vn_rangelock_unlock(ump->um_vp, rl);
 
 	return ( error != 0 ? SQFS_ERR : SQFS_OK );
 }
