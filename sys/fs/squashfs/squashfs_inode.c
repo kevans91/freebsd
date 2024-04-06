@@ -150,7 +150,7 @@ sqsh_metadata_run_inode(struct sqsh_block_run *cur, uint64_t id, off_t base)
 	cur->offset = id & 0xffff;
 }
 
-__enum_uint8(vtype)
+static __enum_uint8(vtype)
 sqsh_inode_type(int inode_type)
 {
 	switch (inode_type) {
