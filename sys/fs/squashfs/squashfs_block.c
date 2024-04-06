@@ -81,10 +81,10 @@ sqsh_block_read(struct sqsh_mount *ump, off_t pos, bool compressed,
 {
 	sqsh_err err;
     /* allocate block on heap */
-    *block = malloc(sizeof(**block), M_SQUASHFSBLOCK, M_WAITOK);
+    *block = SQUASHFS_MALLOC(sizeof(**block), M_SQUASHFSBLOCK, M_WAITOK);
 	if (*block == NULL)
 		return (SQFS_ERR);
-    (*block)->data = malloc(size, M_SQUASHFSBLOCKD, M_WAITOK);
+    (*block)->data = SQUASHFS_MALLOC(size, M_SQUASHFSBLOCKD, M_WAITOK);
 	if ((*block)->data == NULL)
 		goto error;
 
@@ -95,16 +95,16 @@ sqsh_block_read(struct sqsh_mount *ump, off_t pos, bool compressed,
 
     /* if block is compressed, first decompressed it and then initialize block */
 	if (compressed) {
-		char *decomp = malloc(outsize, M_SQUASHFSBLOCKD, M_WAITOK);
+		char *decomp = SQUASHFS_MALLOC(outsize, M_SQUASHFSBLOCKD, M_WAITOK);
 		if (decomp == NULL)
 			goto error;
 
 		err = ump->decompressor->decompressor((*block)->data, size, decomp, &outsize);
 		if (err != SQFS_OK) {
-			free(decomp, M_SQUASHFSBLOCKD);
+			SQUASHFS_FREE(decomp, M_SQUASHFSBLOCKD);
 			goto error;
 		}
-		free((*block)->data, M_SQUASHFSBLOCKD);
+		SQUASHFS_FREE((*block)->data, M_SQUASHFSBLOCKD);
 		(*block)->data = decomp;
 		(*block)->size = outsize;
 	} else {
@@ -122,8 +122,8 @@ error:
 void
 sqsh_free_block(struct sqsh_block *block)
 {
-	free(block->data, M_SQUASHFSBLOCKD);
-	free(block, M_SQUASHFSBLOCK);
+	SQUASHFS_FREE(block->data, M_SQUASHFSBLOCKD);
+	SQUASHFS_FREE(block, M_SQUASHFSBLOCK);
 }
 
 sqsh_err

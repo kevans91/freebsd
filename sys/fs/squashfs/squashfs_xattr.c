@@ -257,7 +257,7 @@ sqsh_xattr_find(struct sqsh_xattr *x, const char *name, bool *found)
 
 	name += sqsh_xattr_prefixes[type].len;
 	len = strlen(name);
-	cmp = malloc(len, M_SQUASHFSEXT, M_WAITOK | M_ZERO);
+	cmp = SQUASHFS_MALLOC(len, M_SQUASHFSEXT, M_WAITOK | M_ZERO);
 
 	while (x->remain) {
 		err = sqsh_xattr_read(x);
@@ -276,7 +276,7 @@ sqsh_xattr_find(struct sqsh_xattr *x, const char *name, bool *found)
 	*found = false;
 
 done:
-	free(cmp, M_SQUASHFSEXT);
+	SQUASHFS_FREE(cmp, M_SQUASHFSEXT);
 	return err;
 }
 
@@ -308,12 +308,12 @@ sqsh_xattr_lookup(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	if (err != SQFS_OK)
 		return err;
 
-	buf = malloc(real, M_SQUASHFSEXT, M_WAITOK | M_ZERO);
+	buf = SQUASHFS_MALLOC(real, M_SQUASHFSEXT, M_WAITOK | M_ZERO);
 
 	if (buf) {
 		err = sqsh_xattr_value(&xattr, buf);
 		if (err != SQFS_OK) {
-			free(buf, M_SQUASHFSEXT);
+			SQUASHFS_FREE(buf, M_SQUASHFSEXT);
 			return err;
 		}
 	}
@@ -323,7 +323,7 @@ sqsh_xattr_lookup(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	if (uiomove(buf, real, uio) != 0)
 		err = SQFS_ERR;
 
-	free(buf, M_SQUASHFSEXT);
+	SQUASHFS_FREE(buf, M_SQUASHFSEXT);
 	return err;
 }
 

@@ -302,7 +302,7 @@ squashfs_mount(struct mount* mp)
 	VOP_UNLOCK(vp);
 
 	/* Create squashfs mount */
-	ump = malloc(sizeof(struct sqsh_mount), M_SQUASHFSMNT,
+	ump = SQUASHFS_MALLOC(sizeof(struct sqsh_mount), M_SQUASHFSMNT,
 	    M_WAITOK | M_ZERO);
 	ump->um_mountp = mp;
 	ump->um_vp = vp;
@@ -353,7 +353,7 @@ failed_mount:
 	if (vp->v_type != VREG)
 		dev_rel(vp->v_rdev);
 	vrele(vp);
-	free(ump, M_SQUASHFSMNT);
+	SQUASHFS_FREE(ump, M_SQUASHFSMNT);
 	return (EINVAL);
 }
 
@@ -396,7 +396,7 @@ squashfs_unmount(struct mount *mp, int mntflags)
 	if (sqsh_export_ok(ump))
 		sqsh_free_table(&ump->export_table);
 
-	free(ump, M_SQUASHFSMNT);
+	SQUASHFS_FREE(ump, M_SQUASHFSMNT);
 	mp->mnt_data = NULL;
 	TRACE("%s: completed",__func__);
 
@@ -460,20 +460,20 @@ squashfs_vget(struct mount *mp, ino_t ino, int lkflags, struct vnode **vpp)
 		return (error);
 
 	ump = MP_TO_SQSH_MOUNT(mp);
-	inode = malloc(sizeof(struct sqsh_inode), M_SQUASHFS_NODE, M_WAITOK | M_ZERO);
+	inode = SQUASHFS_MALLOC(sizeof(struct sqsh_inode), M_SQUASHFS_NODE, M_WAITOK | M_ZERO);
 
 	/* populate inode data as per inode number */
 	err = sqsh_get_inode(ump, inode, ino);
 	if (err != SQFS_OK) {
 		*vpp = NULL;
-		free(inode, M_SQUASHFS_NODE);
+		SQUASHFS_FREE(inode, M_SQUASHFS_NODE);
 		return (EINVAL);
 	}
 
 	error = getnewvnode("squashfs", mp, &squashfs_vnodeops, &vp);
 	if (error != 0) {
 		*vpp = NULL;
-		free(inode, M_SQUASHFS_NODE);
+		SQUASHFS_FREE(inode, M_SQUASHFS_NODE);
 		return (error);
 	}
 
@@ -485,7 +485,7 @@ squashfs_vget(struct mount *mp, ino_t ino, int lkflags, struct vnode **vpp)
 	error = insmntque(vp, mp);
 	if (error != 0) {
 		*vpp = NULL;
-		free(inode, M_SQUASHFS_NODE);
+		SQUASHFS_FREE(inode, M_SQUASHFS_NODE);
 		return (error);
 	}
 	error = vfs_hash_insert(vp, ino, lkflags, td, vpp, NULL, NULL);
