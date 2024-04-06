@@ -31,6 +31,14 @@
 #ifndef	SQUASHFS_H
 #define	SQUASHFS_H
 
+#ifdef _KERNEL
+#define	SQUASHFS_MALLOC(sz, type, flags)	malloc(sz, type, flags)
+#define	SQUASHFS_FREE(obj, type)		free(obj, type)
+#else
+#define	SQUASHFS_MALLOC(sz, type, flags)	malloc(sz)
+#define	SQUASHFS_FREE(obj, type)		free(obj)
+#endif	/* _KERNEL */
+
 #define	SQUASHFS_MAGIC				0x73717368
 #define	SQUASHFS_MAGIC_SWAP 		0x68737173
 

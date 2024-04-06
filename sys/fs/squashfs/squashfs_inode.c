@@ -90,7 +90,7 @@ sqsh_init_table(struct sqsh_table *table, struct sqsh_mount *ump,
 	bread = nblocks * sizeof(uint64_t);
 
 	table->each = each;
-	table->blocks = malloc(bread, M_SQUASHFSTABLEBLK, M_WAITOK);
+	table->blocks = SQUASHFS_MALLOC(bread, M_SQUASHFSTABLEBLK, M_WAITOK);
 	if (table->blocks == NULL)
 		return (SQFS_ERR);
 
@@ -110,7 +110,7 @@ sqsh_init_table(struct sqsh_table *table, struct sqsh_mount *ump,
 void
 sqsh_free_table(struct sqsh_table *table)
 {
-	free(table->blocks, M_SQUASHFSTABLEBLK);
+	SQUASHFS_FREE(table->blocks, M_SQUASHFSTABLEBLK);
 	table->blocks = NULL;
 }
 

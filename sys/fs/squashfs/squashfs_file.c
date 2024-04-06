@@ -144,7 +144,7 @@ sqsh_blockidx_add(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	md_size = blocks * sizeof(uint32_t);
 	count = (inode->next.offset + md_size - 1)
 		/ SQUASHFS_METADATA_SIZE;
-	blockidx = malloc(count * sizeof(struct sqsh_blockidx_entry), M_SQSHBLKIDX,
+	blockidx = SQUASHFS_MALLOC(count * sizeof(struct sqsh_blockidx_entry), M_SQSHBLKIDX,
 	    M_WAITOK | M_ZERO);
 	if (blockidx == NULL)
 		return SQFS_ERR;
@@ -161,7 +161,7 @@ sqsh_blockidx_add(struct sqsh_mount *ump, struct sqsh_inode *inode,
 
 		err = sqsh_blocklist_next(&bl);
 		if (err != SQFS_OK) {
-			free(blockidx, M_SQSHBLKIDX);
+			SQUASHFS_FREE(blockidx, M_SQSHBLKIDX);
 			return SQFS_ERR;
 		}
 	}
@@ -210,7 +210,7 @@ sqsh_blockidx_blocklist(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	bl->block = blockpos->data_block;
 
 	/* free blockidx */
-	free(blockidx, M_SQSHBLKIDX);
+	SQUASHFS_FREE(blockidx, M_SQSHBLKIDX);
 
 	return SQFS_OK;
 }

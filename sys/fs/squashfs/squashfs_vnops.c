@@ -546,7 +546,7 @@ squashfs_reclaim(struct vop_reclaim_args *ap)
 
 	vfs_hash_remove(vp);
 
-	free(vp->v_data, M_SQUASHFS_NODE);
+	SQUASHFS_FREE(vp->v_data, M_SQUASHFS_NODE);
 	vp->v_data = NULL;
 
 	TRACE("%s: completed",__func__);
