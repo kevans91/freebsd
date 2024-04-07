@@ -98,7 +98,7 @@ SRCS+=${i}
 # prototype warnings.
 .PATH: ${SRCTOP}/sys/contrib/zlib
 ZLIB_CFLAGS=-DHAVE_MEMCPY -I${SRCTOP}/sys/contrib/zlib ${NO_WDEPRECATED_NON_PROTOTYPE}
-.for i in adler32.c crc32.c infback.c inffast.c inflate.c inftrees.c zutil.c
+.for i in adler32.c crc32.c infback.c inffast.c inflate.c inftrees.c uncompr.c zutil.c
 CFLAGS.${i}+=${ZLIB_CFLAGS}
 SRCS+=	${i}
 .endfor
@@ -137,6 +137,7 @@ SRCS+=	ufs.c nfs.c cd9660.c tftp.c gzipfs.c bzipfs.c
 SRCS+=	dosfs.c ext2fs.c
 SRCS+=	splitfs.c
 SRCS+=	pkgfs.c
+SRCS+=	squashfs.c
 
 # Time support
 SRCS+=	time.c
@@ -144,6 +145,19 @@ SRCS+=	time.c
 # kernel ufs support
 .PATH: ${SRCTOP}/sys/ufs/ffs
 SRCS+=ffs_subr.c ffs_tables.c
+
+# kernel squash support
+.PATH: ${SRCTOP}/sys/fs/squashfs
+CFLAGS+=	-I${SRCTOP}/sys/fs/squashfs
+SRCS+=	squashfs_block.c \
+	squashfs_decompressor.c \
+	squashfs_dir.c \
+	squashfs_file.c \
+	squashfs_init.c \
+	squashfs_inode.c \
+	squashfs_xattr.c
+
+CFLAGS.squashfs_decompressor.c+=	-DGZIO -DZSTDIO
 
 #
 # i386 has a constrained space for its /boot/loader, so compile out the
