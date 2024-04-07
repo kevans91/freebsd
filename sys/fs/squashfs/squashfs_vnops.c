@@ -207,7 +207,7 @@ squashfs_getattr(struct vop_getattr_args *ap)
 		return (EINVAL);
 
 	vap->va_fsid = vp->v_mount->mnt_stat.f_fsid.val[0];
-	vap->va_fileid = inode->ino_id;
+	vap->va_fileid = inode->base.inode_number;
 	vap->va_size = inode->size;
 	vap->va_blocksize = vp->v_mount->mnt_stat.f_iosize;
 	vap->va_atime.tv_sec = inode->base.mtime;
@@ -384,7 +384,7 @@ squashfs_readdir(struct vop_readdir_args *ap)
 
 	if (uio->uio_offset == SQUASHFS_COOKIE_DOT) {
 		/* fake . entry */
-		cde.d_fileno = inode->ino_id;
+		cde.d_fileno = inode->base.inode_number;
 		cde.d_type = DT_DIR;
 		cde.d_namlen = 1;
 		cde.d_name[0] = '.';
@@ -405,7 +405,7 @@ squashfs_readdir(struct vop_readdir_args *ap)
 		/* fake .. entry */
 		/* Get inode number of parent inode */
 
-		cde.d_fileno = inode->parent_id;
+		cde.d_fileno = inode->xtra.dir.parent_inode;
 		cde.d_type = DT_DIR;
 		cde.d_namlen = 2;
 		cde.d_name[0] = '.';
@@ -433,7 +433,7 @@ squashfs_readdir(struct vop_readdir_args *ap)
 	for (;;) {
 		__enum_uint8(vtype) type;
 
-		cde.d_fileno = inode->xtra.dir.entry.inode_id;
+		cde.d_fileno = inode->xtra.dir.entry.inode_number;
 		type = sqsh_inode_type_from_id(ump, inode->xtra.dir.entry.inode_id);
 		switch (type) {
 		case VBLK:
