@@ -3600,6 +3600,7 @@ fs/squashfs/squashfs_vfsops.c optional squashfs
 fs/squashfs/squashfs_vnops.c optional squashfs
 fs/squashfs/squashfs_decompressor.c optional squashfs
 fs/squashfs/squashfs_block.c optional squashfs
+fs/squashfs/squashfs_init.c optional squashfs
 fs/squashfs/squashfs_inode.c optional squashfs
 fs/squashfs/squashfs_io.c	optional squashfs
 gdb/gdb_cons.c			optional gdb
