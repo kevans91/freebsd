@@ -11,6 +11,8 @@
 #include <netinet/in.h>
 #include <netinet/in_systm.h>
 
+#include <machine/vmparam.h>
+
 #include "stand.h"
 #include "net.h"
 
@@ -33,3 +35,5 @@ n_long	netmask = 0xffffff00;		/* subnet or net mask */
 u_int	intf_mtu;			/* interface mtu from bootp/dhcp */
 int	errno;				/* our old friend */
 
+static char zero_region_storage[ZERO_REGION_SIZE];
+const char *zero_region = &zero_region_storage[0];
