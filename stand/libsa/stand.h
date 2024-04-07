@@ -125,6 +125,7 @@ extern struct fs_ops bzipfs_fsops;
 extern struct fs_ops dosfs_fsops;
 extern struct fs_ops ext2fs_fsops;
 extern struct fs_ops splitfs_fsops;
+extern struct fs_ops squashfs_fsops;
 extern struct fs_ops pkgfs_fsops;
 extern struct fs_ops efihttp_fsops;
 
