@@ -28,8 +28,10 @@
  *
  */
 
+#ifdef _KERNEL
 #include "opt_gzio.h"
 #include "opt_zstdio.h"
+#endif
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -81,6 +83,7 @@ zlib_decompressor(void *input, size_t input_size, void *output, size_t *output_s
 }
 #endif	/* GZIO */
 
+#ifdef _KERNEL
 static sqsh_err
 xz_decompressor(void *input, size_t input_size, void *output,
     size_t *output_size)
@@ -111,6 +114,7 @@ xz_decompressor(void *input, size_t input_size, void *output,
 	*output_size = xzb.out_size;
 	return (SQFS_OK);
 }
+#endif
 
 #ifdef ZSTDIO
 static sqsh_err
@@ -145,7 +149,9 @@ static const struct sqsh_decompressor decompressors[] = {
 		.name = "lzo",
 	},
 	{
+#ifdef _KERNEL
 		.decompressor = xz_decompressor,
+#endif
 		.id = XZ_COMPRESSION,
 		.name = "xz",
 	},

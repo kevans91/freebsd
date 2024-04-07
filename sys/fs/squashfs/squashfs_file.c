@@ -29,6 +29,7 @@
  */
 
 #include <sys/param.h>
+#ifdef _KERNEL
 #include <sys/systm.h>
 #include <sys/buf.h>
 #include <sys/conf.h>
@@ -47,6 +48,11 @@
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/vnode.h>
+#else
+#include <sys/uio.h>
+
+#include <stdlib.h>
+#endif
 
 #include <squashfs.h>
 #include <squashfs_io.h>
@@ -55,7 +61,9 @@
 #include <squashfs_block.h>
 #include <squashfs_file.h>
 
+#ifdef _KERNEL
 static	MALLOC_DEFINE(M_SQSHBLKIDX, "Sqsh Blk idx", "Squashfs block index");
+#endif
 
 static void
 swapendian_fragment_entry(struct sqsh_fragment_entry *temp)
@@ -236,8 +244,10 @@ sqsh_frag_block(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	struct sqsh_fragment_entry frag;
 	sqsh_err err;
 
+#ifdef _KERNEL
 	if (inode->type != VREG)
 		return SQFS_ERR;
+#endif
 
 	err = sqsh_frag_entry(ump, &frag, inode->xtra.reg.frag_idx);
 	if (err != SQFS_OK)

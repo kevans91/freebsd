@@ -29,7 +29,9 @@
  */
 
 #include <sys/param.h>
+
 #include <sys/systm.h>
+#ifdef _KERNEL
 #include <sys/buf.h>
 #include <sys/conf.h>
 #include <sys/fcntl.h>
@@ -47,6 +49,10 @@
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/vnode.h>
+#else	/* !_KERNEL */
+#include <stdlib.h>
+#endif
+
 
 #include <squashfs.h>
 #include <squashfs_io.h>
@@ -55,8 +61,10 @@
 #include <squashfs_decompressor.h>
 #include <squashfs_block.h>
 
+#ifdef _KERNEL
 static	MALLOC_DEFINE(M_SQUASHFSBLOCK, "SQUASHFS block", "SQUASHFS block structure");
 static	MALLOC_DEFINE(M_SQUASHFSBLOCKD, "SQUASHFS block data", "SQUASHFS block data buffer");
+#endif
 
 void
 sqsh_metadata_header(uint16_t hdr, bool *compressed, uint16_t *size)

@@ -29,6 +29,7 @@
  */
 
 #include <sys/param.h>
+#ifdef _KERNEL
 #include <sys/systm.h>
 #include <sys/buf.h>
 #include <sys/conf.h>
@@ -47,6 +48,9 @@
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/vnode.h>
+#else
+#include <stdlib.h>
+#endif
 
 #include <squashfs.h>
 #include <squashfs_io.h>
@@ -55,7 +59,9 @@
 #include <squashfs_block.h>
 #include <squashfs_xattr.h>
 
+#ifdef _KERNEL
 static	MALLOC_DEFINE(M_SQUASHFSEXT, "SQUASHFS xattrs", "SQUASHFS Extended attributes");
+#endif
 
 void	swapendian_xattr_id_table(struct sqsh_xattr_id_table *temp);
 void	swapendian_xattr_id(struct sqsh_xattr_id *temp);

@@ -31,6 +31,8 @@
 #ifndef	SQUASHFS_H
 #define	SQUASHFS_H
 
+#include <sys/kassert.h>
+
 #ifdef _KERNEL
 #define	SQUASHFS_MALLOC(sz, type, flags)	malloc(sz, type, flags)
 #define	SQUASHFS_FREE(obj, type)		free(obj, type)
