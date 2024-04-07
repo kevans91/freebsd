@@ -168,6 +168,8 @@ extern struct devsw netdev;
 
 extern int errno;
 
+extern const char *zero_region;
+
 /*
  * Generic device specifier; architecture-dependent versions may be larger, but
  * should be allowed to overlap. The larger device specifiers store more data
@@ -279,6 +281,26 @@ static __inline int tolower(int c)
 {
     return isupper(c) ? c - 'A' + 'a' : c;
 }
+
+#if __BSD_VISIBLE
+/*
+ * A little ugly, but the ZFS build pulls in a sys/uio.h earlier in our search
+ * path.
+ */
+#include <sys/_uio.h>
+#include <sys/_iovec.h>
+
+/* Light version of what sys/uio.h provides */
+struct uio {
+	struct iovec	*uio_iov;	/* scatter/gather list */
+	int		 uio_iovcnt;	/* length of scatter/gather list */
+	int		 uio_offset;	/* offset in target object */
+	ssize_t		 uio_resid;	/* remaining bytes to process */
+	enum uio_rw	 uio_rw;	/* operation */
+};
+
+extern int	uiomove(void *buf, int howmuch, struct uio *uiop);
+#endif
 
 /* sbrk emulation */
 extern void	setheap(void *base, void *top);
