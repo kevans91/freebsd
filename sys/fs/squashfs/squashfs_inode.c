@@ -29,6 +29,7 @@
  */
 
 #include <sys/param.h>
+#ifdef _KERNEL
 #include <sys/systm.h>
 #include <sys/buf.h>
 #include <sys/conf.h>
@@ -47,6 +48,10 @@
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/vnode.h>
+#else
+#include <stdlib.h>
+#include <string.h>
+#endif
 
 #include <squashfs.h>
 #include <squashfs_io.h>
@@ -74,7 +79,9 @@ sqsh_err	sqsh_init_ldev_inode(struct sqsh_mount *ump, struct sqsh_inode *inode);
 sqsh_err	sqsh_init_ipc_inode(struct sqsh_mount *ump, struct sqsh_inode *inode);
 sqsh_err	sqsh_init_lipc_inode(struct sqsh_mount *ump, struct sqsh_inode *inode);
 
+#ifdef _KERNEL
 static	MALLOC_DEFINE(M_SQUASHFSTABLEBLK, "SQUASHFS tab blk", "SQUASHFS table block");
+#endif
 
 sqsh_err
 sqsh_init_table(struct sqsh_table *table, struct sqsh_mount *ump,
@@ -150,36 +157,76 @@ sqsh_metadata_run_inode(struct sqsh_block_run *cur, uint64_t id, off_t base)
 	cur->offset = id & 0xffff;
 }
 
+#ifdef _KERNEL
 static __enum_uint8(vtype)
+#else
+static int
+#endif
 sqsh_inode_type(int inode_type)
 {
 	switch (inode_type) {
 	case SQUASHFS_DIR_TYPE:
 	case SQUASHFS_LDIR_TYPE:
+#ifdef _KERNEL
 		return (VDIR);
+#else
+		return (DT_DIR);
+#endif
 	case SQUASHFS_REG_TYPE:
 	case SQUASHFS_LREG_TYPE:
+#ifdef _KERNEL
 		return (VREG);
+#else
+		return (DT_REG);
+#endif
 	case SQUASHFS_SYMLINK_TYPE:
 	case SQUASHFS_LSYMLINK_TYPE:
+#ifdef _KERNEL
 		return (VLNK);
+#else
+		return (DT_LNK);
+#endif
 	case SQUASHFS_BLKDEV_TYPE:
 	case SQUASHFS_LBLKDEV_TYPE:
+#ifdef _KERNEL
 		return (VBLK);
+#else
+		return (DT_BLK);
+#endif
 	case SQUASHFS_CHRDEV_TYPE:
 	case SQUASHFS_LCHRDEV_TYPE:
+#ifdef _KERNEL
 		return (VCHR);
+#else
+		return (DT_CHR);
+#endif
 	case SQUASHFS_FIFO_TYPE:
 	case SQUASHFS_LFIFO_TYPE:
+#ifdef _KERNEL
 		return (VFIFO);
+#else
+		return (DT_FIFO);
+#endif
 	case SQUASHFS_SOCKET_TYPE:
 	case SQUASHFS_LSOCKET_TYPE:
+#ifdef _KERNEL
 		return (VSOCK);
+#else
+		return (DT_SOCK);
+#endif
 	}
+#ifdef _KERNEL
 	return (VBAD);
+#else
+	return (DT_UNKNOWN);
+#endif
 }
 
+#ifdef _KERNEL
 __enum_uint8(vtype)
+#else
+int
+#endif
 sqsh_inode_type_from_id(struct sqsh_mount *ump, uint64_t inode_id)
 {
 	struct sqsh_block_run cur;
@@ -190,7 +237,11 @@ sqsh_inode_type_from_id(struct sqsh_mount *ump, uint64_t inode_id)
 
 	err = sqsh_metadata_get(ump, &cur, &base, sizeof(base));
 	if (err != SQFS_OK)
+#ifdef _KERNEL
 		return (VBAD);
+#else
+		return (DT_UNKNOWN);
+#endif
 	swapendian_base_inode(&base);
 	return sqsh_inode_type(base.inode_type);
 }
@@ -285,6 +336,7 @@ sqsh_get_inode(struct sqsh_mount *ump, struct sqsh_inode *inode,
 	err = sqsh_metadata_get(ump, &cur, &inode->base, sizeof(inode->base));
 	if (err != SQFS_OK)
 		return (err);
+
 	swapendian_base_inode(&inode->base);
 	inode->type = sqsh_inode_type(inode->base.inode_type);
 

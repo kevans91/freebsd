@@ -31,25 +31,31 @@
 #ifndef	SQUASHFS_MOUNT_H
 #define	SQUASHFS_MOUNT_H
 
-#ifdef	_KERNEL
-
-#ifdef MALLOC_DECLARE
-MALLOC_DECLARE(M_SQUASHFS_NODE);
-#endif
+#if defined(_KERNEL) || defined(_STANDALONE)
 
 /* This structure describes squashfs mount structure data */
 struct sqsh_mount {
+#ifdef _KERNEL
 	struct mount					*um_mountp;
 	struct vnode					*um_vp;
+#endif
 	struct sqsh_sb					sb;
 	struct sqsh_table				id_table;
 	struct sqsh_table				frag_table;
 	struct sqsh_table				export_table;
 	struct sqsh_table				xattr_table;
 	struct sqsh_xattr_id_table		xattr_info;
+#ifdef _KERNEL
 	struct g_consumer				*cp;
+#endif
 	const struct sqsh_decompressor	*decompressor;
 };
+
+#ifdef _KERNEL
+
+#ifdef MALLOC_DECLARE
+MALLOC_DECLARE(M_SQUASHFS_NODE);
+#endif
 
 static inline struct sqsh_mount *
 MP_TO_SQSH_MOUNT(struct mount *mp)
@@ -59,5 +65,9 @@ MP_TO_SQSH_MOUNT(struct mount *mp)
 }
 
 #endif	/* _KERNEL */
+
+sqsh_err	squashfs_init(struct sqsh_mount *);
+
+#endif	/* _KERNEL || _STANDALONE */
 
 #endif	/* SQUASHFS_MOUNT_H */

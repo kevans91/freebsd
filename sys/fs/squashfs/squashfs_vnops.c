@@ -458,6 +458,7 @@ squashfs_readdir(struct vop_readdir_args *ap)
 			panic("%s: inode_type %d\n", __func__, type);
 		}
 		cde.d_namlen = inode->xtra.dir.entry.name_size;
+		/* XXX Really crash? */
 		MPASS(inode->xtra.dir.entry.name_size < sizeof(cde.d_name));
 		(void)memcpy(cde.d_name, inode->xtra.dir.entry.name, inode->xtra.dir.entry.name_size);
 		cde.d_name[inode->xtra.dir.entry.name_size] = '\0';

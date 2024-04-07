@@ -29,6 +29,7 @@
  */
 
 #include <sys/param.h>
+#ifdef _KERNEL
 #include <sys/systm.h>
 #include <sys/buf.h>
 #include <sys/conf.h>
@@ -47,6 +48,9 @@
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/vnode.h>
+#else
+#include <string.h>
+#endif
 
 #include <squashfs.h>
 #include <squashfs_io.h>

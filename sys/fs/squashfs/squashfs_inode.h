@@ -41,7 +41,11 @@ struct sqsh_inode {
 	uint32_t				xattr;
 	size_t					size;
 
+#ifdef _KERNEL
 	__enum_uint8(vtype)				type;
+#else
+	int					type;
+#endif
 
 	struct sqsh_block_run	next;
 
@@ -85,7 +89,11 @@ void		sqsh_metadata_run_inode(struct sqsh_block_run *cur, uint64_t id,
 sqsh_err	sqsh_get_inode(struct sqsh_mount *ump, struct sqsh_inode *inode,
 				uint64_t id);
 
+#ifdef _KERNEL
 __enum_uint8(vtype)	sqsh_inode_type_from_id(struct sqsh_mount *ump, uint64_t inode_id);
+#else
+int		sqsh_inode_type_from_id(struct sqsh_mount *ump, uint64_t inode_id);
+#endif
 
 sqsh_err	sqsh_get_inode_id(struct sqsh_mount *ump, uint16_t idx, uint32_t *id);
 
