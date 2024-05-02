@@ -77,7 +77,7 @@ sub print_header($$)
 ##
 ##  It contains a certificate trusted for server authentication.
 ##
-##  Extracted from nss
+##  Extracted from nss licensed under the MPL 2.0, http://mozilla.org/MPL/2.0/.
 ##
 ##  $generated
 ##
@@ -93,7 +93,7 @@ EOFH
 ##
 ##  It contains certificates trusted for server authentication.
 ##
-##  Extracted from nss
+##  Extracted from nss licensed under the MPL 2.0, http://mozilla.org/MPL/2.0/.
 ##
 ##  $generated
 ##
