@@ -37,6 +37,8 @@ static char sccsid[] = "@(#)strncat.c	8.1 (Berkeley) 6/4/93";
 #endif /* LIBC_SCCS and not lint */
 #include <string.h>
 
+#undef strncat	/* _FORTIFY_SOURCE */
+
 /*
  * Concatenate src on the end of dst.  At most strlen(dst)+n+1 bytes
  * are written at dst (at most n+1 bytes being appended).  Return dst.

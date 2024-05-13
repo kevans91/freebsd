@@ -46,6 +46,8 @@ static char sccsid[] = "@(#)sprintf.c	8.1 (Berkeley) 6/4/93";
 #include "local.h"
 #include "xlocale_private.h"
 
+#undef sprintf	/* _FORTIFY_SOURCE */
+
 int
 sprintf(char * __restrict str, char const * __restrict fmt, ...)
 {

@@ -42,6 +42,7 @@ __SCCSID("@(#)getcwd.c	8.5 (Berkeley) 2/7/95");
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <ssp/ssp.h>
 #include "un-namespace.h"
 
 #include "gen-private.h"
@@ -53,7 +54,7 @@ __SCCSID("@(#)getcwd.c	8.5 (Berkeley) 2/7/95");
 extern int __getcwd(char *, size_t);
 
 char *
-getcwd(char *pt, size_t size)
+__ssp_real(getcwd)(char *pt, size_t size)
 {
 	struct dirent *dp;
 	DIR *dir = NULL;

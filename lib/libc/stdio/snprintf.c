@@ -48,6 +48,8 @@ static char sccsid[] = "@(#)snprintf.c	8.1 (Berkeley) 6/4/93";
 
 #include "local.h"
 
+#undef snprintf	/* _FORTIFY_SOURCE */
+
 int
 snprintf(char * __restrict str, size_t n, char const * __restrict fmt, ...)
 {

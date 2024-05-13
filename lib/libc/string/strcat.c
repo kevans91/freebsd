@@ -34,6 +34,8 @@ static char sccsid[] = "@(#)strcat.c	8.1 (Berkeley) 6/4/93";
 #endif /* LIBC_SCCS and not lint */
 #include <string.h>
 
+#undef strcat	/* _FORTIFY_SOURCE */
+
 char *
 strcat(char * __restrict s, const char * __restrict append)
 {

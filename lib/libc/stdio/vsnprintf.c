@@ -46,6 +46,8 @@ static char sccsid[] = "@(#)vsnprintf.c	8.1 (Berkeley) 6/4/93";
 #include "local.h"
 #include "xlocale_private.h"
 
+#undef vsnprintf	/* _FORTIFY_SOURCE */
+
 int
 vsnprintf_l(char * __restrict str, size_t n, locale_t locale, 
 		const char * __restrict fmt, __va_list ap)
