@@ -112,6 +112,8 @@ __ssp_bos_icheck2_restrict(stpcpy, char *, const char *)
 __ssp_bos_icheck3_restrict(stpncpy, char *, const char *)
 __ssp_bos_icheck2_restrict(strcpy, char *, const char *)
 __ssp_bos_icheck2_restrict(strcat, char *, const char *)
+__ssp_redirect0(int, strerror_r, (int __errnum, char *__buf, size_t __len),
+    (__errnum, __buf, __len));
 __ssp_bos_icheck3_restrict(strncpy, char *, const char *)
 __ssp_bos_icheck3_restrict(strncat, char *, const char *)
 __END_DECLS
