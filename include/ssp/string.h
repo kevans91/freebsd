@@ -45,7 +45,9 @@ char *__stpncpy_chk(char *, const char *, size_t, size_t);
 char *__strcat_chk(char *, const char *, size_t);
 char *__strcpy_chk(char *, const char *, size_t);
 char *__strncat_chk(char *, const char *, size_t, size_t);
+size_t __strlcat_chk(char *, const char *, size_t, size_t);
 char *__strncpy_chk(char *, const char *, size_t, size_t);
+size_t __strlcpy_chk(char *, const char *, size_t, size_t);
 __END_DECLS
 
 #if __SSP_FORTIFY_LEVEL > 0
@@ -122,7 +124,11 @@ __END_DECLS
 #define stpncpy(dst, src, len) __ssp_bos_check3(stpncpy, dst, src, len)
 #define strcpy(dst, src) __ssp_bos_check2(strcpy, dst, src)
 #define strcat(dst, src) __ssp_bos_check2(strcat, dst, src)
+#define strlcpy(dst, src, dstlen) \
+    __strlcpy_chk(dst, src, dstlen, __ssp_bos(dst))
 #define strncpy(dst, src, len) __ssp_bos_check3(strncpy, dst, src, len)
+#define strlcat(dst, src, dstlen) \
+    __strlcat_chk(dst, src, dstlen, __ssp_bos(dst))
 #define strncat(dst, src, len) __ssp_bos_check3(strncat, dst, src, len)
 
 #endif /* __SSP_FORTIFY_LEVEL > 0 */
