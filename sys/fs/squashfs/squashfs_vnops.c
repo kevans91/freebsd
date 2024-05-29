@@ -162,7 +162,36 @@ squashfs_bmap(struct vop_bmap_args *ap)
 		blksz = inode->ump->sb.block_size;
 
 		off = ap->a_bn * iosize;
-		nextblk = MIN(inode->size, roundup2(off, blksz));
+
+		/*
+		 * All of the file data is contiguous on the disk, with
+		 * exception to the very end of the file if it's not a multiple
+		 * of the block size.
+		 */
+		nextblk = roundup2(off, blksz);
+		if (inode->xtra.reg.frag_idx == SQUASHFS_INVALID_FRAG) {
+			/* No fragment - read on ahead. */
+			nextblk = MIN(inode->size, nextblk);
+		} else {
+			off_t startoff;
+
+			/*
+			 * Fragment - read up to the last block, unless we are
+			 * in the middle of the fragment.
+			 */
+			startoff = rounddown2(inode->size, blksz);
+			if (off > startoff) {
+				/*
+				 * In the fragment, we can only read behind to
+				 * the start of the fragment or read ahead to
+				 * the end of the file.
+				 */
+				startoff = 0;
+				nextblk = MIN(inode->size, nextblk);
+			} else {
+				nextblk = MIN(startoff, nextblk);
+			}
+		}
 
 		behind = howmany(off - rounddown2(off, blksz), iosize);
 		if (nextblk - iosize < off)

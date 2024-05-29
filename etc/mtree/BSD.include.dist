@@ -207,6 +207,8 @@
         ..
         smbfs
         ..
+        squashfs
+        ..
         udf
         ..
         unionfs

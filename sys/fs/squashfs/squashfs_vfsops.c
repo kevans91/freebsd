@@ -67,6 +67,16 @@ static	vfs_statfs_t	squashfs_statfs;
 static	vfs_vget_t		squashfs_vget;
 static	vfs_fhtovp_t	squashfs_fhtovp;
 
+static const char *squashfs_opts[] = {
+	"as", "from",
+	NULL,
+};
+
+static const char *squashfs_updateopts[] = {
+	"from",
+	NULL,
+};
+
 /* VFS operations */
 static int
 squashfs_mount(struct mount* mp)
@@ -85,9 +95,18 @@ squashfs_mount(struct mount* mp)
 	TRACE("squashfs_mount(mp = %p)\n", mp);
 
 	if (mp->mnt_flag & MNT_UPDATE) {
-		vfs_mount_error(mp, "squashfs does not support mount update");
+		if (vfs_filteropt(mp->mnt_optnew, squashfs_updateopts))
+			return (EOPNOTSUPP);
+
+		/*
+		 * We don't really allow any meaningful options at the moment,
+		 * so just succeed.  Perhaps later we'll allow, e.g., noexec.
+		 */
 		return (EOPNOTSUPP);
 	}
+
+	if (vfs_filteropt(mp->mnt_optnew, squashfs_opts))
+		return (EINVAL);
 
 	/* Get argument */
 	error = vfs_getopt(mp->mnt_optnew, "from", (void **)&from, &len);
