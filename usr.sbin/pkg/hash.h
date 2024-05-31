@@ -30,3 +30,6 @@
 
 char *sha256_buf(char *buf, size_t len);
 char *sha256_fd(int fd);
+
+char *blake2b_buf(char *buf, size_t len);
+char *blake2b_fd(int fd);
