@@ -3071,7 +3071,7 @@ n_cpus_active_update(int delta)
 	/* Number of active CPUs is mp_ncpus - number of idle CPUs. */
 	nactive = mp_ncpus - atomic_load_int(&n_cpus_idle);
 	KASSERT((0 <= nactive) && (nactive <= mp_ncpus),
-	    "Invalid value for n_cpus_idle");
+	    ("Invalid value for n_cpus_idle"));
 
 	/* Atomically adjust number of idle CPUs. */
 	atomic_subtract_int(&n_cpus_idle, delta);
