@@ -8,6 +8,7 @@ __BOOT_DEFS_MK__=${MFILE}
 
 MK_CTF=		no
 MK_SSP=		no
+FORTIFY_SOURCE=	0
 MK_PROFILE=	no
 MK_PIE=		no
 MAN=
