@@ -16,6 +16,7 @@ CFLAGS+= -I${SRCTOP}/sys/contrib/openzfs/lib/libspl/include/
 CFLAGS+= -I${SRCTOP}/sys/contrib/openzfs/lib/libspl/include/os/freebsd
 CFLAGS+= -I${SRCTOP}/cddl/compat/opensolaris/include
 CFLAGS+= -I${SRCTOP}/sys/contrib/openzfs/module/icp/include
+CFLAGS+= -DHAVE_STRLCAT -DHAVE_STRLCPY
 
 MAN=	be.3lua
 
