@@ -98,10 +98,6 @@ FBSD_1.7 {
 	SHA_FdChunk;
 	SHA_File;
 	SHA_FileChunk;
-	SHA_Final;
-	SHA_Init;
-	SHA_Update;
-	SHA_version;
 	SKEIN1024_Data;
 	SKEIN1024_End;
 	SKEIN1024_Fd;
