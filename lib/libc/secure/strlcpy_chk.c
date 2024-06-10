@@ -1,37 +1,22 @@
-/*-
- *
- * SPDX-License-Identifier: BSD-2-Clause
- *
- * Copyright (c) 2006 The NetBSD Foundation, Inc.
- * All rights reserved.
- *
- * This code is derived from software contributed to The NetBSD Foundation
- * by Christos Zoulas.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
- * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- */
-#include <sys/cdefs.h>
-__RCSID("$NetBSD: strncpy_chk.c,v 1.6 2015/05/09 15:42:21 christos Exp $");
+/*	$OpenBSD: strlcpy.c,v 1.12 2015/01/15 03:54:12 millert Exp $	*/
 
+/*
+ * Copyright (c) 1998, 2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+#include <sys/types.h>
 #include <string.h>
 
 #include <ssp/string.h>
@@ -39,15 +24,38 @@ __RCSID("$NetBSD: strncpy_chk.c,v 1.6 2015/05/09 15:42:21 christos Exp $");
 
 #include "ssp_internal.h"
 
+/*
+ * Copy string src to buffer dst of size dsize.  At most dsize-1
+ * chars will be copied.  Always NUL terminates (unless dsize == 0).
+ * Returns strlen(src); if retval >= dsize, truncation occurred.
+ */
 size_t
-__strlcpy_chk(char * __restrict dst, const char * __restrict src, size_t len,
-    size_t slen)
+__strlcpy_chk(char * __restrict dst, const char * __restrict src, size_t dsize,
+    size_t dbufsize)
 {
-	if (len > slen)
+	const char *osrc = src;
+	size_t nleft = dsize;
+
+	if (dsize > dbufsize)
 		__chk_fail();
 
-	if (__ssp_overlap(src, dst, len))
-		__chk_fail();
+	/* Copy as many bytes as will fit. */
+	if (nleft != 0) {
+		while (--nleft != 0) {
+			if (dbufsize-- == 0)
+				__chk_fail();
+			if ((*dst++ = *src++) == '\0')
+				break;
+		}
+	}
 
-	return (strlcpy(dst, src, len));
+	/* Not enough room in dst, add NUL and traverse rest of src. */
+	if (nleft == 0) {
+		if (dsize != 0)
+			*dst = '\0';		/* NUL-terminate dst */
+		while (*src++)
+			;
+	}
+
+	return(src - osrc - 1);	/* count does not include NUL */
 }
