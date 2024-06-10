@@ -9,9 +9,8 @@
 #include <sys/libkern.h>
 #else
 #include <string.h>
-#endif /* _KERNEL */
-
 #include <ssp/ssp.h>
+#endif /* _KERNEL */
 
 __attribute__((weak)) void __explicit_bzero_hook(void *, size_t);
 
