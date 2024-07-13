@@ -356,6 +356,8 @@
             ..
             rpc
             ..
+            secure
+            ..
             ssp
             ..
             setjmp
