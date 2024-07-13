@@ -39,6 +39,7 @@ __SCCSID("@(#)getlogin.c	8.1 (Berkeley) 6/4/93");
 #include <unistd.h>
 #include "namespace.h"
 #include <pthread.h>
+#include <ssp/ssp.h>
 #include "un-namespace.h"
 
 #include "libc_private.h"
@@ -56,7 +57,7 @@ getlogin(void)
 }
 
 int
-getlogin_r(char *logname, size_t namelen)
+__ssp_real(getlogin_r)(char *logname, size_t namelen)
 {
 	char tmpname[MAXLOGNAME];
 	int	len;

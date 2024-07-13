@@ -40,6 +40,7 @@ static char sccsid[] = "@(#)fread.c	8.2 (Berkeley) 12/11/93";
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <ssp/ssp.h>
 #include "un-namespace.h"
 #include "local.h"
 #include "libc_private.h"
@@ -49,7 +50,8 @@ static char sccsid[] = "@(#)fread.c	8.2 (Berkeley) 12/11/93";
  */
 
 size_t
-fread(void * __restrict buf, size_t size, size_t count, FILE * __restrict fp)
+__ssp_real(fread)(void * __restrict buf, size_t size, size_t count,
+    FILE * __restrict fp)
 {
 	size_t ret;
 

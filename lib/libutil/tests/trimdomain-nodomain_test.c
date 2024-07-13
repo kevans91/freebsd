@@ -33,6 +33,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <ssp/ssp.h>
+
 #define TESTDOMAIN ""
 #define TESTHOST "testhost"
 #define TESTFQDN "testhost" TESTDOMAIN
@@ -46,7 +48,7 @@ int tests = 0;
  * oddly configured systems.
  */
 int
-gethostname(char *name, size_t namelen)
+__ssp_real(gethostname)(char *name, size_t namelen)
 {
 	if (strlcpy(name, TESTFQDN, namelen) > namelen) {
 		errno = ENAMETOOLONG;
