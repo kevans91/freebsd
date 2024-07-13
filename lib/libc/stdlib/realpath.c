@@ -40,6 +40,7 @@ static char sccsid[] = "@(#)realpath.c	8.1 (Berkeley) 2/16/94";
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <ssp/ssp.h>
 #include "un-namespace.h"
 #include "libc_private.h"
 
@@ -206,7 +207,7 @@ realpath1(const char *path, char *resolved)
 }
 
 char *
-realpath(const char * __restrict path, char * __restrict resolved)
+__ssp_real(realpath)(const char * __restrict path, char * __restrict resolved)
 {
 	char *m, *res;
 
