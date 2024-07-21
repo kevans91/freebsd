@@ -81,7 +81,7 @@ enum OPTS {
 	ITEM_DEPTH,
 	ITEM_PREFIX,
 	LOAD_THEME,
-	MAX_INPUT,
+	MAX_INPUT_FORM,
 	NO_CANCEL,
 	NO_DESCRIPTIONS,
 	NO_LINES,
@@ -179,7 +179,7 @@ static struct option longopts[] = {
 	{"item-prefix",       no_argument,       NULL, ITEM_PREFIX},
 	{"keep-tite",         no_argument,       NULL, ALTERNATE_SCREEN},
 	{"load-theme",        required_argument, NULL, LOAD_THEME},
-	{"max-input",         required_argument, NULL, MAX_INPUT},
+	{"max-input",         required_argument, NULL, MAX_INPUT_FORM},
 	{"no-cancel",         no_argument,       NULL, NO_CANCEL},
 	{"nocancel",          no_argument,       NULL, NO_CANCEL},
 	{"no-descriptions",   no_argument,       NULL, NO_DESCRIPTIONS},
@@ -608,7 +608,7 @@ static int parseargs(int argc, char **argv, struct bsddialog_conf *conf)
 		case LOAD_THEME:
 			loadthemefile = optarg;
 			break;
-		case MAX_INPUT:
+		case MAX_INPUT_FORM:
 			max_input_form_opt = (u_int)strtoul(optarg, NULL, 10);
 			break;
 		case NO_CANCEL:
