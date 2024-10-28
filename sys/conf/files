@@ -3818,6 +3818,8 @@ kern/kern_intr.c		standard
 kern/kern_jail.c		standard
 kern/kern_kcov.c		optional kcov			\
 	compile-with "${NOSAN_C} ${MSAN_CFLAGS}"
+kern/kern_keyring.c		standard
+kern/kern_keyring_phys.c	standard
 kern/kern_khelp.c		standard
 kern/kern_kthread.c		standard
 kern/kern_ktr.c			optional ktr

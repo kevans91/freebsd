@@ -44,31 +44,34 @@ struct osd {
 
 #ifdef _KERNEL
 
-#define	OSD_THREAD	0
-#define	OSD_JAIL	1
-#define	OSD_KHELP	2
+enum osd_type {
+	OSD_THREAD,
+	OSD_JAIL,
+	OSD_KHELP,
+	OSD_SESSION,
+	OSD_PROC,
 
-#define	OSD_FIRST	OSD_THREAD
-#define	OSD_LAST	OSD_KHELP
+	OSD_LAST,	/* Keep this entry last. */
+};
 
 typedef void (*osd_destructor_t)(void *value);
 typedef int (*osd_method_t)(void *obj, void *data);
 
-int osd_register(u_int type, osd_destructor_t destructor,
+int osd_register(enum osd_type type, osd_destructor_t destructor,
     osd_method_t *methods);
-void osd_deregister(u_int type, u_int slot);
+void osd_deregister(enum osd_type type, u_int slot);
 
-int osd_set(u_int type, struct osd *osd, u_int slot, void *value);
+int osd_set(enum osd_type type, struct osd *osd, u_int slot, void *value);
 void **osd_reserve(u_int slot);
-int osd_set_reserved(u_int type, struct osd *osd, u_int slot, void **rsv,
-    void *value);
+int osd_set_reserved(enum osd_type type, struct osd *osd, u_int slot,
+    void **rsv, void *value);
 void osd_free_reserved(void **rsv);
-void *osd_get(u_int type, struct osd *osd, u_int slot);
-void *osd_get_unlocked(u_int type, struct osd *osd, u_int slot);
-void osd_del(u_int type, struct osd *osd, u_int slot);
-int osd_call(u_int type, u_int method, void *obj, void *data);
+void *osd_get(enum osd_type type, struct osd *osd, u_int slot);
+void *osd_get_unlocked(enum osd_type type, struct osd *osd, u_int slot);
+void osd_del(enum osd_type type, struct osd *osd, u_int slot);
+int osd_call(enum osd_type type, u_int method, void *obj, void *data);
 
-void osd_exit(u_int type, struct osd *osd);
+void osd_exit(enum osd_type type, struct osd *osd);
 
 #define	osd_thread_register(destructor)					\
 	osd_register(OSD_THREAD, (destructor), NULL)

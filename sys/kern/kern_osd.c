@@ -73,13 +73,13 @@ SYSCTL_INT(_debug, OID_AUTO, osd, CTLFLAG_RWTUN, &osd_debug, 0, "OSD debug level
 	}								\
 } while (0)
 
-static void do_osd_del(u_int type, struct osd *osd, u_int slot,
+static void do_osd_del(enum osd_type type, struct osd *osd, u_int slot,
     int list_locked);
 
 /*
  * List of objects with OSD.
  */
-struct osd_master osdm[OSD_LAST + 1] = {
+struct osd_master osdm[OSD_LAST] = {
 	[OSD_JAIL] = { .osd_nmethods = PR_MAXMETHOD },
 };
 
@@ -90,12 +90,13 @@ osd_default_destructor(void *value __unused)
 }
 
 int
-osd_register(u_int type, osd_destructor_t destructor, osd_method_t *methods)
+osd_register(enum osd_type type, osd_destructor_t destructor,
+    osd_method_t *methods)
 {
 	void *newptr;
 	u_int i, m;
 
-	KASSERT(type >= OSD_FIRST && type <= OSD_LAST, ("Invalid type."));
+	KASSERT(type < OSD_LAST, ("Invalid type."));
 
 	/*
 	 * If no destructor is given, use default one. We need to use some
@@ -147,11 +148,11 @@ osd_register(u_int type, osd_destructor_t destructor, osd_method_t *methods)
 }
 
 void
-osd_deregister(u_int type, u_int slot)
+osd_deregister(enum osd_type type, u_int slot)
 {
 	struct osd *osd, *tosd;
 
-	KASSERT(type >= OSD_FIRST && type <= OSD_LAST, ("Invalid type."));
+	KASSERT(type < OSD_LAST, ("Invalid type."));
 	KASSERT(slot > 0, ("Invalid slot."));
 
 	sx_xlock(&osdm[type].osd_module_lock);
@@ -182,7 +183,7 @@ osd_deregister(u_int type, u_int slot)
 }
 
 int
-osd_set(u_int type, struct osd *osd, u_int slot, void *value)
+osd_set(enum osd_type type, struct osd *osd, u_int slot, void *value)
 {
 
 	return (osd_set_reserved(type, osd, slot, NULL, value));
@@ -199,12 +200,12 @@ osd_reserve(u_int slot)
 }
 
 int
-osd_set_reserved(u_int type, struct osd *osd, u_int slot, void **rsv,
+osd_set_reserved(enum osd_type type, struct osd *osd, u_int slot, void **rsv,
     void *value)
 {
 	struct rm_priotracker tracker;
 
-	KASSERT(type >= OSD_FIRST && type <= OSD_LAST, ("Invalid type."));
+	KASSERT(type < OSD_LAST, ("Invalid type."));
 	KASSERT(slot > 0, ("Invalid slot."));
 
 	rm_rlock(&osdm[type].osd_object_lock, &tracker);
@@ -278,7 +279,7 @@ osd_free_reserved(void **rsv)
 }
 
 void *
-osd_get_unlocked(u_int type, struct osd *osd, u_int slot)
+osd_get_unlocked(enum osd_type type, struct osd *osd, u_int slot)
 {
 	void *value;
 
@@ -296,12 +297,12 @@ osd_get_unlocked(u_int type, struct osd *osd, u_int slot)
 }
 
 void *
-osd_get(u_int type, struct osd *osd, u_int slot)
+osd_get(enum osd_type type, struct osd *osd, u_int slot)
 {
 	struct rm_priotracker tracker;
 	void *value;
 
-	KASSERT(type >= OSD_FIRST && type <= OSD_LAST, ("Invalid type."));
+	KASSERT(type < OSD_LAST, ("Invalid type."));
 	KASSERT(slot > 0, ("Invalid slot."));
 
 	rm_rlock(&osdm[type].osd_object_lock, &tracker);
@@ -311,7 +312,7 @@ osd_get(u_int type, struct osd *osd, u_int slot)
 }
 
 void
-osd_del(u_int type, struct osd *osd, u_int slot)
+osd_del(enum osd_type type, struct osd *osd, u_int slot)
 {
 	struct rm_priotracker tracker;
 
@@ -321,11 +322,11 @@ osd_del(u_int type, struct osd *osd, u_int slot)
 }
 
 static void
-do_osd_del(u_int type, struct osd *osd, u_int slot, int list_locked)
+do_osd_del(enum osd_type type, struct osd *osd, u_int slot, int list_locked)
 {
 	int i;
 
-	KASSERT(type >= OSD_FIRST && type <= OSD_LAST, ("Invalid type."));
+	KASSERT(type < OSD_LAST, ("Invalid type."));
 	KASSERT(slot > 0, ("Invalid slot."));
 	KASSERT(osdm[type].osd_destructors[slot - 1] != NULL, ("Unused slot."));
 
@@ -373,12 +374,12 @@ do_osd_del(u_int type, struct osd *osd, u_int slot, int list_locked)
 }
 
 int
-osd_call(u_int type, u_int method, void *obj, void *data)
+osd_call(enum osd_type type, u_int method, void *obj, void *data)
 {
 	osd_method_t methodfun;
 	int error, i;
 
-	KASSERT(type >= OSD_FIRST && type <= OSD_LAST, ("Invalid type."));
+	KASSERT(type < OSD_LAST, ("Invalid type."));
 	KASSERT(method < osdm[type].osd_nmethods, ("Invalid method."));
 
 	/*
@@ -401,12 +402,12 @@ osd_call(u_int type, u_int method, void *obj, void *data)
 }
 
 void
-osd_exit(u_int type, struct osd *osd)
+osd_exit(enum osd_type type, struct osd *osd)
 {
 	struct rm_priotracker tracker;
 	u_int i;
 
-	KASSERT(type >= OSD_FIRST && type <= OSD_LAST, ("Invalid type."));
+	KASSERT(type < OSD_LAST, ("Invalid type."));
 
 	if (osd->osd_nslots == 0) {
 		KASSERT(osd->osd_slots == NULL, ("Non-null osd_slots."));
@@ -428,9 +429,9 @@ osd_exit(u_int type, struct osd *osd)
 static void
 osd_init(void *arg __unused)
 {
-	u_int i;
+	size_t i;
 
-	for (i = OSD_FIRST; i <= OSD_LAST; i++) {
+	for (i = 0; i < nitems(osdm); i++) {
 		sx_init(&osdm[i].osd_module_lock, "osd_module");
 		rm_init(&osdm[i].osd_object_lock, "osd_object");
 		mtx_init(&osdm[i].osd_list_lock, "osd_list", NULL, MTX_DEF);

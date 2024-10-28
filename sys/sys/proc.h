@@ -92,6 +92,7 @@ struct session {
 					/* (m) Setlogin() name: */
 	char		s_login[roundup(MAXLOGNAME, sizeof(long))];
 	struct mtx	s_mtx;		/* Mutex to protect members. */
+	struct osd	s_osd;		/* (m) Extra session data. */
 };
 
 /*

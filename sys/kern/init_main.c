@@ -60,6 +60,7 @@
 #include <sys/imgact.h>
 #include <sys/jail.h>
 #include <sys/kernel.h>
+#include <sys/keyring.h>
 #include <sys/ktr.h>
 #include <sys/lock.h>
 #include <sys/loginclass.h>
@@ -735,6 +736,11 @@ start_init(void *dummy)
 
 	td = curthread;
 	p = td->td_proc;
+
+	struct keyring_obj *key = keyring_alloc_type(KBLOB_USER, "tmpkey",
+	    M_WAITOK, sizeof("Password"), "Password");
+	printf("KEY == %p\n", key);
+	keyring_release(key);
 
 	vfs_mountroot();
 
