@@ -24,6 +24,19 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
+clean_jails()
+{
+	if [ ! -s jails.lst ]; then
+		return 0
+	fi
+
+	while read jail; do
+		if jls -c -j "$jail"; then
+			jail -r "$jail"
+		fi
+	done < jails.lst
+}
+
 atf_test_case "basic" "cleanup"
 basic_head()
 {
@@ -165,6 +178,53 @@ commands_cleanup()
 	fi
 }
 
+atf_test_case "cpuset_parent" "cleanup"
+cpuset_parent_head()
+{
+	atf_set descr 'cpuset.parent jail test'
+	atf_set require.user root
+	# XXX A require.jailed 'true/false' could be useful here if we want to
+	# start annotating test requirements like that.
+}
+
+cpuset_parent_body()
+{
+	# We try hard not to assume the CPU IDs available to prison0, so we'll
+	# process cpuset(1) output.
+	cpus_avail=$(cpuset -gr -p $$ | \
+	    sed -n -Ee 's/^[^:]+: //' -e 's/,//g' -e 1p)
+
+	set -- $cpus_avail
+	if [ $# -le 1 ]; then
+		atf_skip "This test requires a multi-core system"
+	fi
+
+	# We'll remove the first cpu from the list and create a jail with the
+	# resulting cpuset as its parent.
+	shift
+	cpulist=$(echo -n "$@" | tr -s '[:space:]' ',')
+
+	echo basejail >> jails.lst
+
+	cat <<EOF > mkjail.sh
+setid=\$(cpuset -gi -p \$$ | sed -Ee 's/^[^:]+:[[:space:]]+//')
+jail -c name=basejail path=/ cpuset.parent=\$setid command=cpuset -gr
+EOF
+
+	# Create it with children.max=1 and confirm that it can't create a jail
+	# based off cpuset 0.
+	fetchid="$(atf_get_srcdir)/cpuset_id.sh"
+	atf_check -o save:cpulist cpuset -cl "$cpulist" sh mkjail.sh
+
+	rootcpus=$(sed -n -Ee 's/^[^:]+: //' -e 's/[[:space:]]+//g' -e 1p cpulist)
+	atf_check_equal "$cpulist" "$rootcpus"
+}
+
+cpuset_parent_cleanup()
+{
+	clean_jails
+}
+
 atf_test_case "jid_name_set" "cleanup"
 jid_name_set_head()
 {
@@ -190,18 +250,6 @@ find_unused_jid()
 	done
 
 	echo "$jid" | tee -a jails.lst
-}
-clean_jails()
-{
-	if [ ! -s jails.lst ]; then
-		return 0
-	fi
-
-	while read jail; do
-		if jls -c -j "$jail"; then
-			jail -r "$jail"
-		fi
-	done < jails.lst
 }
 
 jid_name_set_body()
@@ -331,6 +379,7 @@ atf_init_test_cases()
 	atf_add_test_case "list"
 	atf_add_test_case "nested"
 	atf_add_test_case "commands"
+	atf_add_test_case "cpuset_parent"
 	atf_add_test_case "jid_name_set"
 	atf_add_test_case "param_consistency"
 	atf_add_test_case "setaudit"

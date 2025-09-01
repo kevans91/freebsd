@@ -1017,9 +1017,9 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 	size_t namelen, onamelen, pnamelen;
 	int created, cuflags, descend, drflags, enforce;
 	int error, errmsg_len, errmsg_pos;
-	int gotchildmax, gotenforce, gothid, gotrsnum, gotslevel;
+	int gotchildmax, gotenforce, gothid, gotpcpuset, gotrsnum, gotslevel;
 	int deadid, jfd_in, jfd_out, jfd_pos, jid, jsys, len, level;
-	int childmax, osreldt, rsnum, slevel;
+	int childmax, osreldt, pcpusetid, rsnum, slevel;
 #ifdef INET
 	int ip4s;
 	bool redo_ip4;
@@ -1155,6 +1155,15 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		goto done_free;
 	else
 		gotchildmax = 1;
+
+	error = vfs_copyopt(opts, "cpuset.parent", &pcpusetid,
+	    sizeof(pcpusetid));
+	if (error == ENOENT)
+		gotpcpuset = 0;
+	else if (error != 0)
+		goto done_free;
+	else
+		gotpcpuset = 1;
 
 	error = vfs_copyopt(opts, "enforce_statfs", &enforce, sizeof(enforce));
 	if (error == ENOENT)
@@ -1819,10 +1828,29 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		}
 #endif
 		/*
-		 * Allocate a dedicated cpuset for each jail.
+		 * Allocate a dedicated cpuset for each jail.  Our jail
+		 * topology matches our cpuset topology by default, but we allow
+		 * jails to be created with other cpusets that are visible
+		 * to the creating process to create other hierarchies if they
+		 * would prefer and know what they are doing.
+		 *
 		 * Unlike other initial settings, this may return an error.
 		 */
-		error = cpuset_create_root(ppr, &pr->pr_cpuset);
+		if (gotpcpuset) {
+			struct cpuset *pcpuset;
+
+			error = cpuset_which(CPU_WHICH_CPUSET, pcpusetid, NULL,
+			    NULL, &pcpuset);
+			if (error)
+				goto done_deref;
+
+			error = cpuset_create_root_from(pcpuset,
+			    &pr->pr_cpuset);
+			cpuset_rel(pcpuset);
+		} else {
+			error = cpuset_create_root(ppr, &pr->pr_cpuset);
+		}
+
 		if (error)
 			goto done_deref;
 
@@ -1837,6 +1865,14 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 			prison_hold(pr);
 			drflags |= PD_DEREF;
 		}
+
+		if (gotpcpuset) {
+			error = EINVAL;
+			vfs_opterror(opts,
+			    "cpuset.parent cannot be changed after creation");
+			goto done_deref;
+		}
+
 #if defined(VIMAGE) && (defined(INET) || defined(INET6))
 		if ((pr->pr_flags & PR_VNET) &&
 		    (ch_flags & (PR_IP4_USER | PR_IP6_USER))) {
@@ -2658,6 +2694,10 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 		goto done;
 	error = vfs_setopt(opts, "cpuset.id", &pr->pr_cpuset->cs_id,
 	    sizeof(pr->pr_cpuset->cs_id));
+	if (error != 0 && error != ENOENT)
+		goto done;
+	error = vfs_setopt(opts, "cpuset.parent",
+	    &pr->pr_cpuset->cs_parent->cs_id, sizeof(pr->pr_cpuset->cs_id));
 	if (error != 0 && error != ENOENT)
 		goto done;
 	error = vfs_setopts(opts, "path", prison_path(mypr, pr));
@@ -4993,6 +5033,8 @@ SYSCTL_JAIL_PARAM(_host, hostid, CTLTYPE_ULONG | CTLFLAG_RW,
 
 SYSCTL_JAIL_PARAM_NODE(cpuset, "Jail cpuset");
 SYSCTL_JAIL_PARAM(_cpuset, id, CTLTYPE_INT | CTLFLAG_RD, "I", "Jail cpuset ID");
+SYSCTL_JAIL_PARAM(_cpuset, parent, CTLTYPE_INT | CTLFLAG_RD, "I",
+    "Jail parent cpuset ID");
 
 #ifdef INET
 SYSCTL_JAIL_PARAM_SYS_NODE(ip4, CTLFLAG_RDTUN,
