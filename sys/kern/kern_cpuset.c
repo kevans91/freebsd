@@ -902,11 +902,20 @@ cpuset_which(cpuwhich_t which, id_t id, struct proc **pp, struct thread **tdp,
 	struct proc *p;
 	int error;
 
-	*pp = p = NULL;
-	*tdp = td = NULL;
-	*setp = set = NULL;
+	p = NULL;
+	td = NULL;
+	set = NULL;
+	if (pp != NULL)
+		*pp = NULL;
+	if (tdp != NULL)
+		*tdp = NULL;
+	if (setp != NULL)
+		*setp = NULL;
 	switch (which) {
 	case CPU_WHICH_PID:
+		MPASS(pp != NULL);
+		MPASS(tdp != NULL);
+
 		if (id == -1) {
 			PROC_LOCK(curproc);
 			p = curproc;
@@ -916,6 +925,9 @@ cpuset_which(cpuwhich_t which, id_t id, struct proc **pp, struct thread **tdp,
 			return (ESRCH);
 		break;
 	case CPU_WHICH_TID:
+		MPASS(pp != NULL);
+		MPASS(tdp != NULL);
+
 		if (id == -1) {
 			PROC_LOCK(curproc);
 			p = curproc;
@@ -928,6 +940,9 @@ cpuset_which(cpuwhich_t which, id_t id, struct proc **pp, struct thread **tdp,
 		p = td->td_proc;
 		break;
 	case CPU_WHICH_TIDPID:
+		MPASS(pp != NULL);
+		MPASS(tdp != NULL);
+
 		if (id == -1) {
 			PROC_LOCK(curproc);
 			td = curthread;
