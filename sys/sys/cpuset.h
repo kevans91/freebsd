@@ -169,6 +169,7 @@ struct cpuset *cpuset_ref(struct cpuset *);
 void	cpuset_rel(struct cpuset *);
 int	cpuset_setthread(lwpid_t id, cpuset_t *);
 int	cpuset_setithread(lwpid_t id, int cpu);
+int	cpuset_create_root_from(struct cpuset *, struct cpuset **);
 int	cpuset_create_root(struct prison *, struct cpuset **);
 int	cpuset_setproc_update_set(struct proc *, struct cpuset *);
 int	cpuset_which(cpuwhich_t, id_t, struct proc **,

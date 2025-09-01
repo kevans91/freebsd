@@ -1725,36 +1725,55 @@ cpuset_kernthread(struct thread *td)
 }
 
 /*
- * Create a cpuset, which would be cpuset_create() but
- * mark the new 'set' as root.
+ * create a cpuset derived from the requested cpuset.  this is effectively the
+ * same as cpuset_create(), but we mark the new 'set' as root.
  *
- * We are not going to reparent the td to it.  Use cpuset_setproc_update_set()
+ * we are not going to reparent the td to it.  use cpuset_setproc_update_set()
  * for that.
  *
- * In case of no error, returns the set in *setp locked with a reference.
+ * in case of no error, returns the set in *setp locked with a reference.
+ */
+int
+cpuset_create_root_from(struct cpuset *set, struct cpuset **setp)
+{
+	struct cpuset *newroot;
+	int error;
+
+	KASSERT(set != NULL, ("[%s:%d] invalid parent set", __func__,
+	    __LINE__));
+	KASSERT(setp != NULL, ("[%s:%d] invalid setp", __func__, __LINE__));
+
+	newroot = NULL;
+	error = cpuset_create(&newroot, set, &set->cs_mask);
+	if (error)
+		return (error);
+
+	KASSERT(newroot != NULL, ("[%s:%d] cpuset_create returned invalid data",
+	    __func__, __LINE__));
+
+	/* Mark the set as root. */
+	newroot->cs_flags |= CPU_SET_ROOT;
+	*setp = newroot;
+
+	return (0);
+}
+
+/*
+ * create a cpuset derived from the referenced prison's set.  this is
+ * effectively the same as cpuset_create(), but we mark the new 'set' as root.
+ *
+ * we are not going to reparent the td to it.  use cpuset_setproc_update_set()
+ * for that.
+ *
+ * in case of no error, returns the set in *setp locked with a reference.
  */
 int
 cpuset_create_root(struct prison *pr, struct cpuset **setp)
 {
-	struct cpuset *set;
-	int error;
-
 	KASSERT(pr != NULL, ("[%s:%d] invalid pr", __func__, __LINE__));
 	KASSERT(setp != NULL, ("[%s:%d] invalid setp", __func__, __LINE__));
 
-	set = NULL;
-	error = cpuset_create(&set, pr->pr_cpuset, &pr->pr_cpuset->cs_mask);
-	if (error)
-		return (error);
-
-	KASSERT(set != NULL, ("[%s:%d] cpuset_create returned invalid data",
-	    __func__, __LINE__));
-
-	/* Mark the set as root. */
-	set->cs_flags |= CPU_SET_ROOT;
-	*setp = set;
-
-	return (0);
+	return (cpuset_create_root_from(pr->pr_cpuset, setp));
 }
 
 int
