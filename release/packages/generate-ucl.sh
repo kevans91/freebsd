@@ -82,7 +82,8 @@ main() {
 	fi
 
 	cap_arg="$( make -f ${srctree}/share/mk/bsd.endian.mk -VCAP_MKDB_ENDIAN )"
-	${srctree}/release/packages/generate-ucl.lua \
+	# Makefile.inc1 should position flua in PATH for us
+	flua ${srctree}/release/packages/generate-ucl.lua \
 		VERSION "${PKG_VERSION}" \
 		PKGNAME "${origname}" \
 		PKGGENNAME "${outname}" \
