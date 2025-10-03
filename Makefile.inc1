@@ -2546,12 +2546,25 @@ _bt_libkldelf_depend=${_bt}-lib/libkldelf
 _kldxref=	usr.sbin/kldxref
 ${_bt}-usr.sbin/kldxref: ${_bt_libelf_depend} ${_bt_libkldelf_depend}
 
-# flua is required to regenerate syscall files.  It first appeared during the
-# 13.0-CURRENT cycle, thus needs to be built on -older releases and stable
-# branches.
-.if ${BOOTSTRAPPING} < 1300059
+# pkgbase needs an updated flua bootstrap to pick up a fix for a bug in
+# libucl.
+.if ${BOOTSTRAPPING} < 1600001
 ${_bt}-libexec/flua: ${_bt}-lib/liblua
 _flua= lib/liblua libexec/flua
+.if ${BOOTSTRAPPING} < 1403502
+# libyaml was re-imported after 14.3, so we need to bootstrap it for 14.3 and
+# below (and for non-FreeBSD systems).
+_flua+= lib/libyaml
+${_bt}-libexec/flua: ${_bt}-lib/libyaml
+.endif
+.if ${BOOTSTRAPPING} < 1305502 ||
+    (${BOOTSTRAPPING} >= 1400000 && ${BOOTSTRAPPING} < 1403506)
+# libucl had a bug with parsing comments that blew up for some license text in
+# .ucl files that are used in pkgbase, so we need to bootstrap it for affected
+# versions (and for non-FreeBSD systems).
+_flua+= lib/libucl
+${_bt}-libexec/flua: ${_bt}-lib/libucl
+.endif
 .endif
 
 # r245440 mtree -N support added
