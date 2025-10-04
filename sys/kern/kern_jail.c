@@ -275,6 +275,10 @@ prison0_init(void)
 	char buf[sizeof(prison0.pr_hostuuid)];
 	bool valid;
 
+#ifdef MAC
+	mac_prison_init(&prison0, M_WAITOK);
+	mac_prison_create_init(&prison0);
+#endif
 	prison0.pr_cpuset = cpuset_ref(thread0.td_cpuset);
 	prison0.pr_osreldate = osreldate;
 	strlcpy(prison0.pr_osrelease, osrelease, sizeof(prison0.pr_osrelease));
@@ -1825,6 +1829,10 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		error = cpuset_create_root(ppr, &pr->pr_cpuset);
 		if (error)
 			goto done_deref;
+
+#ifdef MAC
+		mac_prison_init(pr, M_WAITOK);
+#endif
 
 		mtx_lock(&pr->pr_mtx);
 		drflags |= PD_LOCKED;

@@ -88,6 +88,7 @@ struct mount;
 struct msg;
 struct msqid_kernel;
 struct pipepair;
+struct prison;
 struct proc;
 struct sbuf;
 struct semid_kernel;
@@ -406,6 +407,19 @@ typedef void	(*mpo_posixshm_create_t)(struct ucred *cred,
 		    struct shmfd *shmfd, struct label *shmlabel);
 typedef void	(*mpo_posixshm_destroy_label_t)(struct label *label);
 typedef void	(*mpo_posixshm_init_label_t)(struct label *label);
+
+typedef int	(*mpo_prison_init_label_t)(struct label *label, int flag);
+typedef void	(*mpo_prison_create_init_t)(struct prison *pr);
+typedef int	(*mpo_prison_check_relabel_t)(struct ucred *cred,
+		    struct prison *pr, struct label *prlabel,
+		    struct label *newlabel);
+typedef void	(*mpo_prison_destroy_label_t)(struct label *label);
+typedef int	(*mpo_prison_externalize_label_t)(struct label *label,
+		    char *element_name, struct sbuf *sb, int *claimed);
+typedef int	(*mpo_prison_internalize_label_t)(struct label *label,
+		    char *element_name, char *element_data, int *claimed);
+typedef void	(*mpo_prison_relabel_t)(struct ucred *cred, struct prison *pr,
+		    struct label *prlabel, struct label *newlabel);
 
 typedef int	(*mpo_priv_check_t)(struct ucred *cred, int priv);
 typedef int	(*mpo_priv_grant_t)(struct ucred *cred, int priv);
@@ -862,6 +876,14 @@ struct mac_policy_ops {
 	mpo_posixshm_create_t			mpo_posixshm_create;
 	mpo_posixshm_destroy_label_t		mpo_posixshm_destroy_label;
 	mpo_posixshm_init_label_t		mpo_posixshm_init_label;
+
+	mpo_prison_init_label_t			mpo_prison_init_label;
+	mpo_prison_create_init_t		mpo_prison_create_init;
+	mpo_prison_check_relabel_t		mpo_prison_check_relabel;
+	mpo_prison_destroy_label_t		mpo_prison_destroy_label;
+	mpo_prison_externalize_label_t		mpo_prison_externalize_label;
+	mpo_prison_internalize_label_t		mpo_prison_internalize_label;
+	mpo_prison_relabel_t			mpo_prison_relabel;
 
 	mpo_priv_check_t			mpo_priv_check;
 	mpo_priv_grant_t			mpo_priv_grant;
