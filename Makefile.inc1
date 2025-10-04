@@ -2863,6 +2863,7 @@ bootstrap-tools: ${_bt}-links .PHONY
     ${_mkesdb} \
     ${_zic} \
     ${LOCAL_BSTOOL_DIRS}
+.if !commands(${_bt}-${_tool})
 ${_bt}-${_tool}: ${_bt}-links .PHONY .MAKE
 	${_+_}@${ECHODIR} "===> ${_tool} (obj,all,install)"; \
 		cd ${.CURDIR}/${_tool}; \
@@ -2872,8 +2873,8 @@ ${_bt}-${_tool}: ${_bt}-links .PHONY .MAKE
 		fi; \
 		${MAKE} DIRPRFX=${_tool}/ all; \
 		${MAKE} DIRPRFX=${_tool}/ DESTDIR=${WORLDTMP}/legacy install
-
 bootstrap-tools: ${_bt}-${_tool}
+.endif
 .endfor
 .if target(${_bt}-lib/libmd)
 # If we are bootstrapping libmd (e.g. when building on macOS/Linux) add the
