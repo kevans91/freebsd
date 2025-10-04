@@ -19,8 +19,6 @@ FLUA_MODULES+=	liblyaml
 FLUA_MODULES+=	lposix
 
 .ifdef BOOTSTRAPPING
-FLUA_MODULES+=	libfreebsd/sys/linker
-FLUA_MODULES+=	libfreebsd/kenv
 CFLAGS+=	-I${.CURDIR} -DBOOTSTRAPPING
 
 SHAREDIR=	${WORLDTMP}/legacy/usr/share/flua
