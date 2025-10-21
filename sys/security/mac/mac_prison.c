@@ -135,3 +135,103 @@ mac_prison_check_relabel(struct ucred *cred, struct prison *pr,
 
 	return (error);
 }
+
+MAC_CHECK_PROBE_DEFINE3(prison_check_attach, "struct ucred *",
+    "struct prison *", "struct label *");
+int
+mac_prison_check_attach(struct ucred *cred, struct prison *pr)
+{
+	int error;
+
+	MAC_POLICY_CHECK_NOSLEEP(prison_check_attach, cred, pr, pr->pr_label);
+	MAC_CHECK_PROBE3(prison_check_attach, error, cred, pr, pr->pr_label);
+
+	return (error);
+}
+
+MAC_CHECK_PROBE_DEFINE2(prison_check_create, "struct ucred *",
+    "struct vfsoptlist *");
+int
+mac_prison_check_create(struct ucred *cred, struct vfsoptlist *opts)
+{
+	int error;
+
+	MAC_POLICY_CHECK_NOSLEEP(prison_check_create, cred, opts);
+	MAC_CHECK_PROBE2(prison_check_create, error, cred, opts);
+
+	return (error);
+}
+
+MAC_CHECK_PROBE_DEFINE4(prison_check_list, "struct ucred *",
+    "struct prison *", "struct label *", "struct vfsoptlist *");
+int
+mac_prison_check_list(struct ucred *cred, struct prison *pr,
+    struct vfsoptlist *opts)
+{
+	int error;
+
+	MAC_POLICY_CHECK_NOSLEEP(prison_check_list, cred, pr, pr->pr_label,
+	    opts);
+	MAC_CHECK_PROBE4(prison_check_list, error, cred, pr, pr->pr_label,
+	    opts);
+
+	return (error);
+}
+
+MAC_CHECK_PROBE_DEFINE4(prison_check_get, "struct ucred *",
+    "struct prison *", "struct label *", "struct vfsoptlist *");
+int
+mac_prison_check_get(struct ucred *cred, struct prison *pr,
+    struct vfsoptlist *opts)
+{
+	int error;
+
+	MAC_POLICY_CHECK_NOSLEEP(prison_check_get, cred, pr, pr->pr_label,
+	    opts);
+	MAC_CHECK_PROBE4(prison_check_get, error, cred, pr, pr->pr_label, opts);
+
+	return (error);
+}
+
+MAC_CHECK_PROBE_DEFINE4(prison_check_set, "struct ucred *",
+    "struct prison *", "struct label *", "struct vfsoptlist *");
+int
+mac_prison_check_set(struct ucred *cred, struct prison *pr,
+    struct vfsoptlist *opts)
+{
+	int error;
+
+	MAC_POLICY_CHECK_NOSLEEP(prison_check_set, cred, pr, pr->pr_label,
+	    opts);
+	MAC_CHECK_PROBE4(prison_check_set, error, cred, pr, pr->pr_label, opts);
+
+	return (error);
+}
+
+MAC_CHECK_PROBE_DEFINE3(prison_check_remove, "struct ucred *",
+    "struct prison *", "struct label *");
+int
+mac_prison_check_remove(struct ucred *cred, struct prison *pr)
+{
+	int error;
+
+	MAC_POLICY_CHECK_NOSLEEP(prison_check_remove, cred, pr, pr->pr_label);
+	MAC_CHECK_PROBE3(prison_check_remove, error, cred, pr, pr->pr_label);
+
+	return (error);
+}
+
+void
+mac_prison_created(struct ucred *cred, struct prison *pr)
+{
+
+	MAC_POLICY_PERFORM(prison_created, cred, pr, pr->pr_label);
+}
+
+void
+mac_prison_attached(struct ucred *cred, struct prison *pr, struct proc *p)
+{
+
+	MAC_POLICY_PERFORM(prison_attached, cred, pr, pr->pr_label, p,
+	    p->p_label);
+}
