@@ -79,6 +79,8 @@
 #endif /* DDB */
 
 #include <security/mac/mac_framework.h>
+#include <security/mac/mac_policy.h>
+#include <security/mac/mac_syscalls.h>
 
 #define	PRISON0_HOSTUUID_MODULE	"hostuuid"
 
@@ -1019,6 +1021,10 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 #endif
 	unsigned long hid;
 	size_t namelen, onamelen, pnamelen;
+#ifdef MAC
+	void *mac_set_prison_data = NULL;
+	int gotmaclabel;
+#endif
 	int created, cuflags, descend, drflags, enforce;
 	int error, errmsg_len, errmsg_pos;
 	int gotchildmax, gotenforce, gothid, gotrsnum, gotslevel;
@@ -1340,6 +1346,17 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		ch_flags |= PR_HOST;
 		pr_flags |= PR_HOST;
 	}
+
+#ifdef MAC
+	/* Process the mac.label vfsopt */
+	error = mac_set_prison_prepare(td, opts, &mac_set_prison_data);
+	if (error == ENOENT)
+		gotmaclabel = 0;
+	else if (error != 0)
+		goto done_errmsg;
+	else
+		gotmaclabel = 1;
+#endif
 
 #ifdef INET
 	error = vfs_getopt(opts, "ip4.addr", &op, &ip4s);
@@ -2183,6 +2200,17 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		}
 	}
 	pr->pr_flags = (pr->pr_flags & ~ch_flags) | pr_flags;
+
+#ifdef MAC
+	/* Apply any request MAC label before we let modules do their work. */
+	if (gotmaclabel) {
+		error = mac_set_prison_core(td, pr, mac_set_prison_data);
+		if (error) {
+			vfs_opterror(opts, "mac relabel denied");
+			goto done_deref;
+		}
+	}
+#endif
 	mtx_unlock(&pr->pr_mtx);
 	drflags &= ~PD_LOCKED;
 	/*
@@ -2359,6 +2387,10 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 #endif
 #ifdef INET6
 	prison_ip_free(ip6);
+#endif
+#ifdef MAC
+	if (mac_set_prison_data != NULL)
+		mac_set_prison_finish(td, error == 0, mac_set_prison_data);
 #endif
 	if (jfp_out != NULL)
 		fdrop(jfp_out, td);
@@ -2843,6 +2875,16 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	error = vfs_setopts(opts, "osrelease", pr->pr_osrelease);
 	if (error != 0 && error != ENOENT)
 		goto done;
+
+#ifdef MAC
+	/*
+	 * We get the MAC label last because we'll let the MAC framework drop
+	 * pr_mtx momentarily while it externalizes the label.
+	 */
+	error = mac_get_prison(td, pr, opts);
+	if (error != 0 && error != ENOENT)
+		goto done;
+#endif
 
 	/* Get the module parameters. */
 	mtx_unlock(&pr->pr_mtx);
@@ -5093,6 +5135,11 @@ SYSCTL_JAIL_PARAM(_host, hostid, CTLTYPE_ULONG | CTLFLAG_RW,
 
 SYSCTL_JAIL_PARAM_NODE(cpuset, "Jail cpuset");
 SYSCTL_JAIL_PARAM(_cpuset, id, CTLTYPE_INT | CTLFLAG_RD, "I", "Jail cpuset ID");
+
+#ifdef MAC
+SYSCTL_JAIL_PARAM_STRUCT(_mac, label, CTLFLAG_RW, sizeof(struct mac),
+    "S,mac", "Jail MAC label");
+#endif
 
 #ifdef INET
 SYSCTL_JAIL_PARAM_SYS_NODE(ip4, CTLFLAG_RDTUN,
